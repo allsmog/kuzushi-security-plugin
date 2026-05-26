@@ -1,0 +1,8 @@
+{
+  "name": "kuzushi-security-plugin",
+  "version": "0.1.0",
+  "description": "Security review and auditing plugin.",
+  "author": {
+    "name": "allsmog"
+  }
+}
