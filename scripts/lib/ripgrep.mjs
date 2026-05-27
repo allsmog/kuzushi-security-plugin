@@ -169,6 +169,19 @@ const rankers = {
     if (/\/(androidx|org\/chromium|io\/sentry|com\/google|kotlin|j\$)\//.test(path)) score -= 25;
     if (/events\/client|Companion|R\.java/.test(path)) score -= 30;
     return score;
+  },
+  // "systems" biases toward native boundaries, systems-language files, and
+  // parser/decoder code (used by systems-hunt's candidate ranking).
+  systems(hit) {
+    const path = hit.filePath ?? "";
+    const text = hit.text ?? "";
+    let score = 0;
+    if (/(System\.loadLibrary|JNIEXPORT|external fun|native\s+)/.test(text)) score += 40;
+    if (/\.(c|cc|cpp|h|hpp|m|mm|rs)$/.test(path)) score += 25;
+    if (/parser|decode|inflate|unmarshal|deserialize/i.test(text)) score += 20;
+    if (/^import\s/.test(text)) score -= 20;
+    if (/\/test\//i.test(path)) score -= 15;
+    return score;
   }
 };
 

@@ -86,6 +86,11 @@ export function hasThreatHunt(target) {
   return artifactStatus(storeFor(target).threatHuntPath);
 }
 
+// Has the native / memory-safety review been run? (.kuzushi/systems-hunt.json)
+export function hasSystemsHunt(target) {
+  return artifactStatus(storeFor(target).systemsHuntPath);
+}
+
 // Has exploitability verification been run? (.kuzushi/verify.json)
 export function hasVerify(target) {
   return artifactStatus(storeFor(target).verifyPath);

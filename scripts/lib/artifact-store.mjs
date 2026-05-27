@@ -65,6 +65,9 @@ export function storeFor(target) {
     // Adversarial per-threat review (threat-hunt) + the canonical findings index
     // that downstream modules (verify / poc / chain-finder) consume.
     threatHuntPath: join(root, "threat-hunt.json"),
+    // Scan-driven native / memory-safety review (systems-hunt). Verdicts promote
+    // into the shared findings index too.
+    systemsHuntPath: join(root, "systems-hunt.json"),
     // IRIS-style source→sink taint analysis (taint-analysis) — its own canonical
     // artifact; verdicts also promote into the shared findings index below.
     taintAnalysisPath: join(root, "taint-analysis.json"),

@@ -27,8 +27,8 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { buildContext } from "../scripts/cmd/context-build.mjs";
-import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
-import { readJsonIfPresent } from "../scripts/lib/artifact-store.mjs";
+import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasVerify, hasPoc, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
+import { readJsonIfPresent, storeFor } from "../scripts/lib/artifact-store.mjs";
 import { selectForTarget } from "../scripts/cmd/select-tooling.mjs";
 import { markAutoAttempted } from "../scripts/cmd/install-tooling.mjs";
 import { VENDOR_TOOLS } from "../scripts/lib/vendor-manifest.mjs";
@@ -74,6 +74,26 @@ function relevantHeavyMissing(byLanguage) {
     .filter(([, t]) => t.languages.some((l) => detected.has(l)))
     .filter(([name]) => !existsSync(join(VENDOR_DIR, "bin", name)))
     .map(([name]) => name);
+}
+
+// Summarize the shared findings index for the report + the verify/poc offers.
+// All verify/poc surfacing is gated on findings actually existing — no findings,
+// nothing to verify or prove. `verifiable` = an open / trace-needed finding with
+// no verification block yet; `pocPending` = a PoC-ready finding not yet proven.
+function readFindingsStatus(cwd) {
+  const doc = readJsonIfPresent(storeFor(cwd).findingsPath);
+  const findings = doc?.findings ?? [];
+  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false };
+  const byStatus = doc.summary?.byStatus ?? {};
+  return {
+    present: true,
+    total: findings.length,
+    open: byStatus.open ?? 0,
+    confirmed: byStatus.confirmed ?? 0,
+    proven: byStatus.proven ?? 0,
+    verifiable: findings.some((f) => (f.status === "open" || f.verdict === "needs-active-agent-trace") && !f.verification),
+    pocPending: findings.some((f) => f.verification?.pocReady && !f.poc)
+  };
 }
 
 function readStdin() {
@@ -131,6 +151,9 @@ async function run() {
     threatModel: hasThreatModel(cwd),
     threatIntel: hasThreatIntel(cwd),
     threatHunt: hasThreatHunt(cwd),
+    verify: hasVerify(cwd),
+    poc: hasPoc(cwd),
+    findings: readFindingsStatus(cwd),
     codeqlDb: hasCodeqlDb(cwd),
     joernCpg: hasJoernCpg(cwd),
     tooling
@@ -167,7 +190,7 @@ function toolingLines(tooling) {
   return [`    LSP:  ${lsp}`, `    MCP:  ${mcp}`];
 }
 
-function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, codeqlDb, joernCpg, tooling }) {
+function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, verify, poc, findings, codeqlDb, joernCpg, tooling }) {
   const totalFiles = result.inventory?.totalFiles ?? 0;
   const byLanguage = result.inventory?.byLanguage ?? {};
   const hints = result.componentHints ?? [];
@@ -187,6 +210,12 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   const huntLine = threatHunt.built
     ? `present (.kuzushi/threat-hunt.json, built ${threatHunt.mtime})`
     : "not run yet";
+  const findingsLine = findings.present
+    ? `${findings.total} (${findings.open ?? 0} open, ${findings.confirmed ?? 0} confirmed, ${findings.proven ?? 0} proven)`
+    : "none yet";
+  // verify/poc lines are only meaningful once findings exist.
+  const verifyLine = !findings.present ? "—" : (verify.built ? `present (.kuzushi/verify.json, built ${verify.mtime})` : "not run yet");
+  const pocLine = !findings.present ? "—" : (poc.built ? `present (.kuzushi/poc.json, built ${poc.mtime})` : "not run yet");
   const dbBuilding = existsSync(join(cwd, ".kuzushi", "db-build.log"));
   const codeqlLine = codeqlDb.built ? `present (${(codeqlDb.languages ?? []).join(", ")})` : (dbBuilding ? "building…" : "not built");
   const joernLine = joernCpg.built ? "present (.kuzushi/joern/cpg.bin.zip)" : (dbBuilding ? "building…" : "not built");
@@ -206,6 +235,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `  threat-model: ${threatLine}`,
     `  threat-intel: ${intelLine}`,
     `  threat-hunt:  ${huntLine}`,
+    `  findings:     ${findingsLine}`,
+    `  verify:       ${verifyLine}`,
+    `  poc:          ${pocLine}`,
     `  codeql-db:    ${codeqlLine}`,
     `  joern-cpg:    ${joernLine}`,
     `  tooling (✓ installed / ✗ missing):`,
@@ -282,6 +314,23 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `findings into .kuzushi/findings.json. Mention it if the user wants to go deeper; don't auto-run it.`;
   }
 
+  // Verify / poc are only surfaced when the findings index has findings — no
+  // findings, nothing to verify or prove. Both are on-demand notes (not auto-run);
+  // /poc in particular builds and EXECUTES harnesses, so never launch it unprompted.
+  if (findings.present && findings.verifiable) {
+    additionalContext +=
+      `\n\n.kuzushi/findings.json has open findings — /verify is available: it reconstructs each ` +
+      `finding's source→sink, builds a concrete trigger, and assigns an exploitability verdict ` +
+      `(confirmed-exploitable / not-exploitable / inconclusive) with a PoC sketch, attaching a ` +
+      `verification block onto each finding. Mention it if the user wants to confirm exploitability; don't auto-run it.`;
+  }
+  if (findings.present && findings.pocPending) {
+    additionalContext +=
+      `\n\nSome findings are PoC-ready (verified confirmed-exploitable / inconclusive) — /poc is available: ` +
+      `it builds a minimal harness per finding and RUNS it in a sandbox (Docker --network none, else a gated ` +
+      `local run) to empirically prove the bug. It executes code, so only run it when the user explicitly asks; never auto-run it.`;
+  }
+
   // Offer to build the heavy semantic indexes (codeql DB + joern CPG) early — they
   // power codeql/joern queries in threat-hunt/invariant-test, are slow, and build
   // in the BACKGROUND (never block the session). Offer once, before a build is
@@ -321,8 +370,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   additionalContext +=
     `\n\nCommands: /threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /invariant-test (check CVE ` +
-    `invariants vs code), /build-databases (codeql DB + joern CPG, async), /doctor (tooling status), ` +
-    `/install (install tools).`;
+    `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
+    `/poc (build + sandbox-run a harness to prove verified findings), /build-databases (codeql DB + ` +
+    `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({
     systemMessage: report,

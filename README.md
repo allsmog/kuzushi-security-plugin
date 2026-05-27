@@ -8,9 +8,9 @@ tooling for the languages it detects. Self-contained Node (no external engine, n
 run): everything is plain stdio MCP servers, skills, and a SessionStart hook.
 
 ```
-context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json
- (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open findings →
-  deps)      points)   threats)        stack + peers)  (adversarial)         verify / poc / chain)
+context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc
+ (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox-
+  deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)
 ```
 
 Each step writes an artifact under `.kuzushi/` that the next step consumes. You stay in
@@ -54,6 +54,9 @@ claude --plugin-dir .
 /threat-intel        # research critical/high CVEs (this stack + similar apps) → invariants
 /threat-hunt         # adversarial per-threat review → .kuzushi/findings.json
 /invariant-test      # check the CVE-derived invariants against the code
+/taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
+/verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
+/poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /doctor              # what's installed / missing, with install commands
 ```
 
@@ -67,13 +70,18 @@ claude --plugin-dir .
 | `/threat-intel` | Researches recent **critical/high CVEs** for the detected stack (version-checked) and **similar apps**, distilled into machine-checkable invariants. *(uses web search)* | `.kuzushi/threat-intel.json` |
 | `/invariant-test` | Verifies each CVE-derived invariant against the code with tree-sitter taint queries (CodeQL/Joern if built). | `.kuzushi/invariant-results.json` |
 | `/threat-hunt` | **Adversarial per-threat review** (the Carlini doctrine): state attacker capabilities → trace source→sink → bypass *every* guard → verdict from a closed set. Promotes verdicts to the findings index. | `.kuzushi/threat-hunt.json`, `findings.json` |
+| `/taint-analysis` | **IRIS-style source→sink taint hunt.** Ranks a typed CWE catalog for the repo, then runs subagents in sequence — label dangerous **sinks** → label **sources** of user input → trace source→sink with **Joern/CodeQL** queries (or same-file linking) → **triage** each flow `finding`/`candidate`/`rejected` with an evidence level (`path`/`linked`/`candidate`). Deeper with a prebuilt DB/CPG; degrades gracefully without. | `.kuzushi/taint-analysis.json`, `findings.json` |
+| `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
+| `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |
 
 Skills are backed by purpose-built subagents (`threat-modeler`, `threat-intel-researcher`,
-`threat-hunter`, `invariant-tester`) that run in isolated context and inherit the plugin's MCP
-tools.
+`threat-hunter`, `invariant-tester`, `verifier`, `poc-builder`) that run in isolated context and
+inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
+them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
+then `taint-triager` — passing data through staged JSON drafts.
 
 ---
 
@@ -111,8 +119,10 @@ contracts** that later steps (and your own tooling) build on:
   intelligence turned into checkable assertions.
 - **Findings** (`findings.json`) — `{ fingerprint, source, refId, title, severity, cwe,
   verdict, status, evidence:[{filePath,startLine}], rationale, nextChecks }`, deduped by
-  fingerprint. The canonical index downstream `verify` / `poc-builder` / `chain-finder`
-  modules read.
+  fingerprint. The canonical index every producer (`threat-hunt`, `taint-analysis`, …) writes
+  to and every consumer reads. `/verify` and `/poc` don't replace findings — they **attach** a
+  `verification` then a `poc` block onto the matching finding and advance its `status`
+  (`open → confirmed → proven`), so a finding accretes its full exploit story in one place.
 
 It's a faithful Node port/adaptation of the [kuzushi](#acknowledgements) security toolkit —
 no Rust build, no external binary, no daemon.
