@@ -1,8 +1,9 @@
 # kuzushi-security-plugin
 
-**An autonomous, language-aware security review pipeline that lives inside Claude Code.**
+**An autonomous, language-aware white-box (static source) security review pipeline that lives inside Claude Code.**
 
-Open a repo and the plugin maps it, threat-models it, researches the CVEs that actually
+Point it at source you already have checked out and the plugin statically maps it (entry
+points by pattern, not observed traffic), threat-models it, researches the CVEs that actually
 apply, and adversarially hunts the threats it found — wiring up the right LSP and analysis
 tooling for the languages it detects. Self-contained Node (no external engine, no server to
 run): everything is plain stdio MCP servers, skills, and a SessionStart hook.
@@ -11,10 +12,39 @@ run): everything is plain stdio MCP servers, skills, and a SessionStart hook.
 context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc
  (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox-
   deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)
+                                                                                  │
+                                                                                  └─► mem-exploitability
+                                                                                      (memory-corruption tier
+                                                                                       + mitigation posture)
 ```
 
 Each step writes an artifact under `.kuzushi/` that the next step consumes. You stay in
 control: heavy or outbound steps **ask first**, and everything runs against your local repo.
+
+---
+
+## Scope & boundaries
+
+This is a **white-box, static source-code** tool. How complete that is depends on what you
+point it at.
+
+**Always in scope** (any target with source on disk): PASTA threat model, version-checked CVE
+intel, source→sink taint analysis, adversarial guard-bypass review, static exploitability
+verdicts, memory-corruption exploitability assessment, and a sandboxed PoC harness.
+
+**Web apps / HTTP services** — the plugin covers the *static* half of a grey-box review. Pair
+it with a dynamic tool (Burp / DAST) for the rest: browsing the live app, mapping observed
+traffic (endpoints, parameters, cookies, roles) to handlers, and triggering against a running
+target. None of that lives here.
+
+**Libraries, native / systems code, parsers, CLIs** — there's no HTTP layer to proxy, so most
+of that dynamic half simply doesn't apply. Source→sink plus the sandboxed `/poc` harness is
+much of the standard workflow. The dynamic complement *here* is fuzzing (libFuzzer / AFL,
+sanitizers at scale); `/poc` builds a single ASAN/crash harness, not a fuzzing campaign.
+
+**Across the board:** it loads source, it does not *recover* it (no decompilation / bytecode);
+`/poc` proves the code in an isolated sandbox (`--network none`), not a deployed app; and there
+is no multi-bug exploit chaining — findings are assessed independently.
 
 ---
 
@@ -57,6 +87,7 @@ claude --plugin-dir .
 /taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
+/mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
 /doctor              # what's installed / missing, with install commands
 ```
 
@@ -74,12 +105,14 @@ claude --plugin-dir .
 | `/taint-analysis` | **IRIS-style source→sink taint hunt.** Ranks a typed CWE catalog for the repo, then runs subagents in sequence — label dangerous **sinks** → label **sources** of user input → trace source→sink with **Joern/CodeQL** queries (or same-file linking) → **triage** each flow `finding`/`candidate`/`rejected` with an evidence level (`path`/`linked`/`candidate`). Deeper with a prebuilt DB/CPG; degrades gracefully without. | `.kuzushi/taint-analysis.json`, `findings.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
+| `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |
 
 Skills are backed by purpose-built subagents (`threat-modeler`, `threat-intel-researcher`,
-`threat-hunter`, `invariant-tester`, `verifier`, `poc-builder`) that run in isolated context and
+`threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
+`mem-exploit-analyst`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.

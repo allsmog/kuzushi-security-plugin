@@ -27,7 +27,16 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { buildContext } from "../scripts/cmd/context-build.mjs";
-import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasSystemsHunt, hasVerify, hasPoc, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
+import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasSystemsHunt, hasVerify, hasPoc, hasMemExploitability, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
+
+// CWEs that denote a memory-corruption class bug (mirrors mem-exploitability-prepare).
+// A finding in this set (or from systems-hunt) is assessable by /mem-exploitability.
+const MEMORY_CWES = new Set(["119","120","121","122","124","125","126","127","131","190","191","415","416","476","787","824"]);
+function isMemoryFinding(f) {
+  if (f.source === "systems-hunt") return true;
+  const cwe = String(Array.isArray(f.cwe) ? f.cwe[0] : (f.cwe ?? "")).replace(/^CWE-/i, "").trim();
+  return MEMORY_CWES.has(cwe);
+}
 import { readJsonIfPresent, storeFor } from "../scripts/lib/artifact-store.mjs";
 import { selectForTarget } from "../scripts/cmd/select-tooling.mjs";
 import { markAutoAttempted } from "../scripts/cmd/install-tooling.mjs";
@@ -83,7 +92,7 @@ function relevantHeavyMissing(byLanguage) {
 function readFindingsStatus(cwd) {
   const doc = readJsonIfPresent(storeFor(cwd).findingsPath);
   const findings = doc?.findings ?? [];
-  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false };
+  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false };
   const byStatus = doc.summary?.byStatus ?? {};
   return {
     present: true,
@@ -92,7 +101,9 @@ function readFindingsStatus(cwd) {
     confirmed: byStatus.confirmed ?? 0,
     proven: byStatus.proven ?? 0,
     verifiable: findings.some((f) => (f.status === "open" || f.verdict === "needs-active-agent-trace") && !f.verification),
-    pocPending: findings.some((f) => f.verification?.pocReady && !f.poc)
+    pocPending: findings.some((f) => f.verification?.pocReady && !f.poc),
+    // A memory-corruption finding that hasn't been characterized yet ⇒ /mem-exploitability applies.
+    memAssessable: findings.some((f) => isMemoryFinding(f) && !f.exploitability)
   };
 }
 
@@ -154,6 +165,7 @@ async function run() {
     systemsHunt: hasSystemsHunt(cwd),
     verify: hasVerify(cwd),
     poc: hasPoc(cwd),
+    memExploit: hasMemExploitability(cwd),
     findings: readFindingsStatus(cwd),
     codeqlDb: hasCodeqlDb(cwd),
     joernCpg: hasJoernCpg(cwd),
@@ -191,7 +203,7 @@ function toolingLines(tooling) {
   return [`    LSP:  ${lsp}`, `    MCP:  ${mcp}`];
 }
 
-function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, findings, codeqlDb, joernCpg, tooling }) {
+function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, memExploit, findings, codeqlDb, joernCpg, tooling }) {
   const totalFiles = result.inventory?.totalFiles ?? 0;
   const byLanguage = result.inventory?.byLanguage ?? {};
   const hints = result.componentHints ?? [];
@@ -220,6 +232,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   // verify/poc lines are only meaningful once findings exist.
   const verifyLine = !findings.present ? "—" : (verify.built ? `present (.kuzushi/verify.json, built ${verify.mtime})` : "not run yet");
   const pocLine = !findings.present ? "—" : (poc.built ? `present (.kuzushi/poc.json, built ${poc.mtime})` : "not run yet");
+  // mem-exploit only meaningful once a memory-corruption finding exists.
+  const memExploitLine = !findings.memAssessable && !memExploit.built ? "—" : (memExploit.built ? `present (.kuzushi/mem-exploitability.json, built ${memExploit.mtime})` : "not run yet");
   const dbBuilding = existsSync(join(cwd, ".kuzushi", "db-build.log"));
   const codeqlLine = codeqlDb.built ? `present (${(codeqlDb.languages ?? []).join(", ")})` : (dbBuilding ? "building…" : "not built");
   const joernLine = joernCpg.built ? "present (.kuzushi/joern/cpg.bin.zip)" : (dbBuilding ? "building…" : "not built");
@@ -243,6 +257,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `  findings:     ${findingsLine}`,
     `  verify:       ${verifyLine}`,
     `  poc:          ${pocLine}`,
+    `  mem-exploit:  ${memExploitLine}`,
     `  codeql-db:    ${codeqlLine}`,
     `  joern-cpg:    ${joernLine}`,
     `  tooling (✓ installed / ✗ missing):`,
@@ -346,6 +361,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `it builds a minimal harness per finding and RUNS it in a sandbox (Docker --network none, else a gated ` +
       `local run) to empirically prove the bug. It executes code, so only run it when the user explicitly asks; never auto-run it.`;
   }
+  // mem-exploitability — surface when there's a memory-corruption finding not yet
+  // assessed. Assessment only (tiers + mitigation posture + remediation, no payloads).
+  if (findings.present && findings.memAssessable && !memExploit.built) {
+    additionalContext +=
+      `\n\n.kuzushi/findings.json has memory-corruption finding(s) — /mem-exploitability is available: ` +
+      `for each, it works the analysis phases (vuln shape → control/offset plausibility → input constraints → ` +
+      `mitigation posture: NX/PIE/canary/RELRO/FORTIFY from build flags + read-only binary inspection) and ` +
+      `assigns an exploitability tier (crash-only / dos / info-leak / control-flow-hijack-plausible / ` +
+      `likely-code-exec) + remediation, attaching an exploitability block onto each finding. It's ` +
+      `ASSESSMENT only (no exploit payloads / mitigation bypasses). Mention it for memory-safety triage; don't auto-run it.`;
+  }
 
   // Offer to build the heavy semantic indexes (codeql DB + joern CPG) early — they
   // power codeql/joern queries in threat-hunt/invariant-test, are slow, and build
@@ -388,7 +414,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
     `memory-safety review), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
-    `/poc (build + sandbox-run a harness to prove verified findings), /build-databases (codeql DB + ` +
+    `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
+    `exploitability assessment → tiers + mitigation posture), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({

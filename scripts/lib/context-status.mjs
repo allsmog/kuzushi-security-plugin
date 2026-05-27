@@ -101,6 +101,11 @@ export function hasPoc(target) {
   return artifactStatus(storeFor(target).pocPath);
 }
 
+// Has memory-corruption exploitability assessment been run? (.kuzushi/mem-exploitability.json)
+export function hasMemExploitability(target) {
+  return artifactStatus(storeFor(target).memExploitabilityPath);
+}
+
 // Is a CodeQL database built? (any .kuzushi/codeql-db/<lang> directory present)
 export function hasCodeqlDb(target) {
   const dir = storeFor(target).codeqlDbDir;

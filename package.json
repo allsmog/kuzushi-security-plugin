@@ -1,7 +1,7 @@
 {
   "name": "kuzushi-security-plugin",
-  "version": "0.1.0",
-  "description": "Self-contained Claude Code security plugin: context, x-ray, PASTA threat model, and conditional LSP/MCP tooling.",
+  "version": "0.3.0",
+  "description": "Self-contained Claude Code white-box (static source) security plugin: context, x-ray, PASTA threat model, and conditional LSP/MCP tooling. Static-only — no live target, proxy, or traffic capture.",
   "type": "module",
   "private": true,
   "engines": {

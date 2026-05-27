@@ -77,6 +77,9 @@ export function storeFor(target) {
     // outcome onto findings.json and persist a canonical artifact here.
     verifyPath: join(root, "verify.json"),
     pocPath: join(root, "poc.json"),
+    // Memory-corruption exploitability assessment (mem-exploitability) — tiers +
+    // mitigation posture; attaches an `exploitability` block onto findings.json.
+    memExploitabilityPath: join(root, "mem-exploitability.json"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),
