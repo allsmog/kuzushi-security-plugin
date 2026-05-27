@@ -86,6 +86,21 @@ test("a chains ref survives a later fix patch (no clobber)", () => {
   assert.equal(f.fix.verdict, "validated");
 });
 
+test("upsertFindings relativizes absolute evidence paths under the target", () => {
+  const t = tmp();
+  const abs = join(t, "src/app/App.java"); // absolute, under the target
+  upsertFindings(t, [baseFinding({ refId: "abs", evidence: [{ filePath: abs, startLine: 7 }] })]);
+  const f = readDoc(t).findings[0];
+  assert.equal(f.evidence[0].filePath, "src/app/App.java", "absolute path under target → relative");
+  // a path NOT under the target is left as-is (can't safely relativize)
+  upsertFindings(t, [baseFinding({ refId: "outside", evidence: [{ filePath: "/etc/hosts", startLine: 1 }] })]);
+  const g = readDoc(t).findings.find((x) => x.refId === "outside");
+  assert.equal(g.evidence[0].filePath, "/etc/hosts", "path outside target unchanged");
+  // already-relative paths pass through untouched
+  upsertFindings(t, [baseFinding({ refId: "rel", evidence: [{ filePath: "lib/x.js", startLine: 2 }] })]);
+  assert.equal(readDoc(t).findings.find((x) => x.refId === "rel").evidence[0].filePath, "lib/x.js");
+});
+
 test("proofStateFor reflects the lifecycle (open→confirmed→proven→patched→remediated)", () => {
   assert.equal(proofStateFor({ status: "open" }), "open");
   assert.equal(proofStateFor({ status: "confirmed", verification: { verdict: "confirmed-exploitable" } }), "confirmed");

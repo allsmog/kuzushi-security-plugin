@@ -11,6 +11,7 @@
 //     rationale, nextChecks:[], updatedAt }
 
 import { createHash } from "node:crypto";
+import { isAbsolute, relative, resolve } from "node:path";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
 import { assertFindingsDocument } from "./schemas.mjs";
 
@@ -86,17 +87,28 @@ export function proofStateFor(finding) {
   return "candidate";
 }
 
-function normalizeEvidence(evidence) {
+// Evidence filePaths should be relative to the target. Agents handed an absolute
+// target dir sometimes echo absolute anchors (observed on a real run: 6/31
+// threat-hunt findings had /Users/.../jadx_out/... paths), which leaks the local
+// FS layout into findings.json / SARIF / chains and is inconsistent with the rest.
+// When a target is known, relativize any absolute filePath that sits under it.
+function relativizeFilePath(filePath, target) {
+  if (!target || !filePath || !isAbsolute(filePath)) return filePath;
+  const rel = relative(resolve(target), filePath);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : filePath;
+}
+
+function normalizeEvidence(evidence, target) {
   return Array.isArray(evidence)
     ? evidence.map((a) => ({
-        filePath: String(a?.filePath ?? "."),
+        filePath: relativizeFilePath(String(a?.filePath ?? "."), target),
         ...(a?.startLine !== undefined ? { startLine: Math.max(1, Number(a.startLine) || 1) } : {}),
         ...(a?.endLine !== undefined ? { endLine: Math.max(1, Number(a.endLine) || 1) } : {})
       }))
     : [];
 }
 
-export function normalizeFinding(raw, now = new Date().toISOString()) {
+export function normalizeFinding(raw, now = new Date().toISOString(), target = null) {
   const status = raw.status ?? verdictToStatus(raw.verdict);
   const normalized = {
     ...raw,
@@ -106,7 +118,7 @@ export function normalizeFinding(raw, now = new Date().toISOString()) {
     title: raw.title ? String(raw.title) : String(raw.refId ?? "Untitled finding"),
     severity: raw.severity ? String(raw.severity) : "medium",
     status,
-    evidence: normalizeEvidence(raw.evidence),
+    evidence: normalizeEvidence(raw.evidence, target),
     nextChecks: Array.isArray(raw.nextChecks) ? raw.nextChecks : [],
     updatedAt: raw.updatedAt ?? now
   };
@@ -147,10 +159,14 @@ export function upsertFindings(target, newFindings) {
   }
   const now = new Date().toISOString();
   for (const raw of newFindings) {
-    const fp = raw.fingerprint ?? fingerprint(raw);
-    byFp.set(fp, normalizeFinding({ ...raw, fingerprint: fp, updatedAt: now }, now));
+    // Relativize evidence BEFORE fingerprinting so the stable id is computed on
+    // the relative path — otherwise the same bug emitted absolute on one run and
+    // relative on another would dedupe-miss.
+    const withRel = { ...raw, evidence: normalizeEvidence(raw.evidence, target), updatedAt: now };
+    const fp = withRel.fingerprint ?? fingerprint(withRel);
+    byFp.set(fp, normalizeFinding({ ...withRel, fingerprint: fp }, now, target));
   }
-  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now));
+  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
   const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
   assertFindingsDocument(document);
   atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
@@ -176,9 +192,9 @@ export function patchFindings(target, patches) {
     const fp = patch.fingerprint;
     const current = fp ? byFp.get(fp) : undefined;
     if (!current) throw new Error(`patchFindings: unknown fingerprint "${fp}"`);
-    byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now));
+    byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now, target));
   }
-  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now));
+  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
   const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
   assertFindingsDocument(document);
   atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
