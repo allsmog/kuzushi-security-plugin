@@ -518,6 +518,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
     `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +
     `/sast (semgrep scan → triage → findings), /crypto-review (timing/zeroization/RNG misuse), ` +
+    `/authz (missing authz / IDOR / privesc), /iac (Dockerfile/k8s/Terraform misconfig), ` +
+    `/traffic-map (offline Burp/HAR → handler correlation), ` +
     `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
     `CodeQL/Joern rule pack), /code-graph (cache caller-counts / blast radius), ` +
     `/export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
