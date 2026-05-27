@@ -8,6 +8,10 @@ vendor/
 .kuzushi/
 x-ray/
 
+# Joern scratch: `joern`/`joern-parse` unpack a CPG into ./workspace when run
+# from the repo root (default project dir) — regenerable, never source.
+workspace/
+
 # Logs
 *.log
 npm-debug.log*
