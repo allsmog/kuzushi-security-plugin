@@ -1,6 +1,6 @@
 {
   "name": "kuzushi-security-plugin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Local-first vulnerability confirmation and remediation pipeline for Claude Code: context, x-ray, PASTA threat model, CVE threat-intel, SAST/taint, invariant testing, adversarial hunting, memory exploitability, fuzz proof, rule synthesis, SARIF, and PoC⁺ patch validation behind a hardened policy plane. Operates on source you have on disk, with no hosted service, live target, proxy, or traffic capture.",
   "author": {
     "name": "allsmog"

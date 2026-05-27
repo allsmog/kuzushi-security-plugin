@@ -96,7 +96,12 @@ export function finalizeRuleSynth(target, runDir, options = {}) {
     if (!engine) fail(`rule ${id}: unknown engine "${r.engine}" (codeql|joern)`);
     const ruleFile = r.ruleFile ? (resolve(resolvedRunDir, r.ruleFile)) : null;
     if (!ruleFile || !existsSync(ruleFile)) fail(`rule ${id}: ruleFile not found (${r.ruleFile})`);
-    const seed = seedByFp.get(r.seedRef) ?? { filePath: r.seedFile, startLine: r.seedLine, language: r.language };
+    // Normalize the seed to a flat { filePath, startLine, language } — prep stores
+    // the location under `anchor`, but the engines' selfMatch reads filePath/startLine.
+    const sCtx = seedByFp.get(r.seedRef);
+    const seed = sCtx
+      ? { filePath: sCtx.anchor?.filePath ?? sCtx.filePath, startLine: sCtx.anchor?.startLine ?? sCtx.startLine, language: sCtx.language }
+      : { filePath: r.seedFile, startLine: r.seedLine, language: r.language };
 
     const avail = engine.available(resolvedTarget);
     if (!avail.available) {

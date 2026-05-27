@@ -4,8 +4,9 @@
 // response so callers can degrade gracefully.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -69,12 +70,22 @@ async function query({ cpg, script }) {
   const gate = assertQueryAllowed({ queryPath: cpg, inlineScript: script, fromPath: cpg });
   if (!gate.ok) return gate;
 
-  const result = spawnSync("joern", ["--script", "-", `-Dpath=${cpg}`], {
-    input: script,
-    encoding: "utf8",
-    maxBuffer: QUERY_MAX_BUFFER,
-    env: { ...process.env, KUZUSHI_CPG: cpg }
-  });
+  // joern 4.x does not accept `--script -` (stdin) and does not forward -Dpath to
+  // the script's JVM system properties. Write the script to a temp file and pass
+  // the CPG path via the KUZUSHI_CPG env var (taint-flows.sc reads it first).
+  const scratch = mkdtempSync(join(tmpdir(), "kuzushi-joern-"));
+  const scriptPath = join(scratch, "query.sc");
+  writeFileSync(scriptPath, script);
+  let result;
+  try {
+    result = spawnSync("joern", ["--script", scriptPath], {
+      encoding: "utf8",
+      maxBuffer: QUERY_MAX_BUFFER,
+      env: { ...process.env, KUZUSHI_CPG: cpg }
+    });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
   return {
     ok: result.status === 0,
     status: result.status,
