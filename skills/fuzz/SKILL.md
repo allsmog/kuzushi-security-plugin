@@ -1,25 +1,24 @@
 ---
 name: fuzz
-description: Canonical fuzzing workflow for confirmed/proven findings. Plans campaign harnesses, runs declared fuzz harnesses offline, triages crashes, records minimization state, and promotes only empirical crash/sanitizer evidence to proven. Prefer this over the lower-level /fuzz-* stage commands.
-context: fork
-agent: fuzz-harness-author
-allowed-tools: Bash, Read, Write, Edit
+description: Canonical fuzzing workflow for confirmed/proven findings. Coordinates plan → author harnesses (fuzz-harness-author agent) → replay → triage → promote, and advances a finding to proven only on empirical crash/sanitizer evidence. Prefer this over the lower-level /fuzz-* stage commands.
 user-invocable: true
 ---
 
 # Fuzz workflow
 
-Use `/fuzz` as the main workflow. The lower-level `/fuzz-init`, `/fuzz-run`,
-`/fuzz-triage`, `/fuzz-minimize`, and `/fuzz-promote` commands are replay/debug
-stages behind this surface.
+Use `/fuzz` as the main workflow — you are the **coordinator**: run the deterministic stages and
+spawn the harness-authoring subagent between them. The lower-level `/fuzz-init`, `/fuzz-run`,
+`/fuzz-triage`, `/fuzz-minimize`, and `/fuzz-promote` commands are replay/debug stages behind this
+surface.
 
 1. Run:
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/fuzz.mjs" --target "<repo root>" --stage plan`
    If it returns `no-seeds`, tell the user to run `/verify` first and stop.
-2. Read `.kuzushi/fuzz/fuzz-plan.json`. For each candidate, write or refine the
-   harness only inside its `harnessDir`, using the recommended engine and
-   `semanticOracle` controls as guidance. Keep `runCommand` concrete and offline.
-   The `fuzz-harness-author` agent owns this harness-writing step.
+2. Spawn the **`fuzz-harness-author`** agent with the Task tool, passing it the target directory and
+   the `.kuzushi/fuzz/fuzz-plan.json` path. It writes a real harness into each candidate's
+   `harnessDir`, seeds the corpus, sets a concrete offline `runCommand` + `expectedSignal` (using the
+   recommended engine + `semanticOracle` controls), and writes the updated plan back in place. Wait
+   for it to finish.
 3. Run:
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/fuzz.mjs" --target "<repo root>" --stage replay`
    Add `--trust-local` only if Docker is unavailable and the user explicitly

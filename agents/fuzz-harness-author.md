@@ -46,8 +46,9 @@ so and stop.
    - cargo-fuzz: `cargo fuzz run fuzz_target -- -max_total_time=60`
    - atheris: `python3 fuzz.py -max_total_time=60` · go: `go test -run=^$ -fuzz=FuzzXxx -fuzztime=60s`
 6. **Update the plan.** Rewrite the candidate's `runCommand` and add `expectedSignal`, **keeping every
-   other field intact**, and write the whole updated plan back to `.kuzushi/fuzz/fuzz-plan.json` (the
-   file `/fuzz-init` explicitly says to edit). Do not touch fields you didn't change.
+   other field intact**, and write the whole updated plan back to `.kuzushi/fuzz/fuzz-plan.json`
+   (`/fuzz --stage plan` scaffolds the plan; you fill in the real harness + runCommand). Do not touch
+   fields you didn't change.
 
 If the engine's toolchain (clang/cargo-fuzz/atheris/jazzer/go) isn't installed or no sandbox is
 available, still write the harness + a correct `runCommand`, and note in `notes` that it's untested —

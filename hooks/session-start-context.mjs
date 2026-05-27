@@ -378,10 +378,11 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   }
 
   // Breadth producers available on any repo (don't depend on a threat model):
-  // /supply-chain (deps), /sharp-edges (footgun APIs), /diff-review (a change).
+  // /supply-chain (deps), /sharp-edges (footgun APIs), /crypto-review, /diff-review (a change).
   additionalContext +=
     `\n\nAlso available without a threat model: /supply-chain (dependency takeover/abandonment risk — ` +
-    `uses the network, asks first), /sharp-edges (footgun APIs / dangerous defaults), and /diff-review ` +
+    `uses the network, asks first), /sharp-edges (footgun APIs / dangerous defaults), /crypto-review ` +
+    `(timing side-channels / missing zeroization / weak crypto RNG), and /diff-review ` +
     `(security review of a git change — regressions + blast radius). Mention when relevant; don't auto-run.`;
 
   // Verify / poc are only surfaced when the findings index has findings — no
@@ -503,7 +504,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /fuzz (local fuzz proof loop), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
-    `approval), /chain (link findings into attack chains), /sast (semgrep scan → triage → findings), ` +
+    `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +
+    `/sast (semgrep scan → triage → findings), /crypto-review (timing/zeroization/RNG misuse), ` +
     `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
     `CodeQL/Joern rule pack), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
