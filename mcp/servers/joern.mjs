@@ -72,7 +72,8 @@ async function query({ cpg, script }) {
   const result = spawnSync("joern", ["--script", "-", `-Dpath=${cpg}`], {
     input: script,
     encoding: "utf8",
-    maxBuffer: QUERY_MAX_BUFFER
+    maxBuffer: QUERY_MAX_BUFFER,
+    env: { ...process.env, KUZUSHI_CPG: cpg }
   });
   return {
     ok: result.status === 0,

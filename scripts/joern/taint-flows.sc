@@ -6,7 +6,7 @@
 // HOW THE PLUGIN CALLS THIS: the joern MCP server (mcp/servers/joern.mjs) runs
 //   joern --script - -Dpath=<cpg>
 // with this script piped on stdin. So:
-//   * the CPG path arrives as the JVM system property `path`, and
+//   * the CPG path arrives as KUZUSHI_CPG (and, for older callers, JVM property `path`), and
 //   * the per-CWE queries are INLINED into QUERIES_JSON below (the MCP tool has
 //     no --param/env channel). The flow-tracer subagent reads this file, replaces
 //     the QUERIES_JSON value with the array it built from the labeled
@@ -39,8 +39,9 @@ val QUERIES_JSON: String = """[]"""
 val DIRECTION: String = "forward"
 // ===========================================================================
 
-val cpgFile: String = sys.props.get("path")
-  .getOrElse(throw new RuntimeException("taint-flows: missing -Dpath=<cpg> system property"))
+val cpgFile: String = sys.env.get("KUZUSHI_CPG")
+  .orElse(sys.props.get("path"))
+  .getOrElse(throw new RuntimeException("taint-flows: missing KUZUSHI_CPG or -Dpath=<cpg>"))
 importCpg(cpgFile)
 
 val queries = parseQueries(QUERIES_JSON)

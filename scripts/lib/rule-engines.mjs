@@ -124,14 +124,16 @@ export const joern = {
   },
   // Joern scripts are Scala; "compile" = run with a parse/typecheck. We run the
   // script against the CPG and treat a non-zero exit / stderr error as a failure.
+  // The CPG path is passed via KUZUSHI_CPG. We avoid relying on -Dpath here
+  // because some Joern 4.x launchers do not forward that property to scripts.
   validate(ruleFile, target) {
     const cpg = joernCpg(target);
-    const r = cli("joern", ["--script", resolve(ruleFile), `-Dpath=${cpg}`], { input: "" });
+    const r = cli("joern", ["--script", resolve(ruleFile)], { input: "", env: { ...process.env, KUZUSHI_CPG: cpg } });
     return { ok: r.status === 0, stage: "compile", stderr: r.stderr.slice(0, 2000) };
   },
   _run(ruleFile, target) {
     const cpg = joernCpg(target);
-    const r = cli("joern", ["--script", resolve(ruleFile), `-Dpath=${cpg}`]);
+    const r = cli("joern", ["--script", resolve(ruleFile)], { env: { ...process.env, KUZUSHI_CPG: cpg } });
     return { ok: r.status === 0, matches: parseJoernMatches(r.stdout), stderr: r.stderr.slice(0, 2000) };
   },
   selfMatch(ruleFile, target, seed) {

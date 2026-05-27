@@ -33,9 +33,10 @@ and `engines` availability.
    - **CodeQL**: `rule.<seedRef>.ql` — a `@kind problem` (or `path-problem`) query for the seed's
      language that selects the vulnerable location. Keep imports minimal; it must `codeql query
      compile` cleanly.
-   - **Joern**: `rule.<seedRef>.sc` — a Scala script that opens the CPG (the host passes
-     `-Dpath=<cpg>`) and **prints each match as a line** `KUZUSHI_MATCH\t<relative/file>\t<line>`
-     (the host parses exactly that). End with a clean exit.
+   - **Joern**: `rule.<seedRef>.sc` — a Scala script that opens the CPG from the
+     `KUZUSHI_CPG` env var (`importCpg(sys.env("KUZUSHI_CPG"))` — the host sets it) and
+     **prints each match as a line**
+     `KUZUSHI_MATCH\t<relative/file>\t<line>` (the host parses exactly that). End with a clean exit.
 4. The rule MUST be able to fire on the seed's `anchor` (file:line) — that's the host's true-
    positive self-test. If you can't write a rule that matches the seed, say so; don't pad it.
 

@@ -1,12 +1,25 @@
 # kuzushi-security-plugin
 
-**An autonomous, language-aware local security review pipeline that lives inside Claude Code.**
+**A local-first vulnerability confirmation and remediation pipeline that lives inside Claude Code.**
 
-Point it at source you already have checked out and the plugin statically maps it (entry
-points by pattern, not observed traffic), threat-models it, researches the CVEs that actually
-apply, and adversarially hunts the threats it found — wiring up the right LSP and analysis
-tooling for the languages it detects. Self-contained Node (no external engine, no server to
-run): everything is plain stdio MCP servers, skills, and a SessionStart hook.
+Point it at source you already have checked out and kuzushi turns security review into a
+reproducible evidence pipeline: map the code, threat-model it, hunt source-to-sink paths, verify
+exploitability, build sandboxed proof, synthesize variant rules, and validate patches before they
+touch your working tree.
+
+kuzushi is built for maintainers and product-security teams who need answers they can ship:
+
+- **Is it real?** Findings advance through explicit proof states instead of staying as scanner hits.
+- **Can I reproduce it?** Verification, PoC, fuzz, rule-pack, and patch artifacts stay under
+  `.kuzushi/` with provenance and policy digests.
+- **Can I fix it safely?** `/fix` validates exploit regression, functional behavior, and supported
+  semantic oracles in a sandbox copy before apply.
+- **Can I trust the workflow?** The plugin is local-first, policy-gated, network-denied by default
+  for locked profiles, and designed for auditable CI/SARIF output.
+
+It is self-contained Node (no daemon, no hosted service): plain stdio MCP servers, skills, agents,
+schemas, and a SessionStart hook wire up Tree-sitter, Semgrep, CodeQL, Joern, fuzz harnesses, and
+language tooling only when the repo needs them.
 
 ```
 context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc ─► fix

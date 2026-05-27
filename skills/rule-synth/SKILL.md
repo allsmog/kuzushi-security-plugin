@@ -20,8 +20,9 @@ Joern CPG (`/build-databases`). For Semgrep, use `/semgrep-rule` instead.
    If `status` is `no-seeds` (run `/verify` or `/threat-hunt` first) or `no-engine` (run
    `/build-databases`, or `/semgrep-rule` for Semgrep), report that and stop. Read `prepPath`.
 2. For **each** seed, write a tight CodeQL `.ql` / Joern `.sc` for the `recommendedEngine` into the
-   run dir, using the seed's `seedFingerprint` as `seedRef`. Joern scripts must print matches as
-   `KUZUSHI_MATCH\t<file>\t<line>`. Write the `{ rules: [...] }` bundle to the prep's `draftPath`.
+   run dir, using the seed's `seedFingerprint` as `seedRef`. Joern scripts must open the CPG from
+   `KUZUSHI_CPG` and print matches as `KUZUSHI_MATCH\t<file>\t<line>`. Write the `{ rules: [...] }`
+   bundle to the prep's `draftPath`.
 3. Run the `assembleCommand` (finalize). It compiles each rule, checks it fires on the seed line,
    runs it across the repo, and caps it for precision — accepting only those that pass into the
    pack and promoting new matches as `candidate` findings. Report accepted/rejected per seed.

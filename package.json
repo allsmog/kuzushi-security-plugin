@@ -1,7 +1,7 @@
 {
   "name": "kuzushi-security-plugin",
   "version": "0.7.0",
-  "description": "Self-contained Claude Code local security plugin: context, x-ray, PASTA threat model, static analysis, empirical PoC/fuzz proof, and PoC+ patch validation. No live target, proxy, or traffic capture.",
+  "description": "Local-first vulnerability confirmation and remediation pipeline for Claude Code: threat modeling, SAST/taint, PoC/fuzz proof, rule synthesis, SARIF, and PoC+ patch validation.",
   "type": "module",
   "private": true,
   "scripts": {
