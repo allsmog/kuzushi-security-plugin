@@ -66,6 +66,11 @@ export function prepareFix(target, input = {}) {
   const pocDoc = readJsonIfPresent(store.pocPath);
   const pocByFp = new Map((pocDoc?.results ?? []).map((r) => [r.findingFingerprint, r]));
 
+  // Index the fuzz plan by fingerprint too: a fuzz harness lets the patch be
+  // re-proven against a CLASS of inputs (not just the single PoC payload).
+  const fuzzPlan = readJsonIfPresent(store.fuzzPlanPath);
+  const fuzzByFp = new Map((fuzzPlan?.candidates ?? []).map((c) => [c.findingFingerprint, c]));
+
   const all = (findingsDoc.findings ?? []).filter(isCandidate);
   if (!all.length) {
     throw new Error("no fixable findings — run /verify first (and /poc when possible); /fix requires confirmed or proven findings");
@@ -77,6 +82,7 @@ export function prepareFix(target, input = {}) {
   const candidates = ordered.slice(0, maxCandidates).map((f) => {
     const anchor = (f.evidence ?? [])[0];
     const poc = pocByFp.get(f.fingerprint) ?? null;
+    const fuzz = fuzzByFp.get(f.fingerprint) ?? null;
     // Distinct target files across the evidence anchors (the diff's allowed scope).
     const targetFiles = [...new Set((f.evidence ?? []).map((e) => e.filePath).filter(Boolean))];
     const fileContents = {};
@@ -115,6 +121,14 @@ export function prepareFix(target, input = {}) {
         language: poc.language ?? languageFor(anchor?.filePath),
         expectedSignal: poc.expectedSignal ?? "crash",
         proofVerdict: poc.proofVerdict
+      } : null,
+      // A fuzz harness (if /fuzz planned one) — used by the patch re-prove phase to
+      // re-run the fuzzer against the patched copy. Only usable if its dir exists.
+      fuzz: fuzz && fuzz.harnessDir && fuzz.runCommand && existsSync(fuzz.harnessDir) ? {
+        harnessDir: fuzz.harnessDir,
+        runCommand: fuzz.runCommand,
+        language: fuzz.language ?? languageFor(anchor?.filePath),
+        expectedSignal: fuzz.expectedSignal ?? "crash"
       } : null
     };
   });
@@ -141,6 +155,7 @@ export function prepareFix(target, input = {}) {
     draftPath: join(run.runDir, "draft.fix.json"),
     candidateCount: candidates.length,
     withHarness: candidates.filter((c) => c.hasHarness).length,
+    withFuzz: candidates.filter((c) => c.fuzz).length,
     sandbox,
     assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "fix-finalize.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };

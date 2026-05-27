@@ -193,6 +193,37 @@ export async function finalizeFix(target, runDir, options = {}) {
       continue;
     }
 
+    // Phase A2 — fuzz re-prove: if a fuzz harness exists for this finding, re-run
+    // the FUZZER against the patched copy. A class of inputs (not just the single
+    // PoC payload) must fail to crash. Only an actual crash blocks validation —
+    // a fuzz-harness build/timeout issue is inconclusive, not a fix failure.
+    let fuzzReprove = null;
+    if (c.fuzz?.harnessDir && existsSync(c.fuzz.harnessDir)) {
+      cpSync(c.fuzz.harnessDir, repoDir, { recursive: true });
+      const fuzzTimeoutMs = Math.max(timeoutMs, 180000);
+      const fuzzRun = await runInSandbox({
+        backend, language: c.fuzz.language ?? c.language, harnessDir: repoDir,
+        runCommand: c.fuzz.runCommand, timeoutMs: fuzzTimeoutMs, trustLocal
+      });
+      const fuzzClass = classifyResult(fuzzRun, c.fuzz.expectedSignal ?? "crash");
+      logsRun.writeText(`fix-${fp}-fuzz-reprove.log`, [
+        `# fix fuzz re-prove ${fp}`, `runCommand: ${c.fuzz.runCommand}`,
+        `proofVerdict: ${fuzzClass.proofVerdict} (fuzzer ${fuzzClass.proofVerdict === "exploited" ? "STILL CRASHES" : "found no crash"})`,
+        "## stdout", fuzzRun.stdout ?? "", "## stderr", fuzzRun.stderr ?? ""
+      ].join("\n"));
+      fuzzReprove = { passed: fuzzClass.proofVerdict !== "exploited", proofVerdict: fuzzClass.proofVerdict, backend: fuzzRun.backend };
+      if (fuzzClass.proofVerdict === "exploited") {
+        results.push({
+          findingFingerprint: fp, verdict: "exploit-still-fires", language: c.language ?? null, patchPath,
+          harnessLinkage: c.harnessLinkage ?? null,
+          stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, fuzzReprove,
+          functional: null, applied: false,
+          note: "fuzzer still crashes the patched code — a class of inputs the single PoC missed; the patch is incomplete"
+        });
+        continue;
+      }
+    }
+
     // Phase B — functional/regression check.
     const fc = c.functionalCheck ?? {};
     let functional;
@@ -231,20 +262,26 @@ export async function finalizeFix(target, runDir, options = {}) {
       semantic = { oracle: oracle.id, passed, exitCode: semRun.exitCode ?? null };
     }
 
-    const verdict = functional.passed && semantic.passed ? "validated" : "stops-exploit-breaks-function";
+    // A fuzz harness that crashed already short-circuited above, so reaching here
+    // means fuzzReprove (if present) passed. Record it; absent ⇒ does not gate.
+    const fuzzReproveOk = fuzzReprove === null ? true : fuzzReprove.passed;
+    const verdict = functional.passed && semantic.passed && fuzzReproveOk ? "validated" : "stops-exploit-breaks-function";
     const validation = {
       exploitRegressionPassed: true,
       functionalRegressionPassed: Boolean(functional.passed),
       semanticRegressionPassed: Boolean(semantic.passed),
-      pocPlusPassed: Boolean(functional.passed && semantic.passed),
+      fuzzReprovePassed: fuzzReprove === null ? null : Boolean(fuzzReprove.passed),
+      pocPlusPassed: Boolean(functional.passed && semantic.passed && fuzzReproveOk),
       semanticOracle: semantic.oracle
     };
     results.push({
       findingFingerprint: fp, verdict, language: c.language ?? null, patchPath,
       harnessLinkage: c.harnessLinkage ?? "links-target",
       stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend },
-      functional, semantic, validation, applied: false,
-      note: verdict === "validated" ? "PoC⁺: exploit stopped, functional check passed, and semantic oracle passed" : "exploit stopped but functional or semantic regression did not pass"
+      fuzzReprove, functional, semantic, validation, applied: false,
+      note: verdict === "validated"
+        ? `PoC⁺: exploit stopped, functional + semantic checks passed${fuzzReprove ? ", and the fuzzer found no crash on the patched code" : ""}`
+        : "exploit stopped but functional or semantic regression did not pass"
     });
   }
   } finally {
@@ -277,7 +314,7 @@ export async function finalizeFix(target, runDir, options = {}) {
           pocPlusPassed: r.verdict === "validated",
           semanticOracle: null
         },
-        stops: r.stops, functional: r.functional, applied: false, validatedAt, note: r.note
+        stops: r.stops, fuzzReprove: r.fuzzReprove ?? null, functional: r.functional, applied: false, validatedAt, note: r.note
       }
     };
     if (status) patch.status = status;

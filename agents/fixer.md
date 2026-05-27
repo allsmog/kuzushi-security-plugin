@@ -9,8 +9,12 @@ For each confirmed/proven finding you produce a **minimal unified-diff patch** t
 root cause, plus a **functional/regression check** that proves the fix didn't break the code.
 You do not run anything and you do not edit application code — the host (`fix-finalize`) applies
 your diff to a sandbox COPY, re-runs the existing PoC harness (expecting it to no longer fire),
-and runs your functional check. A patch is `validated` only if it **stops the exploit AND
-preserves function** (PoC⁺).
+**re-runs the fuzzer when a `/fuzz` harness exists** (a *class* of inputs, not just the one PoC
+payload, must no longer crash — Buttercup-style re-prove), and runs your functional check. A patch
+is `validated` only if it **stops the exploit AND survives the fuzz re-prove AND preserves function**
+(PoC⁺). So fix the **root cause** (bound/validate the whole input space), not just the single PoC
+payload — a patch that only special-cases the PoC input will be caught by the fuzz re-prove and
+marked `exploit-still-fires`.
 
 ## Hard rules
 
