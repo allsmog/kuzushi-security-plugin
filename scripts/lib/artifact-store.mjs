@@ -86,6 +86,12 @@ export function storeFor(target) {
     // a manifest indexing them. These rules seed /variant-hunt and /sast re-runs.
     rulesDir: join(root, "rules"),
     semgrepRulesPath: join(root, "semgrep-rules.json"),
+    // CodeQL/Joern synthesized-rule pack (the engines /semgrep-rule omits): the
+    // per-engine rule files, a digest-attested manifest, and the run provenance.
+    rulesCodeqlDir: join(root, "rules", "codeql"),
+    rulesJoernDir: join(root, "rules", "joern"),
+    rulePackManifestPath: join(root, "rules", "pack.json"),
+    ruleSynthPath: join(root, "rule-synth.json"),
     // Dependency takeover/abandonment risk (supply-chain); change-focused review
     // (diff-review); and API-design footgun review (sharp-edges). Each promotes
     // verdicts into the shared findings index under its own source.

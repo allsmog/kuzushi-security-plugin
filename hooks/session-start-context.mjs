@@ -368,6 +368,13 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `Mention it for deeper memory-safety coverage; don't auto-run it.`;
   }
 
+  // Breadth producers available on any repo (don't depend on a threat model):
+  // /supply-chain (deps), /sharp-edges (footgun APIs), /diff-review (a change).
+  additionalContext +=
+    `\n\nAlso available without a threat model: /supply-chain (dependency takeover/abandonment risk — ` +
+    `uses the network, asks first), /sharp-edges (footgun APIs / dangerous defaults), and /diff-review ` +
+    `(security review of a git change — regressions + blast radius). Mention when relevant; don't auto-run.`;
+
   // Verify / poc are only surfaced when the findings index has findings — no
   // findings, nothing to verify or prove. Both are on-demand notes (not auto-run);
   // /poc in particular builds and EXECUTES harnesses, so never launch it unprompted.
@@ -462,12 +469,15 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `\n\nCommands: /deep-context (deep system-understanding pass → deep-context.json), ` +
     `/threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
-    `memory-safety review), /variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
+    `memory-safety review), /supply-chain (dependency takeover/abandonment risk), /sharp-edges (footgun APIs / ` +
+    `dangerous defaults), /diff-review (security review of a change: regressions + blast radius), ` +
+    `/variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
     `approval), /sast (semgrep scan → triage → findings), ` +
-    `/semgrep-rule (confirmed finding → reusable rule), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
+    `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
+    `CodeQL/Joern rule pack), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({

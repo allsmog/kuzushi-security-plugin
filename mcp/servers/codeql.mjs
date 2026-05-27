@@ -10,6 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { assertQueryAllowed } from "../../scripts/lib/policy.mjs";
+import { assertPackRunnable } from "../../scripts/lib/rule-pack.mjs";
 
 if (process.argv.includes("--help")) {
   console.log("codeql MCP server. Tools: codeql:health, codeql:databases, codeql:query.");
@@ -147,6 +148,12 @@ async function query({ database, query: ql, format = "json", searchPath }) {
   // raw-query posture before executing anything.
   const gate = assertQueryAllowed({ queryPath: ql, fromPath: database });
   if (!gate.ok) return gate;
+  // Attestation: a pack query (under .kuzushi/rules/) runs freely only when its
+  // current bytes match the manifest digest and it compiled at synthesis time.
+  if (gate.fromPack) {
+    try { assertPackRunnable(gate.target, resolve(ql)); }
+    catch (e) { return { ok: false, blocked: "attestation", reason: e.message }; }
+  }
 
   const scratch = mkdtempSync(join(tmpdir(), "kuzushi-codeql-"));
   const bqrs = join(scratch, "results.bqrs");
