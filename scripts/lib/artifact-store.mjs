@@ -77,6 +77,10 @@ export function storeFor(target) {
     // SAST: triaged semgrep hits promoted into the shared findings index
     // (source "sast"). Scanner hits are evidence; the agent triages before promotion.
     sastPath: join(root, "sast.json"),
+    // Generated, test-driven Semgrep rules distilled from confirmed findings, plus
+    // a manifest indexing them. These rules seed /variant-hunt and /sast re-runs.
+    rulesDir: join(root, "rules"),
+    semgrepRulesPath: join(root, "semgrep-rules.json"),
     findingsPath: join(root, "findings.json"),
     // Exploitability verification (verify, read-only reasoning) and empirical
     // proof-of-concept results (poc, sandbox-executed) — both attach their

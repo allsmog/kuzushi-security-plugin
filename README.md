@@ -87,6 +87,7 @@ claude --plugin-dir .
 /taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
 /sast                # semgrep scan → triage hits into findings.json
 /variant-hunt        # find siblings of a confirmed bug across the repo → findings.json
+/semgrep-rule        # distill confirmed findings into test-driven Semgrep rules
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
@@ -109,6 +110,7 @@ claude --plugin-dir .
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
 | `/variant-hunt` | **Variant analysis.** For each confirmed/exploitable finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
+| `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
@@ -118,7 +120,7 @@ claude --plugin-dir .
 
 Skills are backed by purpose-built subagents (`threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
-`mem-exploit-analyst`, `variant-hunter`, `sast-triager`) that run in isolated context and
+`mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.

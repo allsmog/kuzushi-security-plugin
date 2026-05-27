@@ -383,7 +383,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `\n\n.kuzushi/findings.json has confirmed / exploitable finding(s) — /variant-hunt is available: ` +
       `for each as a seed, it sweeps the repo for OTHER sites with the same bug class (exact-match → ` +
       `generalize) and promotes the siblings into findings.json with refId variant-of:<seed>. Mention it ` +
-      `to catch copy-paste recurrences of a known bug; don't auto-run it.`;
+      `to catch copy-paste recurrences of a known bug; don't auto-run it. /semgrep-rule can also distill ` +
+      `a confirmed finding into a reusable Semgrep rule under .kuzushi/rules/.`;
   }
 
   // Offer to build the heavy semantic indexes (codeql DB + joern CPG) early — they
@@ -429,7 +430,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /sast (semgrep scan → triage → findings), ` +
-    `/export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
+    `/semgrep-rule (confirmed finding → reusable rule), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({
