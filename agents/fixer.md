@@ -44,11 +44,13 @@ poc:{ harnessDir, runCommand, expectedSignal, language } }`. Note `sandbox.backe
 1. **Root-cause** the bug from the excerpt + pocSketch (the triggering input). State it in
    `patchRationale`: what is unchecked/unsafe at the evidence anchor.
 2. **Write the minimal diff** that defends that root cause while preserving behavior.
-3. **Declare harness linkage** (`harnessLinkage`): `"links-target"` if the PoC harness builds
-   against the repo's source files (so patching them takes effect — strongly preferred), or
+3. **Declare harness linkage** (`harnessLinkage`): exactly `"links-target"` if the PoC harness
+   builds against the repo's source files (so patching them takes effect — strongly preferred), or
    `"inlined"` if the harness pastes its own copy of the vulnerable code (the host can't validate
    an inlined harness against a repo patch → it returns `needs-more-evidence`; prefer regenerating
-   a harness that links the target). Inspect `poc.runCommand` to decide honestly.
+   a harness that links the target). Inspect `poc.runCommand` to decide honestly. The host treats
+   **only the exact string `"inlined"`** as inlined; any other value (or omitting it) is normalized
+   to `"links-target"` — so use one of the two values, don't invent a third.
 4. **Write the functional/regression check** (`functionalCheck`), in order of preference:
    - `repo-tests` — if the repo has tests covering the patched file, give the `runCommand` to run
      that subset (`cargo test …`, `pytest path::test`, `npm test -- …`), `expectation:"exit-zero"`.

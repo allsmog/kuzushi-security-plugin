@@ -103,6 +103,10 @@ export async function finalizeFix(target, runDir, options = {}) {
     const finding = findingByFp.get(fp);
     if (!finding) fail(`${fp}: no matching finding in findings.json`);
     const oracle = c.semanticOracle ?? oracleSummaryForFinding(finding);
+    // Normalize harnessLinkage to the two meaningful values: only an explicit
+    // "inlined" gets the inlined treatment; any other value (e.g. an agent's
+    // "direct", or null) is treated and recorded as "links-target".
+    const harnessLinkage = c.harnessLinkage === "inlined" ? "inlined" : "links-target";
 
     // Persist the diff under the run dir (fix-apply references this path).
     const patchDir = join(resolvedRunDir, "fix", fp);
@@ -119,7 +123,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     if (!hasHarness || !runnableBackend) {
       results.push({
         findingFingerprint: fp, verdict: "unvalidated-no-harness", language: c.language ?? null,
-        patchPath, harnessLinkage: c.harnessLinkage ?? null,
+        patchPath, harnessLinkage,
         stops: null, functional: null, applied: false,
         note: !hasHarness ? "no /poc harness to validate against" : `no runnable sandbox (${reason})`
       });
@@ -140,7 +144,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     if (check.status !== 0) {
       results.push({
         findingFingerprint: fp, verdict: "build-failed", language: c.language ?? null, patchPath,
-        harnessLinkage: c.harnessLinkage ?? null, stops: null, functional: null, applied: false,
+        harnessLinkage, stops: null, functional: null, applied: false,
         note: `git apply --check failed: ${(check.stderr ?? "").slice(0, 300)}`
       });
       continue;
@@ -149,7 +153,7 @@ export async function finalizeFix(target, runDir, options = {}) {
 
     // An inlined harness carries its own copy of the vulnerable code, so a patch
     // to the repo files can't be shown to affect it — don't claim a result.
-    if (c.harnessLinkage === "inlined") {
+    if (harnessLinkage === "inlined") {
       results.push({
         findingFingerprint: fp, verdict: "needs-more-evidence", language: c.language ?? null, patchPath,
         harnessLinkage: "inlined", stops: null, functional: null, applied: false,
@@ -177,7 +181,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     if (postPatchBuildFailed) {
       results.push({
         findingFingerprint: fp, verdict: "build-failed", language: c.language ?? null, patchPath,
-        harnessLinkage: c.harnessLinkage ?? null,
+        harnessLinkage,
         stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, functional: null, applied: false,
         note: "patched copy no longer builds — the patch broke compilation, not a valid fix"
       });
@@ -186,7 +190,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     if (!exploitStopped) {
       results.push({
         findingFingerprint: fp, verdict: "exploit-still-fires", language: c.language ?? null, patchPath,
-        harnessLinkage: c.harnessLinkage ?? null,
+        harnessLinkage,
         stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, functional: null, applied: false,
         note: "PoC harness still triggers the bug after the patch"
       });
@@ -215,7 +219,7 @@ export async function finalizeFix(target, runDir, options = {}) {
       if (fuzzClass.proofVerdict === "exploited") {
         results.push({
           findingFingerprint: fp, verdict: "exploit-still-fires", language: c.language ?? null, patchPath,
-          harnessLinkage: c.harnessLinkage ?? null,
+          harnessLinkage,
           stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, fuzzReprove,
           functional: null, applied: false,
           note: "fuzzer still crashes the patched code — a class of inputs the single PoC missed; the patch is incomplete"
@@ -276,7 +280,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     };
     results.push({
       findingFingerprint: fp, verdict, language: c.language ?? null, patchPath,
-      harnessLinkage: c.harnessLinkage ?? "links-target",
+      harnessLinkage,
       stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend },
       fuzzReprove, functional, semantic, validation, applied: false,
       note: verdict === "validated"
