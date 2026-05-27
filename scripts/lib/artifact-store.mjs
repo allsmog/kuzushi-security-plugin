@@ -71,6 +71,9 @@ export function storeFor(target) {
     // IRIS-style source→sink taint analysis (taint-analysis) — its own canonical
     // artifact; verdicts also promote into the shared findings index below.
     taintAnalysisPath: join(root, "taint-analysis.json"),
+    // Variant hunt: siblings of confirmed findings (same bug class, other sites).
+    // Verdicts promote into the shared findings index with source "variant-hunt".
+    variantHuntPath: join(root, "variant-hunt.json"),
     findingsPath: join(root, "findings.json"),
     // Exploitability verification (verify, read-only reasoning) and empirical
     // proof-of-concept results (poc, sandbox-executed) — both attach their

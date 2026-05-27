@@ -92,7 +92,7 @@ function relevantHeavyMissing(byLanguage) {
 function readFindingsStatus(cwd) {
   const doc = readJsonIfPresent(storeFor(cwd).findingsPath);
   const findings = doc?.findings ?? [];
-  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false };
+  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false, variantSeedable: false };
   const byStatus = doc.summary?.byStatus ?? {};
   return {
     present: true,
@@ -102,6 +102,9 @@ function readFindingsStatus(cwd) {
     proven: byStatus.proven ?? 0,
     verifiable: findings.some((f) => (f.status === "open" || f.verdict === "needs-active-agent-trace") && !f.verification),
     pocPending: findings.some((f) => f.verification?.pocReady && !f.poc),
+    // A confirmed/exploitable finding can seed a /variant-hunt for siblings.
+    variantSeedable: findings.some((f) => f.status === "confirmed" || f.status === "proven" ||
+      (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding"))),
     // A memory-corruption finding that hasn't been characterized yet ⇒ /mem-exploitability applies.
     memAssessable: findings.some((f) => isMemoryFinding(f) && !f.exploitability)
   };
@@ -373,6 +376,16 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `ASSESSMENT only (no exploit payloads / mitigation bypasses). Mention it for memory-safety triage; don't auto-run it.`;
   }
 
+  // variant-hunt — surface once a confirmed/exploitable finding exists to seed it.
+  // On-demand note, not an offer.
+  if (findings.present && findings.variantSeedable) {
+    additionalContext +=
+      `\n\n.kuzushi/findings.json has confirmed / exploitable finding(s) — /variant-hunt is available: ` +
+      `for each as a seed, it sweeps the repo for OTHER sites with the same bug class (exact-match → ` +
+      `generalize) and promotes the siblings into findings.json with refId variant-of:<seed>. Mention it ` +
+      `to catch copy-paste recurrences of a known bug; don't auto-run it.`;
+  }
+
   // Offer to build the heavy semantic indexes (codeql DB + joern CPG) early — they
   // power codeql/joern queries in threat-hunt/invariant-test, are slow, and build
   // in the BACKGROUND (never block the session). Offer once, before a build is
@@ -412,7 +425,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   additionalContext +=
     `\n\nCommands: /threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
-    `memory-safety review), /invariant-test (check CVE ` +
+    `memory-safety review), /variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /build-databases (codeql DB + ` +
