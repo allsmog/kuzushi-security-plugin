@@ -33,7 +33,9 @@ corroborate with `codeql:query` (`database` = `<repo>/.kuzushi/codeql-db/<lang>`
 
 **B — Construct the concrete trigger.** Write the *actual* input that reaches the sink: the
 request/payload/argument, the `attackVector` (e.g. "unauthenticated HTTP POST /upload"), and the
-`preconditions` that must hold. Draw on the matched `intel` (known CVE payloads for this CWE).
+`preconditions` that must hold. Draw on the matched `intel` (known CVE payloads for this CWE). If
+the finding carries a `pathSolution` with `reachable:true` (from `/path-solve`), use its
+`solvedInput.payload` as the basis for the trigger — it already satisfies the guards on the path.
 This becomes the `pocSketch`. For `confirmed-exploitable`, also write a **`negativePoc`** — an
 input that *should* be safely handled/rejected. This proves your trigger **discriminates** (it
 fires on the attack and not on benign input), not that it merely fires.

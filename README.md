@@ -112,6 +112,7 @@ claude --plugin-dir .
 /semgrep-rule        # distill confirmed findings into test-driven Semgrep rules
 /rule-synth          # distill confirmed findings into validated CodeQL/Joern rules (digest-attested pack)
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
+/path-solve          # solve the guard predicate to reach a sink /verify left inconclusive (concolic-lite)
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /fuzz                # plan/run/triage/minimize/promote local fuzz proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
@@ -144,6 +145,7 @@ claude --plugin-dir .
 | `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
 | `/rule-synth` | **Validated CodeQL/Joern rules from a confirmed bug** — the heavy semantic engines `/semgrep-rule` doesn't cover. The rule-synthesist agent writes a query per seed; a **native gate** (compile → fire-on-seed → repo-run → precision-cap) accepts only passing rules into a **digest-attested pack** (`.kuzushi/rules/{codeql,joern}/` + `pack.json`). The codeql/joern MCP servers refuse to run a pack query whose bytes don't match the manifest, so generated queries are validated before they execute. New matches promote as `candidate` leads. Needs a built CodeQL DB / Joern CPG. | `.kuzushi/rules/{codeql,joern}/`, `pack.json`, `rule-synth.json`, `findings.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
+| `/path-solve` | **Concolic-lite path solving** for findings `/verify` left `inconclusive`. The path-solver agent extracts the guard predicate between source and sink (tree-sitter) and solves it into a concrete reaching input — via the optional concolic MCP backend (**Z3** for numeric/string, **CrossHair** for Python) when installed, else by reasoning (LLM). Attaches a `pathSolution` block that feeds `/verify` + `/fuzz`. Heuristic, not a proof. | `.kuzushi/path-solve.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/fuzz` | **Consolidated fuzz proof loop.** Plans a fuzz campaign from confirmed/proven findings, creates harness directories, runs declared harness commands offline, groups crashes, records minimization status, and promotes only `proofVerdict:"exploited"` evidence to `proven`. Lower-level `/fuzz-init`, `/fuzz-run`, `/fuzz-triage`, `/fuzz-minimize`, and `/fuzz-promote` remain replay/debug stages. | `.kuzushi/fuzz/*.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
@@ -157,7 +159,7 @@ claude --plugin-dir .
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `rule-synthesist`,
+`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`, `rule-synthesist`,
 `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,

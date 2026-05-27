@@ -94,7 +94,7 @@ function relevantHeavyMissing(byLanguage) {
 function readFindingsStatus(cwd) {
   const doc = readJsonIfPresent(storeFor(cwd).findingsPath);
   const findings = doc?.findings ?? [];
-  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false, variantSeedable: false, fixable: false, fixApplyable: false, chainable: false };
+  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false, variantSeedable: false, fixable: false, fixApplyable: false, chainable: false, pathSolvable: false };
   const byStatus = doc.summary?.byStatus ?? {};
   return {
     present: true,
@@ -113,7 +113,10 @@ function readFindingsStatus(cwd) {
     // A PoC⁺-validated patch not yet applied ⇒ /fix can apply it behind approval.
     fixApplyable: findings.some((f) => f.fix?.verdict === "validated" && f.status !== "remediated"),
     // ≥2 live findings ⇒ /chain can look for cross-finding attack chains.
-    chainable: findings.filter((f) => !["reviewed", "noise"].includes(f.status)).length >= 2
+    chainable: findings.filter((f) => !["reviewed", "noise"].includes(f.status)).length >= 2,
+    // A finding /verify left inconclusive (or needs an active trace) ⇒ /path-solve.
+    pathSolvable: findings.some((f) => f.verification?.verdict === "inconclusive" ||
+      f.status === "needs-trace" || f.verdict === "needs-active-agent-trace")
   };
 }
 
@@ -395,6 +398,13 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `(confirmed-exploitable / not-exploitable / inconclusive) with a PoC sketch, attaching a ` +
       `verification block onto each finding. Mention it if the user wants to confirm exploitability; don't auto-run it.`;
   }
+  if (findings.present && findings.pathSolvable) {
+    additionalContext +=
+      `\n\nSome findings are inconclusive / need an active trace — /path-solve is available: it extracts the ` +
+      `guard predicate between source and sink and solves it into a concrete reaching input (Z3 / CrossHair ` +
+      `if installed, else LLM reasoning), attaching a pathSolution block that feeds /verify + /fuzz. Heuristic, ` +
+      `not a proof; mention it for hard-to-reach sinks, don't auto-run it.`;
+  }
   if (findings.present && findings.pocPending) {
     additionalContext +=
       `\n\nSome findings are PoC-ready (verified confirmed-exploitable / inconclusive) — /poc is available: ` +
@@ -502,6 +512,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `dangerous defaults), /diff-review (security review of a change: regressions + blast radius), ` +
     `/variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
+    `/path-solve (solve guards to reach an inconclusive sink), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /fuzz (local fuzz proof loop), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
     `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +

@@ -51,7 +51,8 @@ a fresh harness (steps below) only when no detected harness fits the target.
    - **node-property**: a property harness driving the function over generated inputs.
 4. **Seed the corpus at the frontier.** Generic seeds rarely get past the guard the bug sits behind,
    so the fuzzer wastes its budget before the vulnerable branch. Read the guard/precondition in the
-   `excerpt` (and `verification.pocSketch.payload` when present) and write seeds that **already
+   `excerpt` (and `verification.pocSketch.payload` / `pathSolution.solvedInput.payload` when present —
+   the latter is `/path-solve`'s guard-satisfying input) and write seeds that **already
    satisfy it**, so mutation starts *past* the guard. Aim for 2–3 shapes: (a) a **guard-satisfying
    valid** input (passes every check, reaches the sink's neighborhood), (b) a **boundary** input
    (at the length/range limit the check compares against), and (c) a **just-past-guard** input (the
