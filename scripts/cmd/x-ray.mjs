@@ -19,6 +19,17 @@ import {
 } from "../lib/artifact-store.mjs";
 import { listFiles, runRg, parseJsonMatches, rankHit } from "../lib/ripgrep.mjs";
 
+// Cap evidence-line length. Decompiled / minified targets (jadx, RN bundles)
+// have "lines" that are hundreds of KB (e.g. a Kotlin `@Metadata(...)` blob), and
+// emitting them verbatim bloated entry-points.md to 500KB+ and buried the real
+// boundaries. A short, collapsed snippet is enough to locate the hit (file:line
+// is the real anchor).
+export const MAX_EVIDENCE_CHARS = 240;
+export function clipEvidence(text) {
+  const oneLine = String(text ?? "").replace(/\s+/g, " ").trim();
+  return oneLine.length > MAX_EVIDENCE_CHARS ? `${oneLine.slice(0, MAX_EVIDENCE_CHARS)}… [truncated ${oneLine.length} chars]` : oneLine;
+}
+
 function languageFromPath(path) {
   if (path.endsWith(".java")) return "Java";
   if (path.endsWith(".kt") || path.endsWith(".kts")) return "Kotlin";
@@ -113,7 +124,7 @@ function collectEntryPoints(target, maxHits) {
           .slice(0, 20)
       : [];
     for (const match of matches) {
-      hits.push({ ...match, kind: pattern.id, boundary: pattern.boundary });
+      hits.push({ ...match, text: clipEvidence(match.text), kind: pattern.id, boundary: pattern.boundary });
     }
   }
   return hits
