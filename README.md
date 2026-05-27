@@ -1,5 +1,7 @@
 # kuzushi-security-plugin
 
+[![test](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml)
+
 **A local-first vulnerability confirmation and remediation pipeline that lives inside Claude Code.**
 
 Point it at source you already have checked out and kuzushi turns security review into a

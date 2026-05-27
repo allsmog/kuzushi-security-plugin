@@ -1,0 +1,31 @@
+name: test
+
+# Runs the committed test suite on every push and PR so a regression in the
+# shared contracts (findings index/schema, verdict→status maps, the policy/
+# attestation gate, and the prepare/finalize validators) can't land silently —
+# the gap that let /rule-synth ship broken before the suite existed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # The suite is dependency-free by design — it imports only scripts/lib and
+      # scripts/cmd, which use Node built-ins. So no `npm ci` (avoids lockfile
+      # drift while the plugin's heavy optional deps churn). Engine-backed tests
+      # (a real Joern /rule-synth run) self-skip when joern/codeql aren't on PATH,
+      # so the suite is green on stock GitHub runners.
+      - run: npm test
