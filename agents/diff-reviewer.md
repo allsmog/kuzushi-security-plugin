@@ -34,8 +34,10 @@ corroborate with `codeql`/`joern` only if a DB/CPG already exists.
 **C — Guards & bypass.** Enumerate the guards on the new path and attempt to bypass each (as in
 threat-hunt). A guard you didn't try to bypass is not a guard that holds.
 
-**D — Blast radius.** Estimate impact: use `tree_sitter:callers` to count who calls the changed
-symbol — a change to a widely-called function is higher impact. Record it in the rationale.
+**D — Blast radius.** Estimate impact by how widely the changed symbol is called. If the candidate
+carries a `blastRadius` block (from the cached `.kuzushi/code-graph.json` — `{ symbols:[{name,
+callerCount}], maxCallerCount }`), use those repo-wide caller counts directly. Otherwise fall back to
+`tree_sitter:callers`. A change to a high-`callerCount` function is higher impact — record it.
 
 **E — Verdict** from the closed set: `exploitable` / `likely-library-noise` / `reviewed-no-impact`
 (name the guard) / `needs-more-evidence` / `needs-active-agent-trace`.

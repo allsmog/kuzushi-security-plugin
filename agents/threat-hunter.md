@@ -32,6 +32,8 @@ tenant / federated peer …). If unspecified, pick the *strongest plausible* att
 patterns, `tree_sitter:callers` / `query` to trace between them. If a prebuilt index exists, corroborate
 with `codeql:query` (`database` = `<repo>/.kuzushi/codeql-db/<lang>`) or `joern:query`
 (`cpg` = `<repo>/.kuzushi/joern/cpg.bin.zip`); don't build one inline (that's `/build-databases`).
+If `.kuzushi/code-graph.json` exists (from `/code-graph`), read it for a quick reachability /
+blast-radius read on the sink function (its `callerCount` + entry points) before tracing by hand.
 Quote the **source line** (attacker input
 enters) and the **sink line** (dangerous op) as `evidenceAnchors`. If you can't find a source,
 the threat is wrong or already mitigated — say so.

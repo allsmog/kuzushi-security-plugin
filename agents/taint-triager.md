@@ -35,7 +35,8 @@ For each flow in `draft.flows.json` (and any high-signal source/sink pair the tr
 2. **Enumerate guards between them** — input validation, escaping/parameterization,
    sanitizers (cite the catalog `sanitizerSignals`), authz/ownership checks, allowlists,
    framework defaults. Open the intervening code; use `tree_sitter:callers`/`query` to follow
-   across functions in-file.
+   across functions in-file. If `.kuzushi/code-graph.json` exists (`/code-graph`), consult the
+   sink symbol's `callerCount` there for a quick reachability/blast-radius read.
 3. **Decide if a guard actually blocks this flow.** A guard that is bypassable, applied to the
    wrong value, or after the sink does **not** save it. Don't mark `rejected` just because a
    guard exists — say why it holds (or doesn't).

@@ -507,7 +507,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +
     `/sast (semgrep scan → triage → findings), /crypto-review (timing/zeroization/RNG misuse), ` +
     `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
-    `CodeQL/Joern rule pack), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
+    `CodeQL/Joern rule pack), /code-graph (cache caller-counts / blast radius), ` +
+    `/export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({

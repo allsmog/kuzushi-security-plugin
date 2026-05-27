@@ -7,7 +7,22 @@
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
-import { storeFor, openRun, emitResult } from "../lib/artifact-store.mjs";
+import { storeFor, openRun, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
+
+// Blast radius from the cached code-graph (.kuzushi/code-graph.json): for a changed
+// file, the symbols defined in it + their caller counts. Deterministic and repo-wide
+// — better than live intra-file caller counting. Returns null when no graph exists
+// (the agent then falls back to live `tree_sitter:callers`).
+function blastRadiusFor(graph, path) {
+  if (!graph?.symbols) return null;
+  const norm = (p) => String(p ?? "").replace(/^\.\//, "");
+  const syms = graph.symbols
+    .filter((s) => norm(s.file) === norm(path))
+    .map((s) => ({ name: s.name, callerCount: s.callerCount }))
+    .sort((a, b) => b.callerCount - a.callerCount);
+  if (!syms.length) return null;
+  return { fromGraph: true, symbols: syms.slice(0, 12), maxCallerCount: syms[0].callerCount };
+}
 
 function git(target, args) {
   const r = spawnSync("git", ["-C", target, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -66,6 +81,9 @@ export function prepareDiffReview(target, input = {}) {
   const nameStatus = git(resolvedTarget, ["diff", "--name-status", `${base}...HEAD`]);
   if (!nameStatus.ok) throw new Error(`git diff failed: ${nameStatus.stderr.trim()}`);
 
+  // Cached code-graph (if /code-graph has been run) → deterministic blast radius.
+  const codeGraph = readJsonIfPresent(storeFor(resolvedTarget).codeGraphPath);
+
   const maxFiles = Number(input.maxFiles ?? 40);
   const entries = nameStatus.stdout.split(/\r?\n/).filter(Boolean).slice(0, maxFiles);
   const files = [];
@@ -78,7 +96,7 @@ export function prepareDiffReview(target, input = {}) {
     const diff = git(resolvedTarget, ["diff", `${base}...HEAD`, "--", path]);
     const diffText = diff.ok ? diff.stdout.slice(0, 8000) : "";
     const { score, tags } = riskScore(path, diffText);
-    files.push({ path, status, riskScore: score, riskTags: tags, diff: diffText });
+    files.push({ path, status, riskScore: score, riskTags: tags, diff: diffText, blastRadius: blastRadiusFor(codeGraph, path) });
   }
   files.sort((a, b) => b.riskScore - a.riskScore);
 
@@ -98,6 +116,7 @@ export function prepareDiffReview(target, input = {}) {
     prepPath: join(run.runDir, "prep.json"),
     draftPath: join(run.runDir, "draft.diff-review.json"),
     changedFileCount: files.length,
+    codeGraphPresent: Boolean(codeGraph),
     assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "diff-review-finalize.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };
 }
