@@ -57,6 +57,9 @@ export function storeFor(target) {
     // Persistent code-graph (entry points + per-symbol caller counts) cached so
     // producers query blast-radius/reachability instead of re-deriving it each run.
     codeGraphPath: join(root, "code-graph.json"),
+    // Concolic-lite path-constraint solutions: per-finding guard predicate + a
+    // concrete input that reaches the sink. Attaches a `pathSolution` block.
+    pathSolvePath: join(root, "path-solve.json"),
     // Deep reasoning context (a system-understanding pass between x-ray and the
     // threat model): modules, actors, trust boundaries, invariants. Context only —
     // no findings. threat-model-prepare feeds it to the threat-modeler.
