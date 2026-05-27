@@ -74,6 +74,9 @@ export function storeFor(target) {
     // Variant hunt: siblings of confirmed findings (same bug class, other sites).
     // Verdicts promote into the shared findings index with source "variant-hunt".
     variantHuntPath: join(root, "variant-hunt.json"),
+    // SAST: triaged semgrep hits promoted into the shared findings index
+    // (source "sast"). Scanner hits are evidence; the agent triages before promotion.
+    sastPath: join(root, "sast.json"),
     findingsPath: join(root, "findings.json"),
     // Exploitability verification (verify, read-only reasoning) and empirical
     // proof-of-concept results (poc, sandbox-executed) — both attach their

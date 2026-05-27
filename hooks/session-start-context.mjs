@@ -428,7 +428,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `memory-safety review), /variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
-    `exploitability assessment → tiers + mitigation posture), /build-databases (codeql DB + ` +
+    `exploitability assessment → tiers + mitigation posture), /sast (semgrep scan → triage → findings), ` +
+    `/export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 
   emit({

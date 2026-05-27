@@ -85,10 +85,12 @@ claude --plugin-dir .
 /threat-hunt         # adversarial per-threat review → .kuzushi/findings.json
 /invariant-test      # check the CVE-derived invariants against the code
 /taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
+/sast                # semgrep scan → triage hits into findings.json
 /variant-hunt        # find siblings of a confirmed bug across the repo → findings.json
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
+/export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
 /doctor              # what's installed / missing, with install commands
 ```
 
@@ -104,6 +106,8 @@ claude --plugin-dir .
 | `/threat-hunt` | **Adversarial per-threat review** (the Carlini doctrine): state attacker capabilities → trace source→sink → bypass *every* guard → verdict from a closed set. Promotes verdicts to the findings index. | `.kuzushi/threat-hunt.json`, `findings.json` |
 | `/systems-hunt` | **Native / memory-safety review.** Scans for systems patterns (loadLibrary/JNI, `memcpy`/`Unsafe`/`gets`, archive parsers, deserialization, exec), then a subagent confirms reachability + memory-safety impact (OOB, UAF, integer overflow, RCE). Best on C/C++/Rust/native; promotes to findings. | `.kuzushi/systems-hunt.json`, `findings.json` |
 | `/taint-analysis` | **IRIS-style source→sink taint hunt.** Ranks a typed CWE catalog for the repo, then runs subagents in sequence — label dangerous **sinks** → label **sources** of user input → trace source→sink with **Joern/CodeQL** queries (or same-file linking) → **triage** each flow `finding`/`candidate`/`rejected` with an evidence level (`path`/`linked`/`candidate`). Deeper with a prebuilt DB/CPG; degrades gracefully without. | `.kuzushi/taint-analysis.json`, `findings.json` |
+| `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
+| `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
 | `/variant-hunt` | **Variant analysis.** For each confirmed/exploitable finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
@@ -114,10 +118,18 @@ claude --plugin-dir .
 
 Skills are backed by purpose-built subagents (`threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
-`mem-exploit-analyst`) that run in isolated context and
+`mem-exploit-analyst`, `variant-hunter`, `sast-triager`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.
+
+### Companion skills
+
+kuzushi stays focused on white-box source→sink work. For orthogonal angles — config/secrets
+defaults, supply-chain risk, crypto side-channels, per-PR diffs — the
+[Trail of Bits skills](https://github.com/trailofbits/skills) marketplace installs alongside
+kuzushi and complements it. See **[docs/COMPANIONS.md](docs/COMPANIONS.md)** for which to add and
+the gap each fills.
 
 ---
 
