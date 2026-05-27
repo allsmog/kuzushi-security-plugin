@@ -249,10 +249,10 @@ export function runXray(target, input = {}) {
     runId: run.runId,
     runDir: run.runDir,
     artifactPaths: {
-      xRay: join("x-ray", "x-ray.md"),
-      entryPoints: join("x-ray", "entry-points.md"),
-      invariants: join("x-ray", "invariants.md"),
-      architecture: join("x-ray", "architecture.svg")
+      xRay: join(".kuzushi", "x-ray", "x-ray.md"),
+      entryPoints: join(".kuzushi", "x-ray", "entry-points.md"),
+      invariants: join(".kuzushi", "x-ray", "invariants.md"),
+      architecture: join(".kuzushi", "x-ray", "architecture.svg")
     },
     contextArtifacts: artifacts,
     inventory,

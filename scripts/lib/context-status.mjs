@@ -69,3 +69,59 @@ export function hasXray(target) {
   }
   return { built: true, path: xRayMd, mtime };
 }
+
+// Has a threat model been built? The canonical artifact is
+// <target>/.kuzushi/threat-model.json (storeFor().threatModelPath).
+export function hasThreatModel(target) {
+  return artifactStatus(storeFor(target).threatModelPath);
+}
+
+// Has live CVE threat-intel research been run? (.kuzushi/threat-intel.json)
+export function hasThreatIntel(target) {
+  return artifactStatus(storeFor(target).threatIntelPath);
+}
+
+// Has the adversarial per-threat review been run? (.kuzushi/threat-hunt.json)
+export function hasThreatHunt(target) {
+  return artifactStatus(storeFor(target).threatHuntPath);
+}
+
+// Has exploitability verification been run? (.kuzushi/verify.json)
+export function hasVerify(target) {
+  return artifactStatus(storeFor(target).verifyPath);
+}
+
+// Have empirical PoCs been built/run? (.kuzushi/poc.json)
+export function hasPoc(target) {
+  return artifactStatus(storeFor(target).pocPath);
+}
+
+// Is a CodeQL database built? (any .kuzushi/codeql-db/<lang> directory present)
+export function hasCodeqlDb(target) {
+  const dir = storeFor(target).codeqlDbDir;
+  if (!existsSync(dir)) return { built: false, path: null, mtime: null };
+  try {
+    const langs = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
+    if (!langs.length) return { built: false, path: null, mtime: null };
+    return { built: true, path: dir, languages: langs.map((e) => e.name), mtime: statSync(dir).mtime.toISOString() };
+  } catch {
+    return { built: false, path: null, mtime: null };
+  }
+}
+
+// Is a Joern CPG built? (.kuzushi/joern/cpg.bin.zip)
+export function hasJoernCpg(target) {
+  return artifactStatus(storeFor(target).joernCpgPath);
+}
+
+// Shared {built,path,mtime} probe for a single artifact file.
+function artifactStatus(path) {
+  if (!existsSync(path)) {
+    return { built: false, path: null, mtime: null };
+  }
+  try {
+    return { built: true, path, mtime: statSync(path).mtime.toISOString() };
+  } catch {
+    return { built: false, path: null, mtime: null };
+  }
+}

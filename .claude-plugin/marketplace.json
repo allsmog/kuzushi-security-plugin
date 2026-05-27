@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "kuzushi-security",
+  "description": "Marketplace for the kuzushi-security-plugin — an autonomous security review pipeline for Claude Code.",
+  "owner": {
+    "name": "allsmog"
+  },
+  "plugins": [
+    {
+      "name": "kuzushi-security-plugin",
+      "description": "Autonomous, language-aware security review pipeline: context, x-ray, PASTA threat model, CVE threat-intel, invariant testing, and adversarial threat-hunting. Self-contained, no external engine.",
+      "author": {
+        "name": "allsmog"
+      },
+      "category": "security",
+      "source": "."
+    }
+  ]
+}

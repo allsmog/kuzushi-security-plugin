@@ -1,0 +1,26 @@
+# Dependencies (restored with `npm install`; package-lock.json IS committed)
+node_modules/
+
+# Vendored analysis tools downloaded on demand (large, platform-specific) — see /install
+vendor/
+
+# Per-target analysis artifacts the plugin writes into a repo it scans
+.kuzushi/
+x-ray/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / secrets (never commit these)
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

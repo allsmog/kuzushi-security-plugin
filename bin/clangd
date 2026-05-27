@@ -1,0 +1,8 @@
+#!/bin/sh
+# Prefer the plugin-vendored clangd, fall back to PATH.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+V="$ROOT/vendor/bin/clangd"
+[ -x "$V" ] && exec "$V" "$@"
+command -v clangd >/dev/null 2>&1 && exec clangd "$@"
+echo "clangd not installed — run /install (or /doctor for status)." >&2
+exit 127

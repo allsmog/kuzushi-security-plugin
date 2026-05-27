@@ -1,0 +1,20 @@
+{
+  "name": "kuzushi-security-plugin",
+  "version": "0.1.0",
+  "description": "Self-contained Claude Code security plugin: context, x-ray, PASTA threat model, and conditional LSP/MCP tooling.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@colbymchenry/codegraph": "*",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "pyright": "^1.1.400",
+    "tree-sitter-wasms": "^0.1.13",
+    "typescript": "^5.6.0",
+    "typescript-language-server": "^4.3.3",
+    "web-tree-sitter": "^0.24.4",
+    "zod": "^3.23.0"
+  }
+}

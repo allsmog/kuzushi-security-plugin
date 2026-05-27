@@ -57,10 +57,33 @@ export function storeFor(target) {
     threatLeadsPath: join(root, "threat-leads.json"),
     threatIntelAppliedJsonPath: join(root, "threat-intel-applied.json"),
     threatIntelAppliedMdPath: join(root, "threat-intel-applied.md"),
+    // Live CVE research + the invariants it distills, and the results of
+    // checking those invariants against the code.
+    threatIntelPath: join(root, "threat-intel.json"),
+    threatIntelMdPath: join(root, "threat-intel.md"),
+    invariantResultsPath: join(root, "invariant-results.json"),
+    // Adversarial per-threat review (threat-hunt) + the canonical findings index
+    // that downstream modules (verify / poc / chain-finder) consume.
+    threatHuntPath: join(root, "threat-hunt.json"),
+    // IRIS-style source→sink taint analysis (taint-analysis) — its own canonical
+    // artifact; verdicts also promote into the shared findings index below.
+    taintAnalysisPath: join(root, "taint-analysis.json"),
+    findingsPath: join(root, "findings.json"),
+    // Exploitability verification (verify, read-only reasoning) and empirical
+    // proof-of-concept results (poc, sandbox-executed) — both attach their
+    // outcome onto findings.json and persist a canonical artifact here.
+    verifyPath: join(root, "verify.json"),
+    pocPath: join(root, "poc.json"),
+    // Prebuilt semantic indexes for the heavy backends (built async on consent).
+    codeqlDbDir: join(root, "codeql-db"),
+    joernCpgPath: join(root, "joern", "cpg.bin.zip"),
+    dbBuildStatePath: join(root, "db-build-state.json"),
     validatedFindingsPath: join(root, "validated-findings.json"),
     findingsDbPath: join(root, "v2", "findings.sqlite3"),
     catalogsDir: join(root, "catalogs"),
-    xRayDir: resolve(target, "x-ray")
+    // x-ray lives under .kuzushi/ alongside every other artifact (this plugin
+    // keeps everything in one store dir rather than a top-level x-ray/).
+    xRayDir: join(root, "x-ray")
   };
 }
 

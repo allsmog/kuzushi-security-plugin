@@ -1,3 +1,33 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "kuzushi-tree-sitter": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/tree-sitter.mjs"]
+    },
+    "kuzushi-semgrep": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/semgrep.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    },
+    "kuzushi-codeql": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/codeql.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    },
+    "kuzushi-joern": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/joern.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    },
+    "kuzushi-gtags": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/gtags.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    },
+    "kuzushi-codegraph": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/codegraph.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    }
+  }
 }

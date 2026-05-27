@@ -1,9 +1,50 @@
 {
   "go": {
-    "command": "gopls",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/gopls",
     "args": ["serve"],
     "extensionToLanguage": {
       ".go": "go"
+    }
+  },
+  "java": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/jdtls",
+    "extensionToLanguage": {
+      ".java": "java"
+    }
+  },
+  "typescript": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/typescript-language-server",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".js": "javascript",
+      ".jsx": "javascriptreact",
+      ".mjs": "javascript",
+      ".cjs": "javascript"
+    }
+  },
+  "python": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/pyright-langserver",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".py": "python"
+    }
+  },
+  "rust": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/rust-analyzer",
+    "extensionToLanguage": {
+      ".rs": "rust"
+    }
+  },
+  "clangd": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/clangd",
+    "extensionToLanguage": {
+      ".c": "c",
+      ".cc": "cpp",
+      ".cpp": "cpp",
+      ".h": "c",
+      ".hpp": "cpp"
     }
   }
 }
