@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { buildContext } from "../scripts/cmd/context-build.mjs";
-import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasSystemsHunt, hasVerify, hasPoc, hasMemExploitability, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
+import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasSystemsHunt, hasVerify, hasPoc, hasMemExploitability, hasFix, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
 
 // CWEs that denote a memory-corruption class bug (mirrors mem-exploitability-prepare).
 // A finding in this set (or from systems-hunt) is assessable by /mem-exploitability.
@@ -92,7 +92,7 @@ function relevantHeavyMissing(byLanguage) {
 function readFindingsStatus(cwd) {
   const doc = readJsonIfPresent(storeFor(cwd).findingsPath);
   const findings = doc?.findings ?? [];
-  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false, variantSeedable: false };
+  if (!findings.length) return { present: false, total: 0, verifiable: false, pocPending: false, memAssessable: false, variantSeedable: false, fixable: false, fixApplyable: false };
   const byStatus = doc.summary?.byStatus ?? {};
   return {
     present: true,
@@ -106,7 +106,12 @@ function readFindingsStatus(cwd) {
     variantSeedable: findings.some((f) => f.status === "confirmed" || f.status === "proven" ||
       (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding"))),
     // A memory-corruption finding that hasn't been characterized yet ⇒ /mem-exploitability applies.
-    memAssessable: findings.some((f) => isMemoryFinding(f) && !f.exploitability)
+    memAssessable: findings.some((f) => isMemoryFinding(f) && !f.exploitability),
+    // A confirmed/proven finding without a fix block ⇒ /fix can generate + PoC⁺-validate a patch.
+    fixable: findings.some((f) => (f.status === "proven" || f.status === "confirmed" ||
+      (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding"))) && !f.fix),
+    // A PoC⁺-validated patch not yet applied ⇒ /fix can apply it behind approval.
+    fixApplyable: findings.some((f) => f.fix?.verdict === "validated" && f.status !== "remediated")
   };
 }
 
@@ -169,6 +174,7 @@ async function run() {
     verify: hasVerify(cwd),
     poc: hasPoc(cwd),
     memExploit: hasMemExploitability(cwd),
+    fix: hasFix(cwd),
     findings: readFindingsStatus(cwd),
     codeqlDb: hasCodeqlDb(cwd),
     joernCpg: hasJoernCpg(cwd),
@@ -206,7 +212,7 @@ function toolingLines(tooling) {
   return [`    LSP:  ${lsp}`, `    MCP:  ${mcp}`];
 }
 
-function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, memExploit, findings, codeqlDb, joernCpg, tooling }) {
+function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, memExploit, fix, findings, codeqlDb, joernCpg, tooling }) {
   const totalFiles = result.inventory?.totalFiles ?? 0;
   const byLanguage = result.inventory?.byLanguage ?? {};
   const hints = result.componentHints ?? [];
@@ -237,6 +243,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   const pocLine = !findings.present ? "—" : (poc.built ? `present (.kuzushi/poc.json, built ${poc.mtime})` : "not run yet");
   // mem-exploit only meaningful once a memory-corruption finding exists.
   const memExploitLine = !findings.memAssessable && !memExploit.built ? "—" : (memExploit.built ? `present (.kuzushi/mem-exploitability.json, built ${memExploit.mtime})` : "not run yet");
+  // fix only meaningful once there's a fixable (confirmed/proven) finding.
+  const fixLine = !findings.fixable && !fix.built ? "—" : (fix.built ? `present (.kuzushi/fix.json, built ${fix.mtime})` : "not run yet");
   const dbBuilding = existsSync(join(cwd, ".kuzushi", "db-build.log"));
   const codeqlLine = codeqlDb.built ? `present (${(codeqlDb.languages ?? []).join(", ")})` : (dbBuilding ? "building…" : "not built");
   const joernLine = joernCpg.built ? "present (.kuzushi/joern/cpg.bin.zip)" : (dbBuilding ? "building…" : "not built");
@@ -261,6 +269,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `  verify:       ${verifyLine}`,
     `  poc:          ${pocLine}`,
     `  mem-exploit:  ${memExploitLine}`,
+    `  fix:          ${fixLine}`,
     `  codeql-db:    ${codeqlLine}`,
     `  joern-cpg:    ${joernLine}`,
     `  tooling (✓ installed / ✗ missing):`,
@@ -398,6 +407,21 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `a confirmed finding into a reusable Semgrep rule under .kuzushi/rules/.`;
   }
 
+  // /fix — surface once a confirmed/proven finding exists. It GENERATES code and
+  // EXECUTES harnesses, and can write the tree behind explicit approval — never auto-run.
+  if (findings.present && findings.fixable && !fix.built) {
+    additionalContext +=
+      `\n\n.kuzushi/findings.json has confirmed / proven finding(s) — /fix is available: it root-causes each bug, ` +
+      `generates a minimal defensive unified-diff patch, and PoC⁺-validates it in a sandbox COPY (re-runs the ` +
+      `existing PoC expecting NO crash, plus a functional/regression check) — a patch is "validated" only if it ` +
+      `stops the exploit AND preserves behavior. It never touches your working tree until you explicitly approve ` +
+      `the apply step (one finding at a time). It generates code and executes harnesses, so only run it when the user asks; don't auto-run it.`;
+  } else if (findings.present && findings.fixApplyable) {
+    additionalContext +=
+      `\n\nSome findings have a PoC⁺-validated patch not yet applied — /fix's apply step can write it to the working ` +
+      `tree behind an explicit Allow/Deny prompt (with a rollback command). Only run on the user's request.`;
+  }
+
   // Offer to build the heavy semantic indexes (codeql DB + joern CPG) early — they
   // power codeql/joern queries in threat-hunt/invariant-test, are slow, and build
   // in the BACKGROUND (never block the session). Offer once, before a build is
@@ -441,7 +465,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `memory-safety review), /variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
-    `exploitability assessment → tiers + mitigation posture), /sast (semgrep scan → triage → findings), ` +
+    `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
+    `approval), /sast (semgrep scan → triage → findings), ` +
     `/semgrep-rule (confirmed finding → reusable rule), /export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
 

@@ -56,6 +56,19 @@ export function pocVerdictToStatus(verdict) {
   return POC_STATUS[verdict] ?? "needs-trace";
 }
 
+// /fix patch verdicts → status. A patch is "validated" (PoC⁺: stops the exploit
+// AND preserves function) → "patched". Other verdicts attach a `fix` block but
+// do NOT transition status (the bug is unchanged until a real fix lands) — they
+// map to null so fix-finalize leaves the existing status alone. A working-tree
+// apply (fix-apply) advances "patched" → "remediated".
+const FIX_STATUS = {
+  validated: "patched"
+};
+
+export function fixVerdictToStatus(verdict) {
+  return FIX_STATUS[verdict] ?? null;
+}
+
 // Stable id for dedupe across runs: source + refId + the primary evidence anchor.
 export function fingerprint(finding) {
   const anchor = finding.evidence?.[0];

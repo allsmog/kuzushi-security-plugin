@@ -106,6 +106,11 @@ export function hasMemExploitability(target) {
   return artifactStatus(storeFor(target).memExploitabilityPath);
 }
 
+// Has PoC⁺ patch validation been run? (.kuzushi/fix.json)
+export function hasFix(target) {
+  return artifactStatus(storeFor(target).fixPath);
+}
+
 // Is a CodeQL database built? (any .kuzushi/codeql-db/<lang> directory present)
 export function hasCodeqlDb(target) {
   const dir = storeFor(target).codeqlDbDir;

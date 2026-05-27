@@ -9,9 +9,9 @@ tooling for the languages it detects. Self-contained Node (no external engine, n
 run): everything is plain stdio MCP servers, skills, and a SessionStart hook.
 
 ```
-context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc
- (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox-
-  deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)
+context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc ─► fix
+ (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox- (PoC⁺
+  deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)   patch)
                                                                                   │
                                                                                   └─► mem-exploitability
                                                                                       (memory-corruption tier
@@ -92,6 +92,7 @@ claude --plugin-dir .
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
+/fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
 /export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
 /doctor              # what's installed / missing, with install commands
 ```
@@ -116,6 +117,7 @@ claude --plugin-dir .
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
+| `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + a functional check. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire) and the functional check (must still pass) — a patch is **`validated`** only if it *stops the exploit AND preserves behavior* (PoC⁺). The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |
@@ -182,9 +184,10 @@ contracts** that later steps (and your own tooling) build on:
 - **Findings** (`findings.json`) — `{ fingerprint, source, refId, title, severity, cwe,
   verdict, status, evidence:[{filePath,startLine}], rationale, nextChecks }`, deduped by
   fingerprint. The canonical index every producer (`threat-hunt`, `taint-analysis`, …) writes
-  to and every consumer reads. `/verify` and `/poc` don't replace findings — they **attach** a
-  `verification` then a `poc` block onto the matching finding and advance its `status`
-  (`open → confirmed → proven`), so a finding accretes its full exploit story in one place.
+  to and every consumer reads. `/verify`, `/poc`, and `/fix` don't replace findings — they
+  **attach** a `verification`, then a `poc`, then a `fix` block onto the matching finding and
+  advance its `status` (`open → confirmed → proven → patched → remediated`), so a finding accretes
+  its full discovery → proof → remediation story in one place.
 
 It's a faithful Node port/adaptation of the [kuzushi](#acknowledgements) security toolkit —
 no Rust build, no external binary, no daemon.

@@ -86,6 +86,12 @@ export function storeFor(target) {
     // a manifest indexing them. These rules seed /variant-hunt and /sast re-runs.
     rulesDir: join(root, "rules"),
     semgrepRulesPath: join(root, "semgrep-rules.json"),
+    // Dependency takeover/abandonment risk (supply-chain); change-focused review
+    // (diff-review); and API-design footgun review (sharp-edges). Each promotes
+    // verdicts into the shared findings index under its own source.
+    supplyChainPath: join(root, "supply-chain.json"),
+    diffReviewPath: join(root, "diff-review.json"),
+    sharpEdgesPath: join(root, "sharp-edges.json"),
     findingsPath: join(root, "findings.json"),
     // Exploitability verification (verify, read-only reasoning) and empirical
     // proof-of-concept results (poc, sandbox-executed) — both attach their
@@ -95,6 +101,9 @@ export function storeFor(target) {
     // Memory-corruption exploitability assessment (mem-exploitability) — tiers +
     // mitigation posture; attaches an `exploitability` block onto findings.json.
     memExploitabilityPath: join(root, "mem-exploitability.json"),
+    // PoC⁺ patch validation (/fix): generated patches validated in a sandbox
+    // copy (stops the exploit + preserves function), attaching a `fix` block.
+    fixPath: join(root, "fix.json"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),
