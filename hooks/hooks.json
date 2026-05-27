@@ -1,0 +1,17 @@
+{
+  "description": "Auto-build repository context on session start if missing.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-context.mjs\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

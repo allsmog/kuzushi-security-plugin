@@ -1,0 +1,13 @@
+#!/bin/sh
+# Prefer vendored gopls, then PATH, then the Go install bin (gopls is installed
+# via `go install`, which drops it under $GOPATH/bin or $GOBIN).
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+V="$ROOT/vendor/bin/gopls"
+[ -x "$V" ] && exec "$V" "$@"
+command -v gopls >/dev/null 2>&1 && exec gopls "$@"
+if command -v go >/dev/null 2>&1; then
+  GB="$(go env GOBIN 2>/dev/null)"; [ -z "$GB" ] && GB="$(go env GOPATH 2>/dev/null)/bin"
+  [ -x "$GB/gopls" ] && exec "$GB/gopls" "$@"
+fi
+echo "gopls not installed — run /install (or: go install golang.org/x/tools/gopls@latest)." >&2
+exit 127

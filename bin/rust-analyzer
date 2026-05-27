@@ -1,0 +1,8 @@
+#!/bin/sh
+# Prefer the plugin-vendored rust-analyzer, fall back to PATH.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+V="$ROOT/vendor/bin/rust-analyzer"
+[ -x "$V" ] && exec "$V" "$@"
+command -v rust-analyzer >/dev/null 2>&1 && exec rust-analyzer "$@"
+echo "rust-analyzer not installed — run /install (or /doctor for status)." >&2
+exit 127

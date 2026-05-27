@@ -1,0 +1,45 @@
+#!/bin/sh
+# Launch the plugin-vendored Eclipse JDT Language Server (jdtls). Requires a
+# system Java 17+ (a JRE can't be bundled). Falls back to a PATH jdtls if the
+# vendored copy isn't present.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOME_DIR="$ROOT/vendor/jdtls"
+
+if [ ! -d "$HOME_DIR/plugins" ]; then
+  command -v jdtls >/dev/null 2>&1 && exec jdtls "$@"
+  echo "jdtls not vendored — run /install (downloads jdtls). See /doctor." >&2
+  exit 127
+fi
+if ! command -v java >/dev/null 2>&1; then
+  echo "jdtls requires Java 17+ on PATH (not found). Install a JDK/JRE, then retry." >&2
+  exit 127
+fi
+
+LAUNCHER=$(ls "$HOME_DIR"/plugins/org.eclipse.equinox.launcher_*.jar 2>/dev/null | head -1)
+if [ -z "$LAUNCHER" ]; then
+  echo "jdtls launcher jar not found under $HOME_DIR/plugins (re-run /install)." >&2
+  exit 127
+fi
+
+case "$(uname -s)" in
+  Darwin) CONFIG="$HOME_DIR/config_mac" ;;
+  Linux)  CONFIG="$HOME_DIR/config_linux" ;;
+  *)      CONFIG="$HOME_DIR/config_linux" ;;
+esac
+
+# One workspace data dir per project (keyed off cwd) under the plugin's persistent data.
+DATA_ROOT="${CLAUDE_PLUGIN_DATA:-$HOME/.cache/kuzushi}/jdtls"
+DATA="$DATA_ROOT/$(printf '%s' "$PWD" | cksum | cut -d' ' -f1)"
+mkdir -p "$DATA"
+
+exec java \
+  -Declipse.application=org.eclipse.jdt.ls.core.id1 \
+  -Dosgi.bundles.defaultStartLevel=4 \
+  -Declipse.product=org.eclipse.jdt.ls.core.product \
+  -Xmx1G \
+  --add-modules=ALL-SYSTEM \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/java.lang=ALL-UNNAMED \
+  -jar "$LAUNCHER" \
+  -configuration "$CONFIG" \
+  -data "$DATA" "$@"
