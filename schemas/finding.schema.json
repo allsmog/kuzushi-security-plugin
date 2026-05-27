@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/finding.v1.schema.json",
+  "title": "Kuzushi finding.v1",
+  "type": "object",
+  "required": ["fingerprint", "source", "refId", "title", "severity", "status", "proofState", "evidence"],
+  "properties": {
+    "schemaVersion": { "const": "finding.v1" },
+    "fingerprint": { "type": "string", "minLength": 8 },
+    "source": { "type": "string", "minLength": 1 },
+    "refId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "severity": { "type": "string" },
+    "cwe": {},
+    "verdict": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["lead", "candidate", "open", "needs-evidence", "needs-trace", "confirmed", "proven", "patched", "remediated", "reviewed", "noise"]
+    },
+    "proofState": {
+      "type": "string",
+      "enum": ["lead", "candidate", "open", "reachable", "trigger-built", "confirmed", "proven", "patch-planned", "patch-validated", "remediated", "reviewed", "noise"]
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceAnchor" }
+    },
+    "evidenceGraph": {
+      "type": "object",
+      "properties": {
+        "nodes": { "type": "array" },
+        "edges": { "type": "array" }
+      }
+    },
+    "verification": { "$ref": "verification.schema.json" },
+    "poc": { "$ref": "poc.schema.json" },
+    "fuzz": { "type": "object" },
+    "fix": { "$ref": "fix.schema.json" },
+    "rationale": { "type": "string" },
+    "nextChecks": { "type": "array" },
+    "updatedAt": { "type": "string" }
+  },
+  "$defs": {
+    "evidenceAnchor": {
+      "type": "object",
+      "required": ["filePath"],
+      "properties": {
+        "filePath": { "type": "string", "minLength": 1 },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

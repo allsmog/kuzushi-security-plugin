@@ -9,10 +9,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
 import { digestBytes, assertRunnable } from "./attest.mjs";
+import { assertValid } from "./schemas.mjs";
 
 export function loadPack(target) {
   const manifest = readJsonIfPresent(storeFor(target).rulePackManifestPath);
-  return manifest ?? { version: "1.0", target: resolve(target), rules: [] };
+  return manifest ?? { schemaVersion: "rule-pack.v1", version: "1.0", target: resolve(target), rules: [] };
 }
 
 // Upsert accepted rules into the manifest (keyed by ruleId). `entries` are the
@@ -22,7 +23,8 @@ export function writePack(target, entries) {
   const pack = loadPack(target);
   const byId = new Map((pack.rules ?? []).map((r) => [r.ruleId, r]));
   for (const e of entries) byId.set(e.ruleId, e);
-  const doc = { version: "1.0", generatedAt: new Date().toISOString(), target: resolve(target), rules: [...byId.values()] };
+  const doc = { schemaVersion: "rule-pack.v1", version: "1.0", generatedAt: new Date().toISOString(), target: resolve(target), rules: [...byId.values()] };
+  assertValid("rulePack", doc);
   atomicWrite(store.rulePackManifestPath, `${JSON.stringify(doc, null, 2)}\n`);
   return doc;
 }

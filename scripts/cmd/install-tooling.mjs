@@ -12,6 +12,7 @@
 // - Best-effort + non-fatal: a failure on one tool doesn't abort the rest.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, chmodSync, statSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -19,6 +20,7 @@ import { parseFlags } from "../lib/argv.mjs";
 import { emitResult, storeFor, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { commandInstalled } from "../lib/capabilities.mjs";
 import { VENDOR_TOOLS, downloadUrl, nativeInstallCommand, platformKey } from "../lib/vendor-manifest.mjs";
+import { networkInstallAllowed } from "../lib/policy.mjs";
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const VENDOR_DIR = join(PLUGIN_ROOT, "vendor");
@@ -29,6 +31,10 @@ const STATE_PATH = join(VENDOR_DIR, ".install-state.json");
 function sh(cmd) {
   const r = spawnSync("sh", ["-c", cmd], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return { ok: !r.error && r.status === 0, status: r.status, stdout: r.stdout ?? "", stderr: (r.stderr ?? "").slice(0, 4000) };
+}
+
+function fileDigest(path) {
+  return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
 }
 
 function detectedLanguages(target) {
@@ -88,12 +94,13 @@ function installGz(tool, t) {
   const gz = join(CACHE_DIR, `${tool}.gz`);
   const dl = sh(`curl -fsSL "${url}" -o "${gz}"`);
   if (!dl.ok) return { tool, ok: false, reason: `download failed: ${dl.stderr || dl.status}` };
+  const archiveDigest = fileDigest(gz);
   const out = join(VENDOR_BIN, t.bin);
   const gun = sh(`gunzip -c "${gz}" > "${out}"`);
   rmSync(gz, { force: true });
   if (!gun.ok) return { tool, ok: false, reason: `gunzip failed: ${gun.stderr}` };
   chmodSync(out, 0o755);
-  return { tool, ok: true, method: "github-gz", bin: out };
+  return { tool, ok: true, method: "github-gz", bin: out, url, archiveDigest, binaryDigest: fileDigest(out) };
 }
 
 function resolveClangdUrl(t) {
@@ -113,6 +120,7 @@ function installZip(tool, t) {
   const zip = join(CACHE_DIR, `${tool}.zip`);
   const dl = sh(`curl -fsSL "${url}" -o "${zip}"`);
   if (!dl.ok) return { tool, ok: false, reason: `download failed: ${dl.stderr || dl.status}` };
+  const archiveDigest = fileDigest(zip);
   const dest = join(VENDOR_DIR, tool);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
@@ -123,20 +131,21 @@ function installZip(tool, t) {
   if (!exe) return { tool, ok: false, reason: `binary "${t.bin}" not found in archive` };
   chmodSync(exe, 0o755);
   writeExecWrapper(t.bin, exe.slice(VENDOR_DIR.length + 1));
-  return { tool, ok: true, method: "github-zip", bin: join(VENDOR_BIN, t.bin), needsJava: t.needsJava };
+  return { tool, ok: true, method: "github-zip", bin: join(VENDOR_BIN, t.bin), needsJava: t.needsJava, url, archiveDigest, binaryDigest: fileDigest(exe) };
 }
 
 function installTarball(tool, t) {
   const tgz = join(CACHE_DIR, `${tool}.tar.gz`);
   const dl = sh(`curl -fsSL "${t.url}" -o "${tgz}"`);
   if (!dl.ok) return { tool, ok: false, reason: `download failed: ${dl.stderr || dl.status}` };
+  const archiveDigest = fileDigest(tgz);
   const dest = join(VENDOR_DIR, tool);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   const ex = sh(`tar -xzf "${tgz}" -C "${dest}"`);
   rmSync(tgz, { force: true });
   if (!ex.ok) return { tool, ok: false, reason: `extract failed: ${ex.stderr}` };
-  return { tool, ok: true, method: "tarball", dir: dest, needsJava: t.needsJava };
+  return { tool, ok: true, method: "tarball", dir: dest, needsJava: t.needsJava, url: t.url, archiveDigest };
 }
 
 function installNative(tool) {
@@ -161,7 +170,7 @@ function installOne(tool, t) {
   return { tool, ok: false, reason: `unknown method ${t.method}` };
 }
 
-export function installTooling({ target, includeHeavy = false, only = null } = {}) {
+export function installTooling({ target, includeHeavy = false, only = null, approved = false } = {}) {
   ensureDirs();
   const resolvedTarget = resolve(target ?? ".");
   const detected = new Set(detectedLanguages(resolvedTarget));
@@ -187,10 +196,29 @@ export function installTooling({ target, includeHeavy = false, only = null } = {
       continue;
     }
 
+    if (t.method !== "npm") {
+      const installGate = networkInstallAllowed(resolvedTarget, { approved, tool });
+      if (!installGate.ok) {
+        failed.push({ tool, ok: false, reason: installGate.reason, requiresApproval: Boolean(installGate.requiresApproval) });
+        continue;
+      }
+      if (installGate.requirePinnedDigests && !t.sha256) {
+        failed.push({ tool, ok: false, reason: "policy.install.requirePinnedDigests=true but this tool has no pinned SHA256 in vendor-manifest.mjs" });
+        continue;
+      }
+    }
+
     const result = installOne(tool, t);
     if (result.ok) {
       installed.push(result);
-      state.installed[tool] = { at: new Date().toISOString(), method: result.method };
+      state.installed[tool] = {
+        at: new Date().toISOString(),
+        method: result.method,
+        url: result.url ?? null,
+        archiveDigest: result.archiveDigest ?? null,
+        binaryDigest: result.binaryDigest ?? null,
+        approved: Boolean(approved)
+      };
     } else {
       failed.push(result);
     }
@@ -225,13 +253,14 @@ function main() {
     process.exit(0);
   }
   const { flags } = parseFlags(process.argv.slice(2), {
-    boolean: ["include-heavy", "json", "mark-auto", "help"],
+    boolean: ["include-heavy", "json", "mark-auto", "approved", "help"],
     value: ["target", "only"]
   });
   const result = installTooling({
     target: flags.target ?? process.cwd(),
     includeHeavy: Boolean(flags["include-heavy"]),
-    only: flags.only ?? null
+    only: flags.only ?? null,
+    approved: Boolean(flags.approved)
   });
   if (flags["mark-auto"]) markAutoAttempted();
   emitResult(result);

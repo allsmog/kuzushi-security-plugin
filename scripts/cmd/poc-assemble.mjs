@@ -82,11 +82,13 @@ export async function assemblePoc(target, runDir, options = {}) {
     fingerprint: r.findingFingerprint,
     status: pocVerdictToStatus(r.proofVerdict),
     poc: {
+      schemaVersion: "poc.v1",
       proofLevel: r.proofLevel,
       proofVerdict: r.proofVerdict,
       backend: r.backend,
       durationMs: r.durationMs,
       harnessDir: r.harnessDir,
+      runCommand: r.runCommand,
       logPath: r.logPath,
       provenAt
     }

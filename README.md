@@ -1,6 +1,6 @@
 # kuzushi-security-plugin
 
-**An autonomous, language-aware white-box (static source) security review pipeline that lives inside Claude Code.**
+**An autonomous, language-aware local security review pipeline that lives inside Claude Code.**
 
 Point it at source you already have checked out and the plugin statically maps it (entry
 points by pattern, not observed traffic), threat-models it, researches the CVEs that actually
@@ -25,8 +25,8 @@ control: heavy or outbound steps **ask first**, and everything runs against your
 
 ## Scope & boundaries
 
-This is a **white-box, static source-code** tool. How complete that is depends on what you
-point it at.
+This is a **local source-code** tool with static-first analysis and sandboxed dynamic proof
+for harnessable targets. How complete that is depends on what you point it at.
 
 **Always in scope** (any target with source on disk): PASTA threat model, version-checked CVE
 intel, source→sink taint analysis, adversarial guard-bypass review, static exploitability
@@ -39,8 +39,10 @@ target. None of that lives here.
 
 **Libraries, native / systems code, parsers, CLIs** — there's no HTTP layer to proxy, so most
 of that dynamic half simply doesn't apply. Source→sink plus the sandboxed `/poc` harness is
-much of the standard workflow. The dynamic complement *here* is fuzzing (libFuzzer / AFL,
-sanitizers at scale); `/poc` builds a single ASAN/crash harness, not a fuzzing campaign.
+much of the standard workflow. The dynamic complement *here* is fuzzing: `/fuzz-init` creates
+a campaign plan from confirmed/proven findings, `/fuzz-run` executes runnable harnesses in the
+same offline sandbox model, and `/fuzz-promote` only advances findings when empirical crash or
+sanitizer evidence exists.
 
 **Across the board:** it loads source, it does not *recover* it (no decompilation / bytecode);
 `/poc` proves the code in an isolated sandbox (`--network none`), not a deployed app. Findings are
@@ -96,6 +98,11 @@ claude --plugin-dir .
 /rule-synth          # distill confirmed findings into validated CodeQL/Joern rules (digest-attested pack)
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
+/fuzz-init           # initialize a fuzz campaign from confirmed/proven findings
+/fuzz-run            # run declared fuzz harnesses in an offline sandbox
+/fuzz-triage         # group fuzz crashes by deterministic crash hash
+/fuzz-minimize       # preserve/minimize crash groups when engine support is available
+/fuzz-promote        # attach fuzz proof and promote exploited results to proven
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
 /fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
 /chain               # link related findings into higher-impact attack chains (analysis overlay)
@@ -121,13 +128,18 @@ claude --plugin-dir .
 | `/sharp-edges` | **Misuse-resistance review.** Scans for footgun APIs / dangerous defaults, then the sharp-edges-analyzer agent reasons through three adversaries (scoundrel / lazy / confused dev) across six categories (e.g. JWT `alg:none`, TLS verify off, stringly-typed auth). Distinct from `/sast` (injection). | `.kuzushi/sharp-edges.json`, `findings.json` |
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
-| `/variant-hunt` | **Variant analysis.** For each confirmed/exploitable finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
+| `/variant-hunt` | **Variant analysis.** For each confirmed/proven finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
 | `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
 | `/rule-synth` | **Validated CodeQL/Joern rules from a confirmed bug** — the heavy semantic engines `/semgrep-rule` doesn't cover. The rule-synthesist agent writes a query per seed; a **native gate** (compile → fire-on-seed → repo-run → precision-cap) accepts only passing rules into a **digest-attested pack** (`.kuzushi/rules/{codeql,joern}/` + `pack.json`). The codeql/joern MCP servers refuse to run a pack query whose bytes don't match the manifest, so generated queries are validated before they execute. New matches promote as `candidate` leads. Needs a built CodeQL DB / Joern CPG. | `.kuzushi/rules/{codeql,joern}/`, `pack.json`, `rule-synth.json`, `findings.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
+| `/fuzz-init` | **Fuzz campaign initialization.** Builds `.kuzushi/fuzz/fuzz-plan.json` from confirmed/proven findings, recommending libFuzzer/Jazzer/Node/Go/Rust engines, creating harness directories, and attaching semantic-oracle guidance. | `.kuzushi/fuzz/fuzz-plan.json` |
+| `/fuzz-run` | **Sandboxed fuzz execution.** Runs declared harness commands offline (Docker `--network none`, else gated local), classifies crash/sanitizer results, and records logs. | `.kuzushi/fuzz/fuzz-run.json` |
+| `/fuzz-triage` | **Crash grouping.** Groups exploited fuzz results by deterministic crash hash for dedupe. | `.kuzushi/fuzz/fuzz-triage.json` |
+| `/fuzz-minimize` | **Crash minimization ledger.** Preserves crash groups and records minimization status; engine-specific minimizers can fill in minimized inputs later. | `.kuzushi/fuzz/fuzz-minimize.json` |
+| `/fuzz-promote` | **Fuzz proof promotion.** Attaches a `fuzz` block and advances only `proofVerdict:"exploited"` results to `proven`. | `.kuzushi/fuzz/fuzz-promote.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
-| `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + a functional check. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire) and the functional check (must still pass) — a patch is **`validated`** only if it *stops the exploit AND preserves behavior* (PoC⁺). The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
+| `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + functional and semantic checks. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire), the functional check, and the semantic oracle check for supported CWEs — a patch is **`validated`** only if all required gates pass. The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
 | `/chain` | **Cross-finding attack chains.** The chain-finder agent reasons over the findings index for compositions (precondition → pivot → impact) — e.g. an auth bypass that turns a read-only SSRF into internal RCE, or a `/mem-exploitability` info-leak that defeats a canary for a control-flow hijack — and records each chain (ordered narrative + member fingerprints), attaching a `chains` ref onto each member (status unchanged). An analysis overlay, not a combined exploit. | `.kuzushi/chains.json`, `findings.json` |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
@@ -162,9 +174,10 @@ The plugin only spins up what your repo needs, and installs what it can.
   (AST + taint source/sink queries, scoped to detected languages) plus wrappers for
   **semgrep, CodeQL, Joern, gtags, codegraph** — each returns a structured "missing" until its
   CLI is present.
-- **Vendoring**: light tools (rust-analyzer, clangd, jdtls, codegraph) auto-install in the
-  background on first session, language-gated; the heavy ones (CodeQL ~1 GB, Joern ~2 GB) are
-  opt-in via `/install codeql|joern`. Cross-platform (macOS + Linux).
+- **Vendoring**: light tools (rust-analyzer, clangd, jdtls, codegraph) can auto-install in the
+  background on first session in `developer-fast`; `review-safe` and `ci-locked` disable surprise
+  downloads. Heavy ones (CodeQL ~1 GB, Joern ~2 GB) are opt-in via `/install codeql|joern`.
+  Install state records source URLs and digests where available.
 - **Databases**: `/build-databases` creates the CodeQL DB + Joern CPG **asynchronously** (logs
   to `.kuzushi/db-build.log`) so deep semantic queries work without blocking your session.
 
@@ -176,12 +189,17 @@ Python (semgrep). The plugin tells you what's missing and how to get it.
 
 ### Trust plane
 
-The analyzer query surface and working-tree writes are governed by a policy
+The analyzer query surface, working-tree writes, hook error posture, and tool downloads are governed by a policy
 (`policy.default.json`, override per-repo with `.kuzushi/policy.json`). Always-on: CodeQL/Joern
 query **path-confinement** (no escapes to `~/.ssh`, `/etc`, …) and an inline-script **size cap**.
-Configurable: `mcp.rawQuery` (`allow` → `require-approval` → `deny`) gates *raw* queries vs. the
-digest-attested rule pack, and `git.apply` gates working-tree writes. Every artifact carries a
-`provenance` block (toolchain/repo/scope/policy digests). See [docs/HARDENING.md](docs/HARDENING.md).
+Configurable profiles:
+
+- `developer-fast`: raw queries allowed, hook errors fail open, light auto-install enabled.
+- `review-safe`: raw queries require approval, hook errors block, auto-install disabled.
+- `ci-locked`: raw queries denied, git apply denied, network installs denied, hook errors fail closed.
+
+Every artifact carries a `provenance` block (toolchain/repo/scope/policy digests). See
+[docs/HARDENING.md](docs/HARDENING.md).
 
 ---
 
@@ -193,13 +211,16 @@ contracts** that later steps (and your own tooling) build on:
 - **Invariants** (`threat-intel.json.invariants[]`) — `{ statement, cwe, severity, sourceCves,
   sourceSignals, sinkSignals, sanitizerSignals, taintClass, languages, checkHint }`. CVE
   intelligence turned into checkable assertions.
-- **Findings** (`findings.json`) — `{ fingerprint, source, refId, title, severity, cwe,
-  verdict, status, evidence:[{filePath,startLine}], rationale, nextChecks }`, deduped by
-  fingerprint. The canonical index every producer (`threat-hunt`, `taint-analysis`, …) writes
-  to and every consumer reads. `/verify`, `/poc`, and `/fix` don't replace findings — they
-  **attach** a `verification`, then a `poc`, then a `fix` block onto the matching finding and
-  advance its `status` (`open → confirmed → proven → patched → remediated`), so a finding accretes
-  its full discovery → proof → remediation story in one place.
+- **Findings** (`findings.json`) — versioned as `findings.v1` / `finding.v1` with
+  `{ fingerprint, source, refId, title, severity, cwe, verdict, status, proofState,
+  evidence:[{filePath,startLine}], rationale, nextChecks }`, deduped by fingerprint.
+  The proof ladder is explicit: `lead/candidate → open → confirmed → proven → patched →
+  remediated`, with reviewed/noise states kept separate. `/verify`, `/poc`, `/fuzz-promote`,
+  and `/fix` attach `verification`, `poc`, `fuzz`, and `fix` blocks instead of replacing the
+  finding, so a finding accretes its full discovery → proof → remediation story in one place.
+
+Schemas live under `schemas/`, and `npm run bench:smoke` verifies the core contracts plus SARIF
+metadata and locked policy behavior. See [BENCHMARKS.md](BENCHMARKS.md).
 
 It's a faithful Node port/adaptation of the [kuzushi](#acknowledgements) security toolkit —
 no Rust build, no external binary, no daemon.
@@ -208,15 +229,16 @@ no Rust build, no external binary, no daemon.
 
 kuzushi opens **source you may not trust**, which changes the threat model for your own session.
 The plugin ships `PreToolUse` guardrail hooks that block `rm -rf`, `git push` to `main`/`master`,
-and reads of secret paths (`~/.ssh`, `~/.aws`, keychains, wallets, registry tokens). For the
+and reads of secret paths (`~/.ssh`, `~/.aws`, keychains, wallets, registry tokens). Hook errors
+fail open only in `developer-fast`; `review-safe` and `ci-locked` block on hook errors. For the
 user-level settings a plugin can't set itself — notably `enableAllProjectMcpServers: false` so a
 target repo's own `.mcp.json` is never auto-loaded — see **[docs/HARDENING.md](docs/HARDENING.md)**.
 
 ## Privacy
 
-All analysis runs **locally** against your repo. The only step that reaches the network is
-`/threat-intel` (web search for CVEs) and the optional tool downloads in `/install` /
-`/build-databases`. Nothing is uploaded.
+All analysis runs **locally** against your repo. The only steps that reach the network are
+`/threat-intel` (web search for CVEs) and optional tool downloads in `/install` /
+`/build-databases`, and those are policy-gated. Nothing is uploaded.
 
 ## Contributing
 

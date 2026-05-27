@@ -2,11 +2,10 @@
 //
 // A single effective policy governs the plugin's risk surfaces: which paths
 // generated/queried files may live in, whether raw (non-pack) analyzer queries
-// may execute, the inline-script size cap, and the posture for working-tree
-// writes. The shipped default (policy.default.json at the plugin root) is
-// non-breaking — `mcp.rawQuery: "allow"` preserves today's behavior — but a
-// per-target `<target>/.kuzushi/policy.json` override can tighten it to
-// "require-approval" or "deny" for locked-down environments.
+// may execute, the inline-script size cap, hook error posture, install/download
+// posture, and the posture for working-tree writes. The shipped default remains
+// developer-friendly, but named profiles provide review-safe and ci-locked
+// hardening without requiring users to rewrite the full policy.
 //
 // Always-on (independent of rawQuery): query PATH CONFINEMENT (a .ql file or
 // CPG path must resolve under the target tree, the plugin root, or the OS temp
@@ -18,6 +17,7 @@ import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { assertValid } from "./schemas.mjs";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_POLICY_PATH = join(PLUGIN_ROOT, "policy.default.json");
@@ -26,25 +26,49 @@ function readJson(path) {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
 }
 
-// Shallow-merge an override onto the default, one level deep per top-level key
-// (so `{ mcp: { rawQuery: "deny" } }` only changes rawQuery, keeping the rest).
+const PROFILE_KEYS = new Set(["profiles", "activeProfile"]);
+
+function isPlainObject(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function withoutProfileKeys(policy) {
+  const out = {};
+  for (const [key, value] of Object.entries(policy ?? {})) {
+    if (!PROFILE_KEYS.has(key)) out[key] = value;
+  }
+  return out;
+}
+
+// Deep-merge an override onto the default so profile snippets can change one
+// nested key without discarding siblings.
 function mergePolicy(base, override) {
   if (!override) return base;
   const out = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    out[key] = value && typeof value === "object" && !Array.isArray(value) && typeof base[key] === "object"
-      ? { ...base[key], ...value }
+    out[key] = isPlainObject(value) && isPlainObject(base[key])
+      ? mergePolicy(base[key], value)
       : value;
   }
   return out;
 }
 
-// Effective policy for a target: plugin default ← optional .kuzushi/policy.json.
+// Effective policy for a target:
+//   default base ← selected profile ← optional .kuzushi/policy.json fields.
+// If the override sets activeProfile, that profile is selected first, then the
+// override's concrete fields win. This lets CI set `{ "activeProfile":
+// "ci-locked" }` without copying the profile body.
 export function loadPolicy(target = process.cwd()) {
   const def = readJson(DEFAULT_POLICY_PATH) ?? {};
   const overridePath = join(resolve(target), ".kuzushi", "policy.json");
   const override = existsSync(overridePath) ? readJson(overridePath) : null;
-  const effective = mergePolicy(def, override);
+  const profiles = mergePolicy(def.profiles ?? {}, override?.profiles ?? {});
+  const activeProfile = override?.activeProfile ?? def.activeProfile ?? "developer-fast";
+  const profile = profiles[activeProfile] ?? {};
+  const effective = mergePolicy(mergePolicy(withoutProfileKeys(def), profile), withoutProfileKeys(override));
+  effective.activeProfile = activeProfile;
+  effective.profiles = profiles;
+  assertValid("policy", effective);
   return { effective, sources: { default: DEFAULT_POLICY_PATH, override: override ? overridePath : null } };
 }
 
@@ -142,4 +166,33 @@ export function execAllowed(target, command) {
   const { effective } = loadPolicy(target);
   const list = effective.exec?.subprocessAllowlist ?? [];
   return list.includes(command);
+}
+
+export function hookErrorDecision(target = process.cwd()) {
+  const { effective } = loadPolicy(target);
+  return effective.guardrails?.onHookError ?? "allow";
+}
+
+export function autoInstallAllowed(target = process.cwd()) {
+  const { effective } = loadPolicy(target);
+  const value = effective.install?.autoInstallLightTools;
+  return value === true || value === "allow";
+}
+
+export function networkInstallAllowed(target = process.cwd(), { approved = false, tool = null } = {}) {
+  const { effective } = loadPolicy(target);
+  const install = effective.install ?? {};
+  const decision = install.allowNetworkInstall ?? "approval-only";
+  if (decision === "deny") {
+    return { ok: false, blocked: "install", reason: "policy.install.allowNetworkInstall=deny: tool downloads are disabled" };
+  }
+  if (decision === "approval-only" && !approved) {
+    return {
+      ok: false,
+      blocked: "install",
+      requiresApproval: true,
+      reason: `policy.install.allowNetworkInstall=approval-only: ${tool ?? "tool"} install requires explicit approval`
+    };
+  }
+  return { ok: true, requirePinnedDigests: Boolean(install.requirePinnedDigests) };
 }

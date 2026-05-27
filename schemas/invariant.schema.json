@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/invariant.v1.schema.json",
+  "title": "Kuzushi invariant.v1",
+  "type": "object",
+  "required": ["statement", "severity"],
+  "properties": {
+    "schemaVersion": { "const": "invariant.v1" },
+    "statement": { "type": "string", "minLength": 1 },
+    "cwe": {},
+    "severity": { "type": "string" },
+    "sourceCves": { "type": "array" },
+    "sourceSignals": { "type": "array" },
+    "sinkSignals": { "type": "array" },
+    "sanitizerSignals": { "type": "array" },
+    "taintClass": { "type": "string" },
+    "languages": { "type": "array" },
+    "checkHint": { "type": "string" }
+  }
+}

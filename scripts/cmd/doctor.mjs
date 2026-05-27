@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emitResult } from "../lib/artifact-store.mjs";
+import { emitResult, storeFor, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { SUPPORTED_BACKENDS, mcpHealth } from "../lib/mcp.mjs";
 import { LSP_SERVERS, MCP_BACKENDS, toolAvailable } from "../lib/capabilities.mjs";
 import { loadPolicy, policyDigest } from "../lib/policy.mjs";
@@ -59,14 +59,28 @@ async function gather() {
   // Effective tool-boundary policy for the current dir.
   const target = process.cwd();
   const { effective, sources } = loadPolicy(target);
+  const store = storeFor(target);
+  const rulePack = readJsonIfPresent(store.rulePackManifestPath);
   const policy = {
     digest: policyDigest(target),
+    activeProfile: effective.activeProfile,
     overridden: Boolean(sources.override),
     rawQuery: effective.mcp?.rawQuery ?? "allow",
     confineQueryPaths: effective.mcp?.confineQueryPaths ?? true,
     maxQueryBytes: effective.mcp?.maxQueryBytes ?? 200000,
     gitApply: effective.git?.apply ?? "require-approval",
-    writeRoots: effective.filesystem?.writeRoots ?? []
+    writeRoots: effective.filesystem?.writeRoots ?? [],
+    networkDefault: effective.network?.default ?? "deny",
+    networkAllow: effective.network?.allow ?? [],
+    hookErrors: effective.guardrails?.onHookError ?? "allow",
+    autoInstallLightTools: effective.install?.autoInstallLightTools ?? false,
+    allowNetworkInstall: effective.install?.allowNetworkInstall ?? "approval-only",
+    requirePinnedDigests: Boolean(effective.install?.requirePinnedDigests),
+    rulePack: {
+      present: Boolean(rulePack),
+      schemaVersion: rulePack?.schemaVersion ?? rulePack?.version ?? null,
+      ruleCount: rulePack?.rules?.length ?? 0
+    }
   };
 
   return {
@@ -102,10 +116,14 @@ function printReport(report) {
   if (report.policy) {
     const p = report.policy;
     console.log("");
-    console.log(`Tool-boundary policy (digest ${p.digest}${p.overridden ? ", overridden by .kuzushi/policy.json" : ", default"}):`);
+    console.log(`Tool-boundary policy (profile ${p.activeProfile}, digest ${p.digest}${p.overridden ? ", overridden by .kuzushi/policy.json" : ", default"}):`);
     console.log(`  raw analyzer queries: ${p.rawQuery}   (path-confinement: ${p.confineQueryPaths ? "on" : "off"}, max inline script: ${p.maxQueryBytes} bytes)`);
     console.log(`  git apply (working-tree writes): ${p.gitApply}`);
+    console.log(`  guardrail hook errors: ${p.hookErrors}`);
+    console.log(`  network: default ${p.networkDefault}; allowlist: ${p.networkAllow.join(", ") || "(none)"}`);
+    console.log(`  installs: auto-light=${p.autoInstallLightTools}; network=${p.allowNetworkInstall}; pinned-digests=${p.requirePinnedDigests}`);
     console.log(`  write roots: ${p.writeRoots.join(", ") || "(none)"}`);
+    console.log(`  rule pack: ${p.rulePack.present ? `${p.rulePack.ruleCount} rules (${p.rulePack.schemaVersion ?? "unversioned"})` : "not present"}`);
   }
 }
 

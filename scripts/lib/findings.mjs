@@ -6,11 +6,13 @@
 // fingerprint and rewrites the index with a status/verdict summary.
 //
 // Finding shape:
-//   { fingerprint, source, refId, title, severity, cwe, verdict, status,
-//     evidence:[{filePath,startLine}], rationale, nextChecks:[], updatedAt }
+//   { schemaVersion:"finding.v1", fingerprint, source, refId, title, severity,
+//     cwe, verdict, status, proofState, evidence:[{filePath,startLine}],
+//     rationale, nextChecks:[], updatedAt }
 
 import { createHash } from "node:crypto";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
+import { assertFindingsDocument } from "./schemas.mjs";
 
 // Closed verdict set (shared with threat-hunt-finalize) → finding status.
 // taint-analysis adds the IRIS triage verdicts (finding/candidate/rejected).
@@ -69,6 +71,49 @@ export function fixVerdictToStatus(verdict) {
   return FIX_STATUS[verdict] ?? null;
 }
 
+export function proofStateFor(finding) {
+  if (finding.status === "noise") return "noise";
+  if (finding.status === "reviewed") return "reviewed";
+  if (finding.status === "remediated") return "remediated";
+  if (finding.status === "patched") return "patch-validated";
+  if (finding.fix) return finding.fix.verdict === "validated" ? "patch-validated" : "patch-planned";
+  if (finding.status === "proven" || finding.poc?.proofVerdict === "exploited") return "proven";
+  if (finding.status === "confirmed" || finding.verification?.verdict === "confirmed-exploitable") return "confirmed";
+  if (finding.verification?.pocReady || finding.verification?.pocSketch) return "trigger-built";
+  if (finding.verification) return "reachable";
+  if (finding.status === "open") return "open";
+  if (finding.status === "lead") return "lead";
+  return "candidate";
+}
+
+function normalizeEvidence(evidence) {
+  return Array.isArray(evidence)
+    ? evidence.map((a) => ({
+        filePath: String(a?.filePath ?? "."),
+        ...(a?.startLine !== undefined ? { startLine: Math.max(1, Number(a.startLine) || 1) } : {}),
+        ...(a?.endLine !== undefined ? { endLine: Math.max(1, Number(a.endLine) || 1) } : {})
+      }))
+    : [];
+}
+
+export function normalizeFinding(raw, now = new Date().toISOString()) {
+  const status = raw.status ?? verdictToStatus(raw.verdict);
+  const normalized = {
+    ...raw,
+    schemaVersion: raw.schemaVersion ?? "finding.v1",
+    source: raw.source ? String(raw.source) : "unknown",
+    refId: raw.refId ? String(raw.refId) : String(raw.fingerprint ?? "finding"),
+    title: raw.title ? String(raw.title) : String(raw.refId ?? "Untitled finding"),
+    severity: raw.severity ? String(raw.severity) : "medium",
+    status,
+    evidence: normalizeEvidence(raw.evidence),
+    nextChecks: Array.isArray(raw.nextChecks) ? raw.nextChecks : [],
+    updatedAt: raw.updatedAt ?? now
+  };
+  normalized.proofState = proofStateFor(normalized);
+  return normalized;
+}
+
 // Stable id for dedupe across runs: source + refId + the primary evidence anchor.
 export function fingerprint(finding) {
   const anchor = finding.evidence?.[0];
@@ -103,10 +148,11 @@ export function upsertFindings(target, newFindings) {
   const now = new Date().toISOString();
   for (const raw of newFindings) {
     const fp = raw.fingerprint ?? fingerprint(raw);
-    byFp.set(fp, { ...raw, fingerprint: fp, updatedAt: now });
+    byFp.set(fp, normalizeFinding({ ...raw, fingerprint: fp, updatedAt: now }, now));
   }
-  const findings = [...byFp.values()];
-  const document = { version: "1.0", generatedAt: now, target, findings, summary: buildSummary(findings) };
+  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now));
+  const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
+  assertFindingsDocument(document);
   atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
   return document;
 }
@@ -130,10 +176,11 @@ export function patchFindings(target, patches) {
     const fp = patch.fingerprint;
     const current = fp ? byFp.get(fp) : undefined;
     if (!current) throw new Error(`patchFindings: unknown fingerprint "${fp}"`);
-    byFp.set(fp, { ...current, ...patch, fingerprint: fp, updatedAt: now });
+    byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now));
   }
-  const findings = [...byFp.values()];
-  const document = { version: "1.0", generatedAt: now, target, findings, summary: buildSummary(findings) };
+  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now));
+  const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
+  assertFindingsDocument(document);
   atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
   return document;
 }

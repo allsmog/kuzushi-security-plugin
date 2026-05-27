@@ -13,11 +13,11 @@ on the argument the user passed (`$ARGUMENTS`); use the project working director
 
 - **A specific tool** (e.g. `codeql`, `joern`, `clangd`) — installs just that one, including
   heavy ones:
-  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>" --only $ARGUMENTS`
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>" --only $ARGUMENTS --approved`
 - **`all`** — everything relevant including the heavy codeql/joern (~1–3 GB):
-  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>" --include-heavy`
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>" --include-heavy --approved`
 - **No argument** — the light, language-relevant tools only (no GB-scale downloads):
-  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>"`
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/install-tooling.mjs" --target "<cwd>" --approved`
 
 Then relay the JSON result: what was `installed`, what `failed` (show the reason / install
 hint), and what `needsConfirm` (heavy tools you can install by name). Warn that heavy

@@ -103,7 +103,7 @@ function ensureInstalled(store, tool, includeInstall) {
   if (commandInstalled(tool)) return { ok: true };
   if (!includeInstall) return { ok: false, reason: `${tool} CLI not installed (run /install ${tool})` };
   log(store, `installing ${tool} (this can be large)…`);
-  const status = runLogged(store, process.execPath, [INSTALL_TOOLING, "--only", tool, "--include-heavy"]);
+  const status = runLogged(store, process.execPath, [INSTALL_TOOLING, "--only", tool, "--include-heavy", "--approved"]);
   return commandInstalled(tool) ? { ok: true } : { ok: false, reason: `install of ${tool} failed (status ${status})` };
 }
 

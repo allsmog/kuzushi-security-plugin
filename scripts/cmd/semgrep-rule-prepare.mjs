@@ -14,7 +14,6 @@ const EXCERPT_RADIUS = 12;
 
 function isSeed(f) {
   if (f.status === "confirmed" || f.status === "proven") return true;
-  if (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding")) return true;
   return false;
 }
 

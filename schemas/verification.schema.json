@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/verification.v1.schema.json",
+  "title": "Kuzushi verification.v1",
+  "type": "object",
+  "required": ["verdict", "confidence", "verifiedAt"],
+  "properties": {
+    "schemaVersion": { "const": "verification.v1" },
+    "verdict": {
+      "type": "string",
+      "enum": ["confirmed-exploitable", "not-exploitable", "inconclusive"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "attackVector": {},
+    "preconditions": { "type": "array" },
+    "pocSketch": {},
+    "pocReady": { "type": "boolean" },
+    "gateReview": { "type": "object" },
+    "verifiedAt": { "type": "string" }
+  }
+}

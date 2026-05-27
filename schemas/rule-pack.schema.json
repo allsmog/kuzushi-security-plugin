@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/rule-pack.v1.schema.json",
+  "title": "Kuzushi rule-pack.v1",
+  "type": "object",
+  "required": ["schemaVersion", "target", "rules"],
+  "properties": {
+    "schemaVersion": { "const": "rule-pack.v1" },
+    "version": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "target": { "type": "string" },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ruleId", "engine", "file", "digest", "validated"],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "engine": { "type": "string", "enum": ["codeql", "joern", "semgrep"] },
+          "file": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:" },
+          "sourceFinding": { "type": "string" },
+          "validated": { "type": "object" },
+          "precision": { "type": "number" },
+          "recall": { "type": "number" }
+        }
+      }
+    }
+  }
+}

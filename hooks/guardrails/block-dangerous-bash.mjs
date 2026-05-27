@@ -8,8 +8,10 @@
 //
 // Adapted from the Trail of Bits claude-code-config PreToolUse hooks. This is a
 // guardrail, not a sandbox: it catches the common dangerous shapes, not every
-// obfuscation. It must FAIL OPEN — any internal error exits 0 (allow) so the
-// guardrail can never wedge a session.
+// obfuscation. Hook error posture is policy-controlled: developer-fast fails
+// open, review-safe / ci-locked fail closed.
+
+import { hookErrorDecision } from "../../scripts/lib/policy.mjs";
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -54,7 +56,12 @@ async function run() {
   try {
     cmd = String(JSON.parse(raw || "{}")?.tool_input?.command ?? "");
   } catch {
-    process.exit(0); // unparseable input → fail open
+    const decision = hookErrorDecision(process.cwd());
+    if (decision === "deny" || decision === "require-approval") {
+      process.stderr.write(`Blocked by kuzushi guardrail: hook input was not parseable and policy.guardrails.onHookError=${decision}.\n`);
+      process.exit(2);
+    }
+    process.exit(0);
   }
   if (!cmd) process.exit(0);
 
@@ -75,4 +82,12 @@ async function run() {
   process.exit(0);
 }
 
-run().catch(() => process.exit(0)); // fail open on any error
+run().catch((error) => {
+  let decision = "allow";
+  try { decision = hookErrorDecision(process.cwd()); } catch {}
+  if (decision === "deny" || decision === "require-approval") {
+    process.stderr.write(`Blocked by kuzushi guardrail: hook error (${error?.message ?? error}) and policy.guardrails.onHookError=${decision}.\n`);
+    process.exit(2);
+  }
+  process.exit(0);
+});

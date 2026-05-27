@@ -400,6 +400,13 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `it builds a minimal harness per finding and RUNS it in a sandbox (Docker --network none, else a gated ` +
       `local run) to empirically prove the bug. It executes code, so only run it when the user explicitly asks; never auto-run it.`;
   }
+  if (findings.present && (findings.confirmed || findings.proven)) {
+    additionalContext +=
+      `\n\nConfirmed/proven findings can seed /fuzz-init: it creates a local fuzz campaign plan and harness ` +
+      `workspace; /fuzz-run executes declared harnesses offline, /fuzz-triage dedupes crashes, /fuzz-minimize ` +
+      `records minimization, and /fuzz-promote only advances empirical crash/sanitizer evidence to proven. ` +
+      `Mention it for parser/native/library targets; don't auto-run it.`;
+  }
   // mem-exploitability — surface when there's a memory-corruption finding not yet
   // assessed. Assessment only (tiers + mitigation posture + remediation, no payloads).
   if (findings.present && findings.memAssessable && !memExploit.built) {
@@ -429,8 +436,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     additionalContext +=
       `\n\n.kuzushi/findings.json has confirmed / proven finding(s) — /fix is available: it root-causes each bug, ` +
       `generates a minimal defensive unified-diff patch, and PoC⁺-validates it in a sandbox COPY (re-runs the ` +
-      `existing PoC expecting NO crash, plus a functional/regression check) — a patch is "validated" only if it ` +
-      `stops the exploit AND preserves behavior. It never touches your working tree until you explicitly approve ` +
+      `existing PoC expecting NO crash, plus functional and supported semantic-oracle checks) — a patch is "validated" only if all ` +
+      `required gates pass. It never touches your working tree until you explicitly approve ` +
       `the apply step (one finding at a time). It generates code and executes harnesses, so only run it when the user asks; don't auto-run it.`;
   } else if (findings.present && findings.fixApplyable) {
     additionalContext +=
@@ -494,7 +501,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `dangerous defaults), /diff-review (security review of a change: regressions + blast radius), ` +
     `/variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
-    `/poc (build + sandbox-run a harness to prove verified findings), /mem-exploitability (memory-corruption ` +
+    `/poc (build + sandbox-run a harness to prove verified findings), /fuzz-init / /fuzz-run / /fuzz-triage / ` +
+    `/fuzz-minimize / /fuzz-promote (local fuzz proof loop), /mem-exploitability (memory-corruption ` +
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
     `approval), /chain (link findings into attack chains), /sast (semgrep scan → triage → findings), ` +
     `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +

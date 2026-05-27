@@ -19,6 +19,7 @@ import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { patchFindings, fixVerdictToStatus } from "../lib/findings.mjs";
 import { detectBackend, runInSandbox, classifyResult } from "../lib/sandbox.mjs";
+import { oracleSummaryForFinding } from "../lib/oracles.mjs";
 
 const MIN_RATIONALE_LENGTH = 150;
 const VALID_EXPECTATIONS = new Set(["exit-zero", "assert-output"]);
@@ -48,6 +49,13 @@ function validate(candidates) {
     if (fc.kind !== "none" && !VALID_EXPECTATIONS.has(fc.expectation)) {
       fail(`${id}: functionalCheck.expectation must be one of ${[...VALID_EXPECTATIONS].join(", ")}`);
     }
+    if (c.semanticCheck) {
+      const sc = c.semanticCheck;
+      if (!VALID_KINDS.has(sc.kind)) fail(`${id}: semanticCheck.kind must be one of ${[...VALID_KINDS].join(", ")}`);
+      if (sc.kind !== "none" && !VALID_EXPECTATIONS.has(sc.expectation)) {
+        fail(`${id}: semanticCheck.expectation must be one of ${[...VALID_EXPECTATIONS].join(", ")}`);
+      }
+    }
     // Path-traversal guard: every target file must stay within the repo.
     for (const tf of c.targetFiles ?? []) {
       if (isAbsolute(tf) || normalize(tf).startsWith("..")) fail(`${id}: targetFile escapes the repo: ${tf}`);
@@ -60,6 +68,10 @@ function functionalPassed(run) {
   if (!run || run.skipped || run.timedOut || run.spawnError) return false;
   if (typeof run.exitCode === "number" && run.exitCode !== 0) return false;
   return true;
+}
+
+function runnableCheck(check) {
+  return check && check.kind !== "none" && check.runCommand;
 }
 
 export async function finalizeFix(target, runDir, options = {}) {
@@ -90,6 +102,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     const fp = c.findingFingerprint;
     const finding = findingByFp.get(fp);
     if (!finding) fail(`${fp}: no matching finding in findings.json`);
+    const oracle = c.semanticOracle ?? oracleSummaryForFinding(finding);
 
     // Persist the diff under the run dir (fix-apply references this path).
     const patchDir = join(resolvedRunDir, "fix", fp);
@@ -183,7 +196,7 @@ export async function finalizeFix(target, runDir, options = {}) {
     // Phase B — functional/regression check.
     const fc = c.functionalCheck ?? {};
     let functional;
-    if (fc.kind === "none" || !fc.runCommand) {
+    if (!runnableCheck(fc)) {
       functional = { kind: fc.kind ?? "none", passed: false, note: "no functional check supplied" };
     } else {
       const funcDir = fc.kind === "behavioral-harness" && fc.functionalDir && existsSync(fc.functionalDir) ? fc.functionalDir : repoDir;
@@ -197,13 +210,41 @@ export async function finalizeFix(target, runDir, options = {}) {
       functional = { kind: fc.kind, passed, exitCode: funcRun.exitCode ?? null };
     }
 
-    const verdict = functional.passed ? "validated" : "stops-exploit-breaks-function";
+    // Phase C — semantic oracle regression when the CWE is supported. The agent
+    // supplies a semanticCheck shaped like functionalCheck, using the oracle
+    // controls from fix-prepare. Unsupported CWEs do not block validation.
+    const sc = c.semanticCheck ?? {};
+    let semantic;
+    if (!oracle) {
+      semantic = { oracle: null, passed: true, note: "no semantic oracle for this CWE" };
+    } else if (!runnableCheck(sc)) {
+      semantic = { oracle: oracle.id, passed: false, note: "semantic oracle available but no semanticCheck supplied" };
+    } else {
+      const semDir = sc.kind === "behavioral-harness" && sc.semanticDir && existsSync(sc.semanticDir) ? sc.semanticDir : repoDir;
+      const semRun = await runInSandbox({ backend, language: poc.language ?? c.language, harnessDir: semDir, runCommand: sc.runCommand, timeoutMs, trustLocal });
+      const passed = functionalPassed(semRun);
+      logsRun.writeText(`fix-${fp}-semantic.log`, [
+        `# fix semantic ${fp}`, `oracle: ${oracle.id}`, `kind: ${sc.kind}  runCommand: ${sc.runCommand}`,
+        `exitCode: ${semRun.exitCode ?? ""}  passed: ${passed}`,
+        "## stdout", semRun.stdout ?? "", "## stderr", semRun.stderr ?? ""
+      ].join("\n"));
+      semantic = { oracle: oracle.id, passed, exitCode: semRun.exitCode ?? null };
+    }
+
+    const verdict = functional.passed && semantic.passed ? "validated" : "stops-exploit-breaks-function";
+    const validation = {
+      exploitRegressionPassed: true,
+      functionalRegressionPassed: Boolean(functional.passed),
+      semanticRegressionPassed: Boolean(semantic.passed),
+      pocPlusPassed: Boolean(functional.passed && semantic.passed),
+      semanticOracle: semantic.oracle
+    };
     results.push({
       findingFingerprint: fp, verdict, language: c.language ?? null, patchPath,
       harnessLinkage: c.harnessLinkage ?? "links-target",
       stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend },
-      functional, applied: false,
-      note: verdict === "validated" ? "PoC⁺: exploit stopped and functional check passed" : "exploit stopped but functional check did not pass"
+      functional, semantic, validation, applied: false,
+      note: verdict === "validated" ? "PoC⁺: exploit stopped, functional check passed, and semantic oracle passed" : "exploit stopped but functional or semantic regression did not pass"
     });
   }
   } finally {
@@ -227,7 +268,15 @@ export async function finalizeFix(target, runDir, options = {}) {
     const patch = {
       fingerprint: r.findingFingerprint,
       fix: {
+        schemaVersion: "fix.v1",
         verdict: r.verdict, patchPath: r.patchPath, harnessLinkage: r.harnessLinkage,
+        validation: r.validation ?? {
+          exploitRegressionPassed: r.verdict === "validated",
+          functionalRegressionPassed: r.verdict === "validated",
+          semanticRegressionPassed: r.verdict === "validated",
+          pocPlusPassed: r.verdict === "validated",
+          semanticOracle: null
+        },
         stops: r.stops, functional: r.functional, applied: false, validatedAt, note: r.note
       }
     };

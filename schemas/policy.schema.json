@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/policy.v1.schema.json",
+  "title": "Kuzushi policy.v1",
+  "type": "object",
+  "required": ["version", "activeProfile"],
+  "properties": {
+    "version": { "type": "integer" },
+    "activeProfile": { "type": "string" },
+    "profiles": { "type": "object" },
+    "filesystem": { "type": "object" },
+    "network": { "type": "object" },
+    "exec": { "type": "object" },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "rawQuery": { "type": "string", "enum": ["allow", "require-approval", "deny"] },
+        "confineQueryPaths": { "type": "boolean" },
+        "maxQueryBytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "apply": { "type": "string", "enum": ["allow", "require-approval", "deny"] }
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "properties": {
+        "onHookError": { "type": "string", "enum": ["allow", "require-approval", "deny"] }
+      }
+    },
+    "install": {
+      "type": "object",
+      "properties": {
+        "autoInstallLightTools": { "type": ["boolean", "string"] },
+        "allowNetworkInstall": { "type": "string", "enum": ["allow", "approval-only", "deny"] },
+        "requirePinnedDigests": { "type": "boolean" }
+      }
+    }
+  }
+}

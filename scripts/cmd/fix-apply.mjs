@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { patchFindings } from "../lib/findings.mjs";
+import { loadPolicy } from "../lib/policy.mjs";
 
 function fail(message) {
   console.error(`fix-apply: ${message}`);
@@ -21,6 +22,10 @@ function fail(message) {
 
 export function applyFix(target, fingerprint, { checkOnly = false } = {}) {
   const resolvedTarget = resolve(target);
+  const policy = loadPolicy(resolvedTarget).effective;
+  if (policy.git?.apply === "deny") {
+    fail("refusing to apply: policy.git.apply=deny");
+  }
   const store = storeFor(resolvedTarget);
   const fixDoc = readJsonIfPresent(store.fixPath);
   if (!fixDoc) fail(`${store.fixPath} not found — run /fix first`);
@@ -54,9 +59,17 @@ export function applyFix(target, fingerprint, { checkOnly = false } = {}) {
     fingerprint,
     status: "remediated",
     fix: {
+      schemaVersion: "fix.v1",
       verdict: entry.verdict,
       patchPath: entry.patchPath,
       harnessLinkage: entry.harnessLinkage ?? null,
+      validation: entry.validation ?? {
+        exploitRegressionPassed: true,
+        functionalRegressionPassed: true,
+        semanticRegressionPassed: true,
+        pocPlusPassed: true,
+        semanticOracle: null
+      },
       stops: entry.stops ?? null,
       functional: entry.functional ?? null,
       validatedAt: fixDoc.generatedAt ?? null,

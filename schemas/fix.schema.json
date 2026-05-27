@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/fix.v1.schema.json",
+  "title": "Kuzushi fix.v1",
+  "type": "object",
+  "required": ["verdict", "patchPath", "applied"],
+  "properties": {
+    "schemaVersion": { "const": "fix.v1" },
+    "verdict": {
+      "type": "string",
+      "enum": ["validated", "unvalidated-no-harness", "build-failed", "needs-more-evidence", "exploit-still-fires", "stops-exploit-breaks-function"]
+    },
+    "patchPath": { "type": "string" },
+    "harnessLinkage": {},
+    "validation": {
+      "type": "object",
+      "properties": {
+        "exploitRegressionPassed": { "type": "boolean" },
+        "functionalRegressionPassed": { "type": "boolean" },
+        "semanticRegressionPassed": { "type": "boolean" },
+        "pocPlusPassed": { "type": "boolean" },
+        "semanticOracle": { "type": ["string", "null"] }
+      }
+    },
+    "stops": {},
+    "functional": {},
+    "applied": { "type": "boolean" },
+    "validatedAt": {},
+    "appliedAt": {}
+  }
+}

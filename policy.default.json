@@ -1,6 +1,40 @@
 {
   "version": 1,
   "mode": "defensive",
+  "activeProfile": "developer-fast",
+  "profiles": {
+    "developer-fast": {
+      "mcp": { "rawQuery": "allow" },
+      "git": { "apply": "require-approval" },
+      "guardrails": { "onHookError": "allow" },
+      "install": {
+        "autoInstallLightTools": true,
+        "allowNetworkInstall": "approval-only",
+        "requirePinnedDigests": false
+      }
+    },
+    "review-safe": {
+      "mcp": { "rawQuery": "require-approval" },
+      "git": { "apply": "require-approval" },
+      "guardrails": { "onHookError": "require-approval" },
+      "install": {
+        "autoInstallLightTools": false,
+        "allowNetworkInstall": "approval-only",
+        "requirePinnedDigests": false
+      }
+    },
+    "ci-locked": {
+      "mcp": { "rawQuery": "deny" },
+      "git": { "apply": "deny" },
+      "network": { "default": "deny", "allow": [] },
+      "guardrails": { "onHookError": "deny" },
+      "install": {
+        "autoInstallLightTools": false,
+        "allowNetworkInstall": "deny",
+        "requirePinnedDigests": true
+      }
+    }
+  },
   "filesystem": {
     "writeRoots": [".kuzushi"],
     "denyGlobs": [
@@ -31,5 +65,13 @@
   },
   "git": {
     "apply": "require-approval"
+  },
+  "guardrails": {
+    "onHookError": "allow"
+  },
+  "install": {
+    "autoInstallLightTools": true,
+    "allowNetworkInstall": "approval-only",
+    "requirePinnedDigests": false
   }
 }

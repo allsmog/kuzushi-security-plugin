@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "schemaVersion": "findings.v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "target": "/tmp/kuzushi-fixture",
+  "findings": [
+    {
+      "schemaVersion": "finding.v1",
+      "fingerprint": "fixture00000001",
+      "source": "fixture",
+      "refId": "fixture:CWE-22",
+      "title": "Fixture path traversal",
+      "severity": "high",
+      "cwe": "CWE-22",
+      "verdict": "finding",
+      "status": "open",
+      "proofState": "open",
+      "evidence": [{ "filePath": "src/path.js", "startLine": 10 }],
+      "rationale": "Sample fixture for schema consumers.",
+      "nextChecks": ["verify"],
+      "updatedAt": "1970-01-01T00:00:00.000Z"
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "byStatus": { "open": 1 },
+    "byVerdict": { "finding": 1 }
+  }
+}

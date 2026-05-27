@@ -1,27 +1,27 @@
 # Roadmap
 
-Tracked work for kuzushi-security-plugin. The plugin is a **white-box, static source-code**
-review tool (see [Scope & boundaries](README.md#scope--boundaries)); roadmap items respect
-that boundary unless explicitly noted.
+Tracked work for kuzushi-security-plugin. The plugin is a **local source-code**
+review tool with static-first analysis and sandboxed proof (see
+[Scope & boundaries](README.md#scope--boundaries)); roadmap items respect that
+boundary unless explicitly noted.
 
 ## Future direction
 
 ### Fuzzing campaign harness (dynamic complement for native targets)
 
-**Status:** TODO — larger effort, not yet scoped into a skill.
+**Status:** MVP command surface landed — campaign planning, sandboxed execution,
+triage, minimization ledger, and promote-to-proven are available as `/fuzz-*`.
+Deeper engine-specific harness synthesis and minimizers remain follow-up work.
 
 For libraries / native / parser / CLI targets there's no HTTP layer to proxy, so the dynamic
-complement to static review is **fuzzing**, not a web proxy. Today `/poc` builds a *single*
-ASAN/crash harness that fires one reconstructed payload. The next step is a coverage-guided
-**fuzzing campaign**:
+complement to static review is **fuzzing**, not a web proxy. `/poc` builds a *single*
+harness that fires one reconstructed payload. `/fuzz-init` through `/fuzz-promote` now provide
+the campaign artifact path:
 
-- Generate a libFuzzer / AFL++ harness (not just a one-shot driver) targeting the suspect
-  function or parser entry point.
-- Build with sanitizers (ASan/UBSan/MSan) and run a time-boxed, coverage-guided campaign with
-  a seed corpus.
-- Triage crashes back to findings (dedupe by stack hash), attach a `fuzz` block to the matching
-  finding alongside the existing `poc` block.
-- Keep it sandboxed and offline, consistent with `/poc` (`--network none`).
+- Generate or review a libFuzzer/Jazzer/Node/Go/Rust harness in `.kuzushi/fuzz/harnesses/`.
+- Run a time-boxed, offline campaign with sanitizer/crash classification.
+- Triage crashes back to findings, attach a `fuzz` block, and promote only empirical crashes.
+- Preserve minimization status; engine-native minimizer automation is still pending.
 
 This is the natural extension of `/poc` for memory-safety / parser bugs and pairs with
 `/systems-hunt` + `/mem-exploitability`. It is a meaningful new capability, not a bug fix.

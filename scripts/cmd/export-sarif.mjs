@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
+import { policyDigest } from "../lib/policy.mjs";
+import { provenanceFor } from "../lib/provenance.mjs";
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -57,6 +59,7 @@ export function exportSarif(target, { all = false } = {}) {
   const store = storeFor(resolvedTarget);
   const doc = readJsonIfPresent(store.findingsPath);
   if (!doc) throw new Error(`${store.findingsPath} not found — run a producer (e.g. /threat-hunt) first`);
+  const provenance = (() => { try { return provenanceFor(resolvedTarget); } catch { return null; } })();
 
   const findings = (doc.findings ?? []).filter((f) => (all ? true : isActionable(f)));
 
@@ -92,10 +95,16 @@ export function exportSarif(target, { all = false } = {}) {
       locations,
       partialFingerprints: f.fingerprint ? { kuzushiFingerprint: String(f.fingerprint) } : undefined,
       properties: {
-        source: f.source, verdict: f.verdict, status: f.status,
+        source: f.source, verdict: f.verdict, status: f.status, proofState: f.proofState,
         severity: f.severity, refId: f.refId,
+        schemaVersion: f.schemaVersion ?? "finding.v1",
         ...(f.verification ? { verificationVerdict: f.verification.verdict } : {}),
         ...(f.poc ? { proofVerdict: f.poc.proofVerdict } : {}),
+        ...(f.fix ? {
+          fixVerdict: f.fix.verdict,
+          fixApplied: Boolean(f.fix.applied),
+          fixPocPlusPassed: Boolean(f.fix.validation?.pocPlusPassed)
+        } : {}),
         ...(f.exploitability ? { exploitabilityTier: f.exploitability.tier } : {})
       }
     };
@@ -113,7 +122,14 @@ export function exportSarif(target, { all = false } = {}) {
           rules: [...rulesById.values()]
         }
       },
-      results
+      results,
+      properties: {
+        kuzushi: {
+          findingsSchemaVersion: doc.schemaVersion ?? "findings.v1",
+          policyDigest: policyDigest(resolvedTarget),
+          provenance
+        }
+      }
     }]
   };
 

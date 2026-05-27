@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuzushi.local/schemas/poc.v1.schema.json",
+  "title": "Kuzushi poc.v1",
+  "type": "object",
+  "required": ["proofLevel", "proofVerdict", "backend", "provenAt"],
+  "properties": {
+    "schemaVersion": { "const": "poc.v1" },
+    "proofLevel": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "proofVerdict": {
+      "type": "string",
+      "enum": ["exploited", "not-reproduced", "harness-failed-build", "timeout", "error"]
+    },
+    "backend": { "type": "string" },
+    "durationMs": { "type": ["number", "null"] },
+    "harnessDir": { "type": "string" },
+    "runCommand": { "type": "string" },
+    "logPath": { "type": "string" },
+    "provenAt": { "type": "string" }
+  }
+}

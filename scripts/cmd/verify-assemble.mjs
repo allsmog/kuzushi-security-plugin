@@ -115,6 +115,7 @@ export function assembleVerify(target, runDir) {
     fingerprint: c.findingFingerprint,
     status: verifyVerdictToStatus(c.verdict),
     verification: {
+      schemaVersion: "verification.v1",
       verdict: c.verdict,
       confidence: c.confidence,
       attackVector: c.attackVector,

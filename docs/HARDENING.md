@@ -17,9 +17,12 @@ The plugin ships `PreToolUse` hooks (`hooks/hooks.json`) that block:
   `~/.git-credentials`, the macOS Keychain, and crypto wallets — via `Read`,
   `Edit`, `Write`, or `Bash` (e.g. `cat ~/.ssh/id_rsa`).
 
-These are guardrails against the common dangerous shapes, not a sandbox. They
-**fail open**: if a hook errors, the tool call is allowed, so the guardrail can
-never wedge your session.
+These are guardrails against the common dangerous shapes, not a sandbox. Hook
+errors are profile-dependent:
+
+- `developer-fast`: fail open.
+- `review-safe`: block and require explicit user action.
+- `ci-locked`: fail closed.
 
 ## Tool-boundary policy (analyzer queries & working-tree writes)
 
@@ -34,8 +37,16 @@ those surfaces. The shipped default (`policy.default.json` at the plugin root) i
 - **Inline-script size cap** — Joern scripts over `mcp.maxQueryBytes` (200 KB) are
   refused.
 
-One control is **configurable** and defaults to permissive so existing analysis
-keeps working:
+The default policy is profile-based:
+
+- `developer-fast` — raw queries allowed, git apply requires approval, hook errors
+  fail open, light tool auto-install is enabled.
+- `review-safe` — raw queries require approval, git apply requires approval, hook
+  errors block, light tool auto-install is disabled.
+- `ci-locked` — raw queries denied, git apply denied, network installs denied,
+  hook errors fail closed.
+
+The key analyzer control is:
 
 - **`mcp.rawQuery`** — `"allow"` (default) · `"require-approval"` · `"deny"`. A
   *raw* query is one not drawn from the validated rule pack (`.kuzushi/rules/`,
@@ -43,16 +54,25 @@ keeps working:
   query is refused unless a `.kuzushi/.approvals/raw-query` marker exists; under
   `deny`, only pack queries run.
 
-Override per-repo by dropping a partial `<repo>/.kuzushi/policy.json` (shallow-
-merged over the default), e.g. to lock a CI run down:
+Override per-repo by dropping a partial `<repo>/.kuzushi/policy.json`, e.g. to
+lock a CI run down:
 
 ```json
-{ "mcp": { "rawQuery": "require-approval" }, "git": { "apply": "deny" } }
+{ "activeProfile": "ci-locked" }
 ```
 
-Run `/doctor` to see the effective policy (and its digest). Every run artifact is
-also stamped with a `provenance` block (`toolchainDigest`, `repoDigest`,
-`scopeDigest`, `policyDigest`) so a result is reproducible and auditable.
+Run `/doctor` to see the effective policy profile, raw-query posture, hook-error
+posture, install posture, rule-pack state, and digest. Every run artifact is also
+stamped with a `provenance` block (`toolchainDigest`, `repoDigest`, `scopeDigest`,
+`policyDigest`) so a result is reproducible and auditable.
+
+## Tool downloads
+
+SessionStart background installs are gated by `install.autoInstallLightTools`.
+`developer-fast` enables them; `review-safe` and `ci-locked` disable them. Manual
+`/install` passes explicit approval to the installer, but `ci-locked` still denies
+network installs. Install state records source URLs and SHA-256 digests where the
+downloaded artifact is available.
 
 ## What you should set yourself
 

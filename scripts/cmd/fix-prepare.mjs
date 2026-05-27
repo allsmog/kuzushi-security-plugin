@@ -13,6 +13,7 @@ import { resolve, join, extname } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { detectBackend } from "../lib/sandbox.mjs";
+import { oracleSummaryForFinding } from "../lib/oracles.mjs";
 
 const EXCERPT_RADIUS = 25; // wider than verify/poc — a patch needs surrounding context
 const MAX_FILE_BYTES_DEFAULT = 200_000;
@@ -41,13 +42,13 @@ function excerptFor(target, anchor) {
   return { filePath: anchor.filePath, startLine: anchorLine, lines: lines.slice(start - 1, end).map((text, i) => ({ line: start + i, text })) };
 }
 
-// Findings worth fixing: confirmed-exploitable (proven by /poc, confirmed by
-// /verify) or open+exploitable. Exclude those already patched/remediated.
+// Findings worth fixing: confirmed-exploitable (confirmed by /verify) or proven
+// by /poc. Exclude open static-only findings so /fix cannot skip the proof
+// ladder.
 function isCandidate(finding) {
   if (finding.status === "patched" || finding.status === "remediated") return false;
   if (finding.fix) return false;
-  return finding.status === "proven" || finding.status === "confirmed" ||
-    (finding.status === "open" && (finding.verdict === "exploitable" || finding.verdict === "finding"));
+  return finding.status === "proven" || finding.status === "confirmed";
 }
 
 export function prepareFix(target, input = {}) {
@@ -67,7 +68,7 @@ export function prepareFix(target, input = {}) {
 
   const all = (findingsDoc.findings ?? []).filter(isCandidate);
   if (!all.length) {
-    throw new Error("no fixable findings — run /verify and /poc first (need confirmed / proven / exploitable findings)");
+    throw new Error("no fixable findings — run /verify first (and /poc when possible); /fix requires confirmed or proven findings");
   }
   // Prefer findings that have a poc harness (so validation can actually run).
   const ordered = all.sort((a, b) => (pocByFp.has(b.fingerprint) ? 1 : 0) - (pocByFp.has(a.fingerprint) ? 1 : 0));
@@ -104,6 +105,7 @@ export function prepareFix(target, input = {}) {
       excerpt: excerptFor(resolvedTarget, anchor),
       verification: f.verification ?? null,
       exploitability: f.exploitability ?? null,
+      semanticOracle: oracleSummaryForFinding(f),
       targetFiles,
       fileContents,
       hasHarness: Boolean(poc),

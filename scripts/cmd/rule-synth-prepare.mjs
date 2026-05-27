@@ -34,8 +34,7 @@ function excerptFor(target, anchor) {
 }
 
 function isSeed(f) {
-  return f.status === "confirmed" || f.status === "proven" ||
-    (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding"));
+  return f.status === "confirmed" || f.status === "proven";
 }
 
 export function prepareRuleSynth(target, input = {}) {

@@ -19,12 +19,11 @@ import { loadCatalog, normalizeCweId } from "../lib/taint-catalog.mjs";
 
 const EXCERPT_RADIUS = 10;
 
-// A finding worth finding siblings of: something a producer or verifier already
-// stands behind. Proven/confirmed are strongest; an open exploitable/finding is
-// a reasonable seed too. Skip reviewed / noise / needs-evidence.
+// A finding worth finding siblings of: something a verifier or PoC already
+// stands behind. Skip open static-only findings so variant mining cannot skip
+// the proof ladder.
 function isSeed(f) {
   if (f.status === "confirmed" || f.status === "proven") return true;
-  if (f.status === "open" && (f.verdict === "exploitable" || f.verdict === "finding")) return true;
   return false;
 }
 

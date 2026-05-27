@@ -11,9 +11,11 @@
 // Adapted from the Trail of Bits claude-code-config permission deny-list. This is
 // defense in depth alongside the documented settings.json `permissions.deny`
 // (docs/HARDENING.md) — a plugin cannot set user permissions, but it can hook.
-// Must FAIL OPEN: any internal error exits 0 (allow).
+// Hook error posture is policy-controlled: developer-fast fails open, review-safe
+// / ci-locked fail closed.
 
 import { homedir } from "node:os";
+import { hookErrorDecision } from "../../scripts/lib/policy.mjs";
 
 // Substrings that mark a secret path. Matched against the absolute, ~-expanded
 // path (Read/Edit) and against the raw Bash command (so `cat ~/.ssh/id_rsa` is
@@ -51,7 +53,14 @@ function readStdin() {
 async function run() {
   const raw = await readStdin();
   let input;
-  try { input = JSON.parse(raw || "{}"); } catch { process.exit(0); }
+  try { input = JSON.parse(raw || "{}"); } catch {
+    const decision = hookErrorDecision(process.cwd());
+    if (decision === "deny" || decision === "require-approval") {
+      process.stderr.write(`Blocked by kuzushi guardrail: hook input was not parseable and policy.guardrails.onHookError=${decision}.\n`);
+      process.exit(2);
+    }
+    process.exit(0);
+  }
 
   const tool = input?.tool_name;
   const ti = input?.tool_input ?? {};
@@ -75,4 +84,12 @@ async function run() {
   process.exit(0);
 }
 
-run().catch(() => process.exit(0)); // fail open on any error
+run().catch((error) => {
+  let decision = "allow";
+  try { decision = hookErrorDecision(process.cwd()); } catch {}
+  if (decision === "deny" || decision === "require-approval") {
+    process.stderr.write(`Blocked by kuzushi guardrail: hook error (${error?.message ?? error}) and policy.guardrails.onHookError=${decision}.\n`);
+    process.exit(2);
+  }
+  process.exit(0);
+});
