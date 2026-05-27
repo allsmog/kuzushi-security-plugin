@@ -111,18 +111,23 @@ function normalizeDfdType(kind) {
   }
 }
 
-function normalizeStrideCategory(kind) {
-  const normalized = (kind ?? "").toLowerCase().replaceAll("_", "-");
+export function normalizeStrideCategory(kind) {
+  // Agents write the STRIDE category many ways — "Information Disclosure",
+  // "information_disclosure", "Elevation of Privilege". Collapse spaces AND
+  // underscores to hyphens (previously only "_" → "-", so any multi-word
+  // category with a space — info-disclosure, elevation-of-privilege, DoS —
+  // failed to match and the whole threat was silently dropped).
+  const normalized = (kind ?? "").toLowerCase().trim().replace(/[\s_]+/g, "-");
   return STRIDE_CATEGORIES.find((category) => category === normalized) ?? null;
 }
 
-function normalizeImpact(value) {
-  switch ((value ?? "").toLowerCase()) {
-    case "critical": return "critical";
-    case "high": return "high";
-    case "low": return "low";
-    default: return "medium";
-  }
+export function normalizeImpact(value) {
+  // The agent usually writes impact as prose led by a severity word, e.g.
+  // "CRITICAL — full account takeover" or "MEDIUM-HIGH — …". Match the first
+  // severity keyword instead of requiring an exact enum (which silently
+  // flattened every threat to "medium").
+  const m = (value ?? "").toLowerCase().match(/\b(critical|high|medium|low)\b/);
+  return m ? m[1] : "medium";
 }
 
 function probabilityToLikelihood(probability) {
