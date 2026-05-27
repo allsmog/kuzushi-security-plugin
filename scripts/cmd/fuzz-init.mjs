@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Initialize a fuzzing campaign plan from confirmed/proven findings. This does
 // not claim execution evidence; it creates a deterministic, reviewable harness
-// workspace and per-finding engine recommendation that /fuzz-run can execute
-// once a harness runCommand is present.
+// workspace and per-finding engine recommendation that /fuzz --stage replay can
+// execute once a harness runCommand is present.
 
 import { existsSync, mkdirSync, statSync, readFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
@@ -95,7 +95,7 @@ export function fuzzInit(target, input = {}) {
       corpusDir: join(harnessDir, "corpus"),
       timeoutMs: Number(input.timeoutMs ?? 120000),
       semanticOracle: oracleSummaryForFinding(finding),
-      notes: "Review or replace runCommand after writing a real fuzz harness into harnessDir; /fuzz-run only executes candidates with an existing harnessDir and runCommand."
+      notes: "Review or replace runCommand after writing a real fuzz harness into harnessDir; /fuzz --stage replay only executes candidates with an existing harnessDir and runCommand."
     };
   });
 
@@ -117,7 +117,7 @@ export function fuzzInit(target, input = {}) {
     runId: run.runId,
     fuzzPlanPath: store.fuzzPlanPath,
     candidateCount: candidates.length,
-    next: candidates.length ? "write or review harnesses, then run /fuzz-run" : "run /verify first; fuzzing requires confirmed/proven seeds"
+    next: candidates.length ? "write or review harnesses, then run /fuzz --stage replay" : "run /verify first; fuzzing requires confirmed/proven seeds"
   };
   run.finalize(result);
   return result;

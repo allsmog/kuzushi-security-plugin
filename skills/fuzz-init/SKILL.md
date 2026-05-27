@@ -1,6 +1,6 @@
 ---
 name: fuzz-init
-description: Initialize a local fuzzing campaign plan from confirmed/proven findings. Creates .kuzushi/fuzz/fuzz-plan.json with engine recommendations, harness directories, run commands to review, and semantic-oracle guidance. Requires /verify first.
+description: Low-level stage for /fuzz. Initialize a local fuzzing campaign plan from confirmed/proven findings. Prefer /fuzz for normal use.
 allowed-tools: Bash, Read, Write, Edit
 user-invocable: true
 ---
@@ -13,5 +13,5 @@ Create the campaign plan and harness workspaces:
 
 If it returns `no-seeds`, tell the user to run `/verify` first. If it returns `prepared`, read
 `.kuzushi/fuzz/fuzz-plan.json`, write or refine the harness files only inside each candidate's
-`harnessDir`, and keep the `runCommand` concrete enough for `/fuzz-run` to execute. Do not edit
+`harnessDir`, and keep the `runCommand` concrete enough for `/fuzz --stage replay` to execute. Do not edit
 application source from this command.

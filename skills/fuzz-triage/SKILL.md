@@ -1,6 +1,6 @@
 ---
 name: fuzz-triage
-description: Group exploited fuzz-run results by deterministic crash hash and write .kuzushi/fuzz/fuzz-triage.json.
+description: Low-level stage for /fuzz. Group exploited fuzz-run results by deterministic crash hash. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
 user-invocable: true
 ---

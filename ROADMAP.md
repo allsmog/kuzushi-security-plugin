@@ -10,13 +10,13 @@ boundary unless explicitly noted.
 ### Fuzzing campaign harness (dynamic complement for native targets)
 
 **Status:** MVP command surface landed — campaign planning, sandboxed execution,
-triage, minimization ledger, and promote-to-proven are available as `/fuzz-*`.
+triage, minimization ledger, and promote-to-proven are consolidated under `/fuzz`
+with `/fuzz-*` replay/debug stages.
 Deeper engine-specific harness synthesis and minimizers remain follow-up work.
 
 For libraries / native / parser / CLI targets there's no HTTP layer to proxy, so the dynamic
 complement to static review is **fuzzing**, not a web proxy. `/poc` builds a *single*
-harness that fires one reconstructed payload. `/fuzz-init` through `/fuzz-promote` now provide
-the campaign artifact path:
+harness that fires one reconstructed payload. `/fuzz` now provides the campaign artifact path:
 
 - Generate or review a libFuzzer/Jazzer/Node/Go/Rust harness in `.kuzushi/fuzz/harnesses/`.
 - Run a time-boxed, offline campaign with sanitizer/crash classification.

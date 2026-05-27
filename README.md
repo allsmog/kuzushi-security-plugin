@@ -39,9 +39,9 @@ target. None of that lives here.
 
 **Libraries, native / systems code, parsers, CLIs** — there's no HTTP layer to proxy, so most
 of that dynamic half simply doesn't apply. Source→sink plus the sandboxed `/poc` harness is
-much of the standard workflow. The dynamic complement *here* is fuzzing: `/fuzz-init` creates
-a campaign plan from confirmed/proven findings, `/fuzz-run` executes runnable harnesses in the
-same offline sandbox model, and `/fuzz-promote` only advances findings when empirical crash or
+much of the standard workflow. The dynamic complement *here* is fuzzing: `/fuzz` creates a
+campaign plan from confirmed/proven findings, executes runnable harnesses in the same offline
+sandbox model, triages/minimizes crashes, and only advances findings when empirical crash or
 sanitizer evidence exists.
 
 **Across the board:** it loads source, it does not *recover* it (no decompilation / bytecode);
@@ -98,11 +98,7 @@ claude --plugin-dir .
 /rule-synth          # distill confirmed findings into validated CodeQL/Joern rules (digest-attested pack)
 /verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
-/fuzz-init           # initialize a fuzz campaign from confirmed/proven findings
-/fuzz-run            # run declared fuzz harnesses in an offline sandbox
-/fuzz-triage         # group fuzz crashes by deterministic crash hash
-/fuzz-minimize       # preserve/minimize crash groups when engine support is available
-/fuzz-promote        # attach fuzz proof and promote exploited results to proven
+/fuzz                # plan/run/triage/minimize/promote local fuzz proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
 /fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
 /chain               # link related findings into higher-impact attack chains (analysis overlay)
@@ -133,11 +129,7 @@ claude --plugin-dir .
 | `/rule-synth` | **Validated CodeQL/Joern rules from a confirmed bug** — the heavy semantic engines `/semgrep-rule` doesn't cover. The rule-synthesist agent writes a query per seed; a **native gate** (compile → fire-on-seed → repo-run → precision-cap) accepts only passing rules into a **digest-attested pack** (`.kuzushi/rules/{codeql,joern}/` + `pack.json`). The codeql/joern MCP servers refuse to run a pack query whose bytes don't match the manifest, so generated queries are validated before they execute. New matches promote as `candidate` leads. Needs a built CodeQL DB / Joern CPG. | `.kuzushi/rules/{codeql,joern}/`, `pack.json`, `rule-synth.json`, `findings.json` |
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
-| `/fuzz-init` | **Fuzz campaign initialization.** Builds `.kuzushi/fuzz/fuzz-plan.json` from confirmed/proven findings, recommending libFuzzer/Jazzer/Node/Go/Rust engines, creating harness directories, and attaching semantic-oracle guidance. | `.kuzushi/fuzz/fuzz-plan.json` |
-| `/fuzz-run` | **Sandboxed fuzz execution.** Runs declared harness commands offline (Docker `--network none`, else gated local), classifies crash/sanitizer results, and records logs. | `.kuzushi/fuzz/fuzz-run.json` |
-| `/fuzz-triage` | **Crash grouping.** Groups exploited fuzz results by deterministic crash hash for dedupe. | `.kuzushi/fuzz/fuzz-triage.json` |
-| `/fuzz-minimize` | **Crash minimization ledger.** Preserves crash groups and records minimization status; engine-specific minimizers can fill in minimized inputs later. | `.kuzushi/fuzz/fuzz-minimize.json` |
-| `/fuzz-promote` | **Fuzz proof promotion.** Attaches a `fuzz` block and advances only `proofVerdict:"exploited"` results to `proven`. | `.kuzushi/fuzz/fuzz-promote.json`, `findings.json` |
+| `/fuzz` | **Consolidated fuzz proof loop.** Plans a fuzz campaign from confirmed/proven findings, creates harness directories, runs declared harness commands offline, groups crashes, records minimization status, and promotes only `proofVerdict:"exploited"` evidence to `proven`. Lower-level `/fuzz-init`, `/fuzz-run`, `/fuzz-triage`, `/fuzz-minimize`, and `/fuzz-promote` remain replay/debug stages. | `.kuzushi/fuzz/*.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
 | `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + functional and semantic checks. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire), the functional check, and the semantic oracle check for supported CWEs — a patch is **`validated`** only if all required gates pass. The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
 | `/chain` | **Cross-finding attack chains.** The chain-finder agent reasons over the findings index for compositions (precondition → pivot → impact) — e.g. an auth bypass that turns a read-only SSRF into internal RCE, or a `/mem-exploitability` info-leak that defeats a canary for a control-flow hijack — and records each chain (ordered narrative + member fingerprints), attaching a `chains` ref onto each member (status unchanged). An analysis overlay, not a combined exploit. | `.kuzushi/chains.json`, `findings.json` |
@@ -148,7 +140,7 @@ claude --plugin-dir .
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`) that run in isolated context and
+`diff-reviewer`, `sharp-edges-analyzer`, `fuzz-harness-author`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.
@@ -215,7 +207,7 @@ contracts** that later steps (and your own tooling) build on:
   `{ fingerprint, source, refId, title, severity, cwe, verdict, status, proofState,
   evidence:[{filePath,startLine}], rationale, nextChecks }`, deduped by fingerprint.
   The proof ladder is explicit: `lead/candidate → open → confirmed → proven → patched →
-  remediated`, with reviewed/noise states kept separate. `/verify`, `/poc`, `/fuzz-promote`,
+  remediated`, with reviewed/noise states kept separate. `/verify`, `/poc`, `/fuzz`,
   and `/fix` attach `verification`, `poc`, `fuzz`, and `fix` blocks instead of replacing the
   finding, so a finding accretes its full discovery → proof → remediation story in one place.
 

@@ -1,6 +1,6 @@
 ---
 name: fuzz-minimize
-description: Record minimization status for triaged fuzz crashes. The MVP preserves crash groups and marks them not-minimized unless an engine-specific minimizer is later supplied.
+description: Low-level stage for /fuzz. Record minimization status for triaged fuzz crashes. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
 user-invocable: true
 ---
