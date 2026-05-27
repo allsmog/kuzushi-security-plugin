@@ -28,6 +28,11 @@
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/codegraph.mjs"],
       "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
+    },
+    "kuzushi-concolic": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/servers/concolic.mjs"],
+      "env": { "PATH": "${CLAUDE_PLUGIN_ROOT}/vendor/bin:${CLAUDE_PLUGIN_ROOT}/node_modules/.bin:${PATH}" }
     }
   }
 }
