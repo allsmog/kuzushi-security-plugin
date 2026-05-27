@@ -13,7 +13,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // The backends this plugin actually wires into .mcp.json.
-export const SUPPORTED_BACKENDS = ["tree-sitter", "semgrep", "codeql", "joern", "gtags", "codegraph"];
+export const SUPPORTED_BACKENDS = ["tree-sitter", "semgrep", "codeql", "joern", "gtags", "codegraph", "concolic"];
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 5000;
 

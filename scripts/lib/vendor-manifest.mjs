@@ -49,7 +49,9 @@ function nativeInstall(tool) {
     gopls: { any: ["go", "install", "golang.org/x/tools/gopls@latest"] },
     gtags: { darwin: brew("global"), linux: apt("global") },
     semgrep: { any: ["python3", "-m", "pip", "install", "--user", "semgrep"] },
-    clangd: { darwin: brew("llvm"), linux: apt("clangd") }
+    clangd: { darwin: brew("llvm"), linux: apt("clangd") },
+    z3: { darwin: brew("z3"), linux: apt("z3") },
+    crosshair: { any: ["python3", "-m", "pip", "install", "--user", "crosshair-tool"] }
   };
   const entry = map[tool];
   if (!entry) return null;
@@ -101,6 +103,18 @@ export const VENDOR_TOOLS = {
     kind: "mcp", method: "github-zip", sizeClass: "heavy", bin: "joern",
     languages: ["C", "C++", "Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go"],
     repo: "joernio/joern", asset: "joern-cli.zip", needsJava: true
+  },
+  // Optional concolic backends for the kuzushi-concolic MCP server (/path-solve).
+  // Small CLIs, but marked opt-in (sizeClass "heavy" is the manifest's "don't
+  // auto-install" lever) — installed on demand via /install z3 | /install crosshair.
+  z3: {
+    kind: "mcp", method: "native", sizeClass: "heavy",
+    languages: ["Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "Ruby", "C", "C++", "Rust", "PHP", "Scala"],
+    needsJava: false
+  },
+  crosshair: {
+    kind: "mcp", method: "native", sizeClass: "heavy",
+    languages: ["Python"], needsJava: false
   }
 };
 

@@ -500,9 +500,10 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   const heavyMissing = relevantHeavyMissing(byLanguage);
   if (heavyMissing.length) {
     additionalContext +=
-      `\n\nHeavy analysis backends relevant to this repo are NOT installed (too large to ` +
-      `auto-download): ${heavyMissing.join(", ")}. Run /install ${heavyMissing[0]} ` +
-      `(codeql ~1GB / joern ~2GB) to vendor it for deeper semantic queries.`;
+      `\n\nOptional analysis backends relevant to this repo are NOT installed (opt-in, not ` +
+      `auto-installed): ${heavyMissing.join(", ")}. Run /install ${heavyMissing[0]} to add it ` +
+      `(codeql ~1GB / joern ~2GB for deeper semantic queries; z3 / crosshair are small concolic ` +
+      `solvers for /path-solve).`;
   }
   additionalContext +=
     `\n\nCommands: /deep-context (deep system-understanding pass → deep-context.json), ` +

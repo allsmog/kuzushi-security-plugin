@@ -68,7 +68,14 @@ export const MCP_BACKENDS = [
     languages: ["Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "Ruby", "C", "C++", "PHP", "Scala"],
     installHint: "pip install semgrep | brew install semgrep" },
   { name: "codegraph", probe: "codegraph", languages: ["JavaScript", "TypeScript", "Python", "Java", "Go"],
-    installHint: "npm install -g @colbymchenry/codegraph" }
+    installHint: "npm install -g @colbymchenry/codegraph" },
+  // Optional concolic backend for /path-solve. The kuzushi-concolic server always
+  // connects; its solver CLIs are opt-in — z3 (numeric/string, any language) and
+  // crosshair (Python source concolic). cliInstalled probes z3 (the general one);
+  // crosshair is reported by concolic:health and installed via /install crosshair.
+  { name: "concolic", probe: "z3",
+    languages: ["Java", "Kotlin", "JavaScript", "TypeScript", "Python", "Go", "Ruby", "C", "C++", "Rust", "PHP", "Scala"],
+    installHint: "optional solvers: pip install z3-solver (numeric/string) and/or crosshair-tool (Python)" }
 ];
 
 // Cheap, cached PATH probe. `which` is reliable across the language servers and
