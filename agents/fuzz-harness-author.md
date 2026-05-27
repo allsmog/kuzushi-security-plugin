@@ -20,6 +20,17 @@ Read it. Each `candidates[]` entry has: `findingFingerprint`, `title`, `cwe`, `l
 `semanticOracle` (`{ id, cwes, description, controls }` or null). If the plan has no candidates, say
 so and stop.
 
+## Step 0 — reuse an existing harness before authoring one
+
+Real repos (especially OSS-Fuzz projects) often already ship a maintained fuzz harness — reuse it
+instead of writing a worse one. **Before authoring, run the detector once:**
+`node "<plugin>/scripts/cmd/fuzz-harness-scan.mjs" --target "<target>"`. It returns
+`{ ossFuzz, harnesses:[{ engine, language, harnessPath, line, buildHint, confidence }] }`. For a
+candidate whose suspect function is covered by a detected harness (same file/module, matching
+language/engine), **reuse it**: point the candidate's `runCommand` at that harness's `buildHint`
+(adjust paths), copy/symlink only what the build needs into `harnessDir`, and skip authoring. Author
+a fresh harness (steps below) only when no detected harness fits the target.
+
 ## Per-candidate walk
 
 1. **Understand the bug.** From `evidence` + `excerpt` (open the cited files; widen with Read/Grep),
@@ -38,8 +49,15 @@ so and stop.
    - **jazzer** (java): `public static void fuzzerTestOneInput(FuzzedDataProvider data)`.
    - **go-fuzz**: `func FuzzXxx(f *testing.F) { f.Fuzz(func(t *testing.T, b []byte){ … }) }` in a `_test.go`.
    - **node-property**: a property harness driving the function over generated inputs.
-4. **Seed the corpus.** Write 1–3 representative inputs into `corpusDir` (a valid input and an
-   edge-case), so coverage-guided mutation starts from real structure.
+4. **Seed the corpus at the frontier.** Generic seeds rarely get past the guard the bug sits behind,
+   so the fuzzer wastes its budget before the vulnerable branch. Read the guard/precondition in the
+   `excerpt` (and `verification.pocSketch.payload` when present) and write seeds that **already
+   satisfy it**, so mutation starts *past* the guard. Aim for 2–3 shapes: (a) a **guard-satisfying
+   valid** input (passes every check, reaches the sink's neighborhood), (b) a **boundary** input
+   (at the length/range limit the check compares against), and (c) a **just-past-guard** input (the
+   smallest input that clears the precondition). E.g. if the sink is reached only when
+   `len > 64 && magic == 0x7f`, every seed should carry that magic byte and exceed 64 — don't make
+   the fuzzer rediscover the header.
 5. **Set the real `runCommand`** (build **and** run, cwd = `harnessDir`, time-boxed) + `expectedSignal`
    (`crash` for sanitizer/abort; `nonzero` only if a clean non-zero exit is the proof). Examples:
    - libfuzzer: `clang -g -fsanitize=address,fuzzer harness.c <target.c> -o fuzz_target && ./fuzz_target -max_total_time=60 corpus`
@@ -77,3 +95,8 @@ build + execute these in the sandbox (Docker `--network none`, or a gated local 
   may never surface even when the bug triggers. Always define the failure condition.
 - *"Add a network/file fetch to set it up."* → The sandbox is offline; bake any needed input into the
   corpus instead.
+- *"Just write a fresh harness."* → If the repo already ships an OSS-Fuzz / in-repo harness for this
+  target (run `fuzz-harness-scan.mjs`), reuse it — a fresh one wastes budget and misses the maintained
+  build that actually links the project.
+- *"Empty corpus is fine, the fuzzer will figure it out."* → Without seeds that satisfy the guard, the
+  campaign burns its time budget on inputs the precondition rejects. Seed at the frontier.
