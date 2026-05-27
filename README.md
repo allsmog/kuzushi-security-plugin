@@ -256,6 +256,12 @@ Issues and PRs welcome. The codebase is small, dependency-light Node; each capab
 `prepare → agent → assemble` trio under `scripts/cmd/` with a matching skill + agent. Run
 `/doctor` to validate your environment.
 
+Run **`npm test`** before sending a change — `test/` covers the shared-lib contracts the whole
+pipeline depends on (findings index + schema, verdict→status maps, the policy/attestation gate,
+and the rule-synth / fix / chain / mem-exploitability validators) with Node's built-in runner (no
+extra deps). Engine-backed tests (a real Joern `/rule-synth` run) self-skip when the CLI is absent,
+so the suite is green offline and exercises the real path in CI where Joern/CodeQL exist.
+
 ## License
 
 [MIT](LICENSE).
