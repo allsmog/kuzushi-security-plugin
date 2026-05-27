@@ -60,6 +60,13 @@ export function storeFor(target) {
     // Concolic-lite path-constraint solutions: per-finding guard predicate + a
     // concrete input that reaches the sink. Attaches a `pathSolution` block.
     pathSolvePath: join(root, "path-solve.json"),
+    // Config/container misconfig (/iac), authorization-model review (/authz), and
+    // offline Burp/HAR traffic correlation (/traffic-map). Each promotes verdicts
+    // into the shared findings index under its own source; traffic-map also caches
+    // the observed-endpoint↔handler map.
+    iacPath: join(root, "iac.json"),
+    authzPath: join(root, "authz.json"),
+    trafficMapPath: join(root, "traffic-map.json"),
     // Deep reasoning context (a system-understanding pass between x-ray and the
     // threat model): modules, actors, trust boundaries, invariants. Context only —
     // no findings. threat-model-prepare feeds it to the threat-modeler.
