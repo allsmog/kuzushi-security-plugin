@@ -40,6 +40,7 @@ export function prepareThreatModel(target, input = {}) {
 
   const context = latestContext(store);
   const xray = xrayScope(resolvedTarget);
+  const deepContext = readJsonIfPresent(store.deepContextPath);
   run.writeJson("input.json", input);
 
   const stageFiles = {
@@ -77,7 +78,20 @@ export function prepareThreatModel(target, input = {}) {
         xRayMarkdownPath: xray.xRayMarkdown,
         entryPointCount: Array.isArray(xray.entryPoints) ? xray.entryPoints.length : null,
         entryPoints: Array.isArray(xray.entryPoints) ? xray.entryPoints.slice(0, 40) : null
-      }
+      },
+      // Deep system-understanding model from /deep-context, if it has been run —
+      // a strong grounding for the PASTA decomposition (S3) and threats (S4).
+      deepContext: deepContext
+        ? {
+            present: true,
+            path: store.deepContextPath,
+            systemOverview: deepContext.systemOverview ?? null,
+            moduleCount: (deepContext.modules ?? []).length,
+            invariants: (deepContext.invariants ?? []).slice(0, 20),
+            trustBoundaries: (deepContext.trustBoundaries ?? []).slice(0, 20),
+            openQuestions: (deepContext.openQuestions ?? []).slice(0, 20)
+          }
+        : { present: false }
     },
     assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "threat-model-assemble.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };

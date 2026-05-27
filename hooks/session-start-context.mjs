@@ -289,6 +289,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `denies, acknowledge it and continue without x-ray.`;
   }
 
+  // Deep-context — a reasoning pass between x-ray and the threat model. Surface it
+  // once x-ray exists and neither deep-context nor a threat model has been built.
+  const deepContextPresent = existsSync(storeFor(cwd).deepContextPath);
+  if (xray.built && !deepContextPresent && !threatModel.built) {
+    additionalContext +=
+      `\n\nx-ray is present but no deep-context model has been built. /deep-context is available: a ` +
+      `deeper reasoning pass (read key code line-by-line → modules, entry points, actors, trust ` +
+      `boundaries, and system invariants → .kuzushi/deep-context.json) that grounds the threat model. ` +
+      `It's context only (no vuln-finding). Mention it as an optional step before /threat-model; don't auto-run it.`;
+  }
+
   // When no threat model exists, ask the user's permission (Yes/No), and only on
   // Yes launch the agent-driven PASTA threat-modeler. x-ray (a scope input) is
   // handled above first.
@@ -424,7 +435,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `(codeql ~1GB / joern ~2GB) to vendor it for deeper semantic queries.`;
   }
   additionalContext +=
-    `\n\nCommands: /threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
+    `\n\nCommands: /deep-context (deep system-understanding pass → deep-context.json), ` +
+    `/threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
     `memory-safety review), /variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +

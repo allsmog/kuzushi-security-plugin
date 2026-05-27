@@ -53,6 +53,10 @@ export function storeFor(target) {
     storeName: STORE_DIR_NAME,
     legacyStoreName: LEGACY_STORE_DIR_NAME,
     runsDir: join(root, "runs"),
+    // Deep reasoning context (a system-understanding pass between x-ray and the
+    // threat model): modules, actors, trust boundaries, invariants. Context only —
+    // no findings. threat-model-prepare feeds it to the threat-modeler.
+    deepContextPath: join(root, "deep-context.json"),
     threatModelPath: join(root, "threat-model.json"),
     threatLeadsPath: join(root, "threat-leads.json"),
     threatIntelAppliedJsonPath: join(root, "threat-intel-applied.json"),
@@ -97,6 +101,11 @@ export function storeFor(target) {
     validatedFindingsPath: join(root, "validated-findings.json"),
     findingsDbPath: join(root, "v2", "findings.sqlite3"),
     catalogsDir: join(root, "catalogs"),
+    // Tool-boundary policy override + approval markers (trust plane). The
+    // shipped default lives at the plugin root (policy.default.json); this is
+    // the optional per-target override + the raw-query approval marker dir.
+    policyPath: join(root, "policy.json"),
+    approvalsDir: join(root, ".approvals"),
     // x-ray lives under .kuzushi/ alongside every other artifact (this plugin
     // keeps everything in one store dir rather than a top-level x-ray/).
     xRayDir: join(root, "x-ray")
@@ -119,6 +128,17 @@ export function openRun(target, kind, runId = null) {
       atomicWrite(join(runDir, name), value.endsWith("\n") ? value : `${value}\n`);
     },
     finalize(result) {
+      // Stamp provenance (toolchain/repo/scope/policy digests) onto every run
+      // result unless a caller already supplied one. Guarded — provenance is
+      // best-effort and must never break a finalize. Lazy import avoids any
+      // load-order coupling with provenance.mjs (which reads this store).
+      if (result && typeof result === "object" && !result.provenance) {
+        try {
+          result = { ...result, provenance: provenanceFor(target) };
+        } catch {
+          /* provenance unavailable — proceed without it */
+        }
+      }
       this.writeJson("result.json", result);
       return result;
     }

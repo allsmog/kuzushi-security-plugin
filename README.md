@@ -80,6 +80,7 @@ claude --plugin-dir .
    CVEs, hunt threats. Or drive them yourself with the skills below.
 
 ```
+/deep-context        # deep system-understanding pass (modules, trust boundaries, invariants)
 /threat-model        # PASTA model → .kuzushi/threat-model.json (+ ASCII data-flow diagram)
 /threat-intel        # research critical/high CVEs (this stack + similar apps) → invariants
 /threat-hunt         # adversarial per-threat review → .kuzushi/findings.json
@@ -101,6 +102,7 @@ claude --plugin-dir .
 
 | Command | What it does | Writes |
 |---|---|---|
+| `/deep-context` | **Deep system-understanding pass** (before threat modeling). The context-analyst agent reads the code line-by-line where it matters and builds a grounded model — modules, entry points, actors, trust boundaries, data stores, and **system invariants** — with file:line evidence and anti-hallucination rules. **Context only** (no vuln-finding/fixes/severity); `/threat-model` consumes it. | `.kuzushi/deep-context.json` |
 | `/threat-model` | Agent builds a **PASTA** threat model in phases (objectives → scope → decomposition → threats) + an ASCII data-flow diagram. | `.kuzushi/threat-model.json`, `threat-model-dfd.txt` |
 | `/threat-intel` | Researches recent **critical/high CVEs** for the detected stack (version-checked) and **similar apps**, distilled into machine-checkable invariants. *(uses web search)* | `.kuzushi/threat-intel.json` |
 | `/invariant-test` | Verifies each CVE-derived invariant against the code with tree-sitter taint queries (CodeQL/Joern if built). | `.kuzushi/invariant-results.json` |
@@ -118,7 +120,7 @@ claude --plugin-dir .
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |
 
-Skills are backed by purpose-built subagents (`threat-modeler`, `threat-intel-researcher`,
+Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
