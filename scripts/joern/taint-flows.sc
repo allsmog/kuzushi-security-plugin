@@ -31,6 +31,12 @@ import java.util.concurrent.{Callable, Executors, TimeUnit, TimeoutException}
 
 // === REPLACE THE [] BELOW WITH THE PER-CWE QUERIES ARRAY ===================
 val QUERIES_JSON: String = """[]"""
+// Flow direction. "forward" (default): sinks.reachableByFlows(sources) — for the
+// labeled sources, which sinks do they taint. "backward": sources.reachableByFlows(sinks)
+// — root at the dangerous sink and trace which sources reach it (useful when a
+// sink is known but sources aren't pre-labeled). The flow-tracer replaces this
+// token like QUERIES_JSON; existing callers that don't set it get "forward".
+val DIRECTION: String = "forward"
 // ===========================================================================
 
 val cpgFile: String = sys.props.get("path")
@@ -60,7 +66,8 @@ try {
     System.err.println(s"[taint-analysis] ${q.cwe}: ${sources.size} sources (cap $maxSourcesPerCwe), ${sinks.size} sinks (cap $maxSinksPerCwe)")
     if (sources.nonEmpty && sinks.nonEmpty) {
       val task: Callable[List[io.joern.dataflowengineoss.language.Path]] = () =>
-        sinks.reachableByFlows(sources).take(maxFlowsPerCwe).l
+        (if (DIRECTION == "backward") sources.reachableByFlows(sinks)
+         else sinks.reachableByFlows(sources)).take(maxFlowsPerCwe).l
       val future = executor.submit(task)
       val flowsOpt =
         if (perCweTimeoutMs <= 0L) Try(future.get()).toOption

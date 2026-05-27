@@ -30,13 +30,13 @@ This is the natural extension of `/poc` for memory-safety / parser bugs and pair
 
 These were approved but not yet built. They strengthen the static white-box mission:
 
-- **Sink→source (backward) tracing.** Forward source→sink is strong (Joern
-  `sinks.reachableByFlows(sources)` in `scripts/joern/taint-flows.sc`); add the reverse
-  (`sources.reachableByFlows(sinks)`) so a dangerous sink can be traced back to reachable
-  sources. Tree-sitter is single-file only — backward cross-file needs the Joern/CodeQL path.
-- **Cross-finding chaining.** `findings.json` has no relationships today (`chain-finder` is
-  referenced in `scripts/lib/findings.mjs` but unimplemented). Add a stage that links related
-  findings (e.g. authz-bypass + SSRF) into higher-impact chains via stable fingerprints.
+- ~~**Sink→source (backward) tracing.**~~ **Done (v0.7.0).** `scripts/joern/taint-flows.sc` now
+  has a `DIRECTION` token — `"backward"` runs `sources.reachableByFlows(sinks)` so a dangerous
+  sink can be traced back to reachable sources; the flow-tracer sets it. Tree-sitter stays
+  single-file/forward.
+- ~~**Cross-finding chaining.**~~ **Done (v0.7.0).** `/chain` (chain-finder agent + chain-prepare/
+  finalize) links related findings into higher-impact attack chains in `.kuzushi/chains.json` and
+  attaches a `chains` ref onto each member (status unchanged).
 - **Per-finding remediation.** Only `/mem-exploitability` attaches `remediation` today
   (`scripts/cmd/mem-exploitability-finalize.mjs`). Extend `threat-hunt`, `systems-hunt`, and
   `taint-analysis` finalizers to carry concrete fix guidance per finding.

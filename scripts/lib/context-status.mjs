@@ -111,6 +111,11 @@ export function hasFix(target) {
   return artifactStatus(storeFor(target).fixPath);
 }
 
+// Has cross-finding chaining been run? (.kuzushi/chains.json)
+export function hasChains(target) {
+  return artifactStatus(storeFor(target).chainsPath);
+}
+
 // Is a CodeQL database built? (any .kuzushi/codeql-db/<lang> directory present)
 export function hasCodeqlDb(target) {
   const dir = storeFor(target).codeqlDbDir;

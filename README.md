@@ -43,8 +43,9 @@ much of the standard workflow. The dynamic complement *here* is fuzzing (libFuzz
 sanitizers at scale); `/poc` builds a single ASAN/crash harness, not a fuzzing campaign.
 
 **Across the board:** it loads source, it does not *recover* it (no decompilation / bytecode);
-`/poc` proves the code in an isolated sandbox (`--network none`), not a deployed app; and there
-is no multi-bug exploit chaining — findings are assessed independently.
+`/poc` proves the code in an isolated sandbox (`--network none`), not a deployed app. Findings are
+triaged independently; `/chain` then reasons over them to surface multi-bug **attack chains** as an
+analysis overlay (it does not auto-build a combined exploit — the chain is a documented composition).
 
 ---
 
@@ -97,6 +98,7 @@ claude --plugin-dir .
 /poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
 /mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
 /fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
+/chain               # link related findings into higher-impact attack chains (analysis overlay)
 /export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
 /doctor              # what's installed / missing, with install commands
 ```
@@ -126,6 +128,7 @@ claude --plugin-dir .
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
 | `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + a functional check. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire) and the functional check (must still pass) — a patch is **`validated`** only if it *stops the exploit AND preserves behavior* (PoC⁺). The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
+| `/chain` | **Cross-finding attack chains.** The chain-finder agent reasons over the findings index for compositions (precondition → pivot → impact) — e.g. an auth bypass that turns a read-only SSRF into internal RCE, or a `/mem-exploitability` info-leak that defeats a canary for a control-flow hijack — and records each chain (ordered narrative + member fingerprints), attaching a `chains` ref onto each member (status unchanged). An analysis overlay, not a combined exploit. | `.kuzushi/chains.json`, `findings.json` |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |

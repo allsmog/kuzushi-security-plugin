@@ -92,24 +92,30 @@ export function storeFor(target) {
     rulesJoernDir: join(root, "rules", "joern"),
     rulePackManifestPath: join(root, "rules", "pack.json"),
     ruleSynthPath: join(root, "rule-synth.json"),
-    // Dependency takeover/abandonment risk (supply-chain); change-focused review
-    // (diff-review); and API-design footgun review (sharp-edges). Each promotes
-    // verdicts into the shared findings index under its own source.
-    supplyChainPath: join(root, "supply-chain.json"),
-    diffReviewPath: join(root, "diff-review.json"),
-    sharpEdgesPath: join(root, "sharp-edges.json"),
     findingsPath: join(root, "findings.json"),
     // Exploitability verification (verify, read-only reasoning) and empirical
     // proof-of-concept results (poc, sandbox-executed) — both attach their
     // outcome onto findings.json and persist a canonical artifact here.
     verifyPath: join(root, "verify.json"),
     pocPath: join(root, "poc.json"),
+    // Coverage-guided fuzzing campaign artifacts. /fuzz-init creates a plan and
+    // harness workspace, /fuzz-run records empirical executions, and the later
+    // stages triage/minimize/promote crash or oracle evidence back into findings.
+    fuzzDir: join(root, "fuzz"),
+    fuzzPlanPath: join(root, "fuzz", "fuzz-plan.json"),
+    fuzzRunPath: join(root, "fuzz", "fuzz-run.json"),
+    fuzzTriagePath: join(root, "fuzz", "fuzz-triage.json"),
+    fuzzMinimizePath: join(root, "fuzz", "fuzz-minimize.json"),
+    fuzzPromotePath: join(root, "fuzz", "fuzz-promote.json"),
     // Memory-corruption exploitability assessment (mem-exploitability) — tiers +
     // mitigation posture; attaches an `exploitability` block onto findings.json.
     memExploitabilityPath: join(root, "mem-exploitability.json"),
     // PoC⁺ patch validation (/fix): generated patches validated in a sandbox
     // copy (stops the exploit + preserves function), attaching a `fix` block.
     fixPath: join(root, "fix.json"),
+    // Cross-finding chaining (/chain): links related findings into higher-impact
+    // attack chains; attaches a `chains` ref onto each member finding.
+    chainsPath: join(root, "chains.json"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),

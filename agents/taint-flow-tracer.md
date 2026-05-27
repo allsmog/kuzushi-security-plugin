@@ -41,6 +41,10 @@ source and one sink:
    `script = <the edited script>`.
 3. Each stdout line is a flow JSON object (`filePath`, `sourceLine`, `sinkLine`, `steps[]`).
    Record these as `path` evidence.
+   - **Backward (sink-rooted) tracing:** to trace a *known dangerous sink* back to whatever
+     sources reach it (when sources aren't pre-labeled), also set the script's `DIRECTION` token
+     from `"forward"` to `"backward"` (`sources.reachableByFlows(sinks)`) and re-run. Useful for a
+     sink surfaced by `/systems-hunt` or a finding whose source is unclear.
 
 **CodeQL** (when `backends.codeql.available`): for each language DB under `codeql.dbDir`, run a
 `@kind path-problem` taint query via `codeql:query` (database = `<dbDir>/<lang>`) using the
