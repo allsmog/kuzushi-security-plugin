@@ -9,11 +9,63 @@
 // CPG is present it is noted as an available higher-fidelity upgrade (a future
 // backend); the heuristic still runs so the artifact is always produced.
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { resolve, join, extname } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { runRg, buildGlobs } from "../lib/ripgrep.mjs";
+
+const JOERN_MAX_BUFFER = 64 * 1024 * 1024;
+
+function joernAvailable() {
+  const r = spawnSync("joern", ["--version"], { encoding: "utf8" });
+  return !r.error && (r.status === 0 || r.status === null);
+}
+
+// Real call edges from a prebuilt Joern CPG: per (app-owned) method, the call-site
+// count (callIn) and a few caller names. Returns null on any failure → caller
+// falls back to the ripgrep heuristic. callIn.size is a true edge count, not a
+// token tally, so it's a far better blast-radius signal.
+function buildFromJoern(cpgPath, maxSymbols) {
+  const script = [
+    "import io.shiftleft.semanticcpg.language._",
+    "import scala.util.Try",
+    'val cpgFile = sys.env.getOrElse("KUZUSHI_CPG", throw new RuntimeException("missing KUZUSHI_CPG"))',
+    "importCpg(cpgFile)",
+    `cpg.method.isExternal(false).take(${Math.max(50, maxSymbols)}).foreach { m =>`,
+    "  val callers = Try(m.caller.name.dedup.take(8).l).getOrElse(Nil)",
+    "  val count = Try(m.callIn.size).getOrElse(0)",
+    '  val line = m.lineNumber.map(_.toString).getOrElse("0")',
+    '  println("KGRAPH\\t" + m.name + "\\t" + m.filename + "\\t" + line + "\\t" + count + "\\t" + callers.mkString(","))',
+    "}"
+  ].join("\n");
+  const scratch = mkdtempSync(join(tmpdir(), "kuzushi-cgraph-"));
+  const scriptPath = join(scratch, "graph.sc");
+  try {
+    writeFileSync(scriptPath, script);
+    const r = spawnSync("joern", ["--script", scriptPath], {
+      encoding: "utf8", maxBuffer: JOERN_MAX_BUFFER, env: { ...process.env, KUZUSHI_CPG: cpgPath }
+    });
+    if (r.status !== 0 || !r.stdout) return null;
+    const symbols = [];
+    for (const raw of r.stdout.split(/\r?\n/)) {
+      if (!raw.startsWith("KGRAPH\t")) continue;
+      const [, name, file, line, count, callers] = raw.split("\t");
+      if (!name || name.startsWith("<")) continue; // skip synthetic <global>/<operator>/<clinit>
+      symbols.push({
+        name, file, line: Number(line) || 1, callerCount: Number(count) || 0,
+        callers: callers ? callers.split(",").filter(Boolean) : [], callees: []
+      });
+    }
+    return symbols.length ? symbols : null;
+  } catch {
+    return null;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
 
 // Definition probes: a regex whose match line contains a function/method name we
 // extract with `nameOf`. Keyword forms are reliable; the C/Java method form is
@@ -89,44 +141,58 @@ export function buildCodeGraph(target, input = {}) {
   const maxSymbols = Number(input.maxSymbols ?? 400);
   const globs = buildGlobs();
 
-  const defs = collectDefs(resolvedTarget, globs);
-  const tally = tallyCalls(resolvedTarget, globs);
-
-  // callerCount = call-site occurrences minus the symbol's own definition lines
-  // (each def line contains `name(` once). Clamp at 0.
-  const symbols = [...defs.values()]
-    .map((d) => ({
-      name: d.name,
-      file: d.filePath,
-      line: d.line,
-      callerCount: Math.max(0, (tally.get(d.name) ?? 0) - d.defCount),
-      callers: [],
-      callees: []
-    }))
-    .sort((a, b) => b.callerCount - a.callerCount)
-    .slice(0, maxSymbols);
-
   const joernCpgPresent = existsSync(store.joernCpgPath);
+
+  // Prefer a Joern CPG (real call edges) when present + the CLI is available;
+  // otherwise the ripgrep heuristic (call-site token tally).
+  let backend, symbols, definitionCount = null;
+  if (joernCpgPresent && joernAvailable() && !input.forceHeuristic) {
+    const joernSyms = buildFromJoern(store.joernCpgPath, maxSymbols);
+    if (joernSyms) {
+      backend = "joern";
+      symbols = joernSyms.sort((a, b) => b.callerCount - a.callerCount).slice(0, maxSymbols);
+    }
+  }
+  if (!symbols) {
+    backend = "ripgrep-heuristic";
+    const defs = collectDefs(resolvedTarget, globs);
+    const tally = tallyCalls(resolvedTarget, globs);
+    definitionCount = defs.size;
+    // callerCount = call-site occurrences minus the symbol's own definition lines
+    // (each def line contains `name(` once). Clamp at 0.
+    symbols = [...defs.values()]
+      .map((d) => ({
+        name: d.name, file: d.filePath, line: d.line,
+        callerCount: Math.max(0, (tally.get(d.name) ?? 0) - d.defCount),
+        callers: [], callees: []
+      }))
+      .sort((a, b) => b.callerCount - a.callerCount)
+      .slice(0, maxSymbols);
+  }
+
   const entryPoints = entryPointsFor(store);
+  const upgradeNote = backend === "joern"
+    ? "Real call edges from the Joern CPG (callIn counts)."
+    : (joernCpgPresent ? "Joern CPG present but the joern CLI was unavailable/failed — used the heuristic." : "Build a Joern CPG (/build-databases) for exact interprocedural edges.");
 
   const doc = {
     version: "1.0",
     schemaVersion: "code-graph.v1",
     generatedAt: new Date().toISOString(),
     target: resolvedTarget,
-    backend: "ripgrep-heuristic",
-    upgrades: { joernCpgPresent, note: joernCpgPresent ? "A Joern CPG is present — a future backend can derive exact call edges from it." : "Build a Joern CPG (/build-databases) for exact interprocedural edges." },
+    backend,
+    upgrades: { joernCpgPresent, note: upgradeNote },
     entryPoints,
     symbols,
-    summary: { definitionCount: defs.size, symbolCount: symbols.length, entryPointCount: entryPoints.length, topSymbol: symbols[0]?.name ?? null }
+    summary: { ...(definitionCount !== null ? { definitionCount } : {}), symbolCount: symbols.length, entryPointCount: entryPoints.length, topSymbol: symbols[0]?.name ?? null }
   };
   atomicWrite(store.codeGraphPath, `${JSON.stringify(doc, null, 2)}\n`);
 
   const run = openRun(resolvedTarget, "code-graph");
   const result = {
     ok: true, status: "completed", target: resolvedTarget,
-    codeGraphPath: store.codeGraphPath, backend: doc.backend,
-    definitionCount: defs.size, symbolCount: symbols.length, entryPointCount: entryPoints.length,
+    codeGraphPath: store.codeGraphPath, backend,
+    symbolCount: symbols.length, entryPointCount: entryPoints.length,
     joernCpgPresent, topSymbols: symbols.slice(0, 8).map((s) => `${s.name} (${s.callerCount})`)
   };
   run.finalize(result);
