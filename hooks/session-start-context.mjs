@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { buildContext } from "../scripts/cmd/context-build.mjs";
-import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasVerify, hasPoc, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
+import { hasContextRun, hasXray, hasThreatModel, hasThreatIntel, hasThreatHunt, hasSystemsHunt, hasVerify, hasPoc, hasCodeqlDb, hasJoernCpg } from "../scripts/lib/context-status.mjs";
 import { readJsonIfPresent, storeFor } from "../scripts/lib/artifact-store.mjs";
 import { selectForTarget } from "../scripts/cmd/select-tooling.mjs";
 import { markAutoAttempted } from "../scripts/cmd/install-tooling.mjs";
@@ -151,6 +151,7 @@ async function run() {
     threatModel: hasThreatModel(cwd),
     threatIntel: hasThreatIntel(cwd),
     threatHunt: hasThreatHunt(cwd),
+    systemsHunt: hasSystemsHunt(cwd),
     verify: hasVerify(cwd),
     poc: hasPoc(cwd),
     findings: readFindingsStatus(cwd),
@@ -190,7 +191,7 @@ function toolingLines(tooling) {
   return [`    LSP:  ${lsp}`, `    MCP:  ${mcp}`];
 }
 
-function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, verify, poc, findings, codeqlDb, joernCpg, tooling }) {
+function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, findings, codeqlDb, joernCpg, tooling }) {
   const totalFiles = result.inventory?.totalFiles ?? 0;
   const byLanguage = result.inventory?.byLanguage ?? {};
   const hints = result.componentHints ?? [];
@@ -209,6 +210,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     : "not run yet";
   const huntLine = threatHunt.built
     ? `present (.kuzushi/threat-hunt.json, built ${threatHunt.mtime})`
+    : "not run yet";
+  const systemsLine = systemsHunt.built
+    ? `present (.kuzushi/systems-hunt.json, built ${systemsHunt.mtime})`
     : "not run yet";
   const findingsLine = findings.present
     ? `${findings.total} (${findings.open ?? 0} open, ${findings.confirmed ?? 0} confirmed, ${findings.proven ?? 0} proven)`
@@ -235,6 +239,7 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `  threat-model: ${threatLine}`,
     `  threat-intel: ${intelLine}`,
     `  threat-hunt:  ${huntLine}`,
+    `  systems-hunt: ${systemsLine}`,
     `  findings:     ${findingsLine}`,
     `  verify:       ${verifyLine}`,
     `  poc:          ${pocLine}`,
@@ -314,6 +319,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `findings into .kuzushi/findings.json. Mention it if the user wants to go deeper; don't auto-run it.`;
   }
 
+  // Systems-hunt availability — only worth surfacing on native / memory-unsafe
+  // code (it finds little in pure web stacks). On-demand note, not an offer.
+  const systemsLangs = ["C", "C++", "Rust"].filter((l) => Number(byLanguage[l] ?? 0) > 0);
+  if (systemsLangs.length && !systemsHunt.built) {
+    additionalContext +=
+      `\n\nThis repo has systems/native code (${systemsLangs.join(", ")}) — /systems-hunt is ` +
+      `available: a native / parser / memory-safety review (loadLibrary/JNI, memcpy/Unsafe/gets, ` +
+      `archive parsers, deserialization) that promotes findings into .kuzushi/findings.json. ` +
+      `Mention it for deeper memory-safety coverage; don't auto-run it.`;
+  }
+
   // Verify / poc are only surfaced when the findings index has findings — no
   // findings, nothing to verify or prove. Both are on-demand notes (not auto-run);
   // /poc in particular builds and EXECUTES harnesses, so never launch it unprompted.
@@ -369,7 +385,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   }
   additionalContext +=
     `\n\nCommands: /threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
-    `/threat-hunt (adversarial per-threat review → findings.json), /invariant-test (check CVE ` +
+    `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
+    `memory-safety review), /invariant-test (check CVE ` +
     `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
     `/poc (build + sandbox-run a harness to prove verified findings), /build-databases (codeql DB + ` +
     `joern CPG, async), /doctor (tooling status), /install (install tools).`;
