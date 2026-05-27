@@ -100,6 +100,7 @@ claude --plugin-dir .
 ```
 /deep-context        # deep system-understanding pass (modules, trust boundaries, invariants)
 /code-graph          # cache entry points + per-symbol caller counts (blast-radius signal)
+/traffic-map         # offline Burp/HAR import → correlate observed endpoints to source handlers
 /threat-model        # PASTA model → .kuzushi/threat-model.json (+ ASCII data-flow diagram)
 /threat-intel        # research critical/high CVEs (this stack + similar apps) → invariants
 /supply-chain        # dependency takeover/abandonment risk (maintainers, cadence) → findings
@@ -109,6 +110,8 @@ claude --plugin-dir .
 /sast                # semgrep scan → triage hits into findings.json
 /sharp-edges         # footgun APIs / dangerous defaults (misuse-resistance review) → findings
 /crypto-review       # timing side-channels, missing zeroization, weak crypto RNG → findings
+/authz               # authorization-model review: missing authz, IDOR, privilege escalation → findings
+/iac                 # config & container security: Dockerfile/k8s/Terraform misconfig → findings
 /diff-review         # security review of a change (regressions + blast radius) → findings
 /variant-hunt        # find siblings of a confirmed bug across the repo → findings.json
 /semgrep-rule        # distill confirmed findings into test-driven Semgrep rules
@@ -142,6 +145,9 @@ claude --plugin-dir .
 | `/sharp-edges` | **Misuse-resistance review.** Scans for footgun APIs / dangerous defaults, then the sharp-edges-analyzer agent reasons through three adversaries (scoundrel / lazy / confused dev) across six categories (e.g. JWT `alg:none`, TLS verify off, stringly-typed auth). Distinct from `/sast` (injection). | `.kuzushi/sharp-edges.json`, `findings.json` |
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/crypto-review` | **Crypto-misuse review.** The crypto-reviewer agent confirms each candidate handles a secret, then flags timing side-channels (variable-time compare of a MAC/token, CWE-208), missing/elidable zeroization (CWE-226/14), and non-cryptographic RNG minting secrets (CWE-338). Distinct from `/sast` and `/sharp-edges`. | `.kuzushi/crypto-review.json`, `findings.json` |
+| `/authz` | **Authorization-model review.** Scans endpoints + object-access-by-id sites; the authz-reviewer agent finds missing authz (CWE-862), IDOR / broken object-level authz (CWE-639), privilege escalation, and broken ownership. | `.kuzushi/authz.json`, `findings.json` |
+| `/iac` | **Config & container security.** Scans Dockerfiles, Kubernetes/Compose, and Terraform/IaC for misconfigurations (privileged containers, root, unpinned images, hardcoded secrets, public network/storage, disabled TLS); the iac-reviewer agent confirms each in context. | `.kuzushi/iac.json`, `findings.json` |
+| `/traffic-map` | **Offline Burp/HAR import.** Parses a HAR or Burp "Save items" XML export into observed endpoints, then the traffic-mapper agent correlates each to its source handler (x-ray + code-graph) and flags the gaps the traffic reveals (shadow surface, unauthenticated mutating endpoints, params reaching sinks). Offline — no proxy. | `.kuzushi/traffic-map.json`, `findings.json` |
 | `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
 | `/variant-hunt` | **Variant analysis.** For each confirmed/proven finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
 | `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
@@ -161,7 +167,8 @@ claude --plugin-dir .
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`, `rule-synthesist`,
+`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
+`iac-reviewer`, `authz-reviewer`, `traffic-mapper`, `rule-synthesist`,
 `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
