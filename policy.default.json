@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "mode": "defensive",
+  "filesystem": {
+    "writeRoots": [".kuzushi"],
+    "denyGlobs": [
+      "**/.git/**",
+      "**/node_modules/**",
+      "**/.ssh/**",
+      "**/.aws/**",
+      "**/.gnupg/**",
+      "**/.kube/**",
+      "**/.npmrc",
+      "**/.pypirc"
+    ]
+  },
+  "network": {
+    "default": "deny",
+    "allow": ["api.osv.dev", "services.nvd.nist.gov", "api.github.com"]
+  },
+  "exec": {
+    "subprocessAllowlist": [
+      "semgrep", "codeql", "joern", "joern-parse", "git",
+      "cc", "clang", "clang++", "gcc", "g++", "node", "python3", "rustc", "cargo", "go", "javac"
+    ]
+  },
+  "mcp": {
+    "rawQuery": "allow",
+    "confineQueryPaths": true,
+    "maxQueryBytes": 200000
+  },
+  "git": {
+    "apply": "require-approval"
+  }
+}

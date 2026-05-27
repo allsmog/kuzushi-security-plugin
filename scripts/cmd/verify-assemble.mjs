@@ -15,6 +15,15 @@ import { patchFindings, verifyVerdictToStatus } from "../lib/findings.mjs";
 const VALID_VERDICTS = new Set(["confirmed-exploitable", "not-exploitable", "inconclusive"]);
 const POC_READY = new Set(["confirmed-exploitable", "inconclusive"]);
 const MIN_RATIONALE_LENGTH = 150;
+const MIN_DEVILS_ADVOCATE = 60;
+
+// FP-gate framing (Trail of Bits fp-check, our own wording): every decisive
+// verdict is a TRUE / FALSE positive call, defended against a devil's-advocate pass.
+const GATE_BY_VERDICT = {
+  "confirmed-exploitable": "true-positive",
+  "not-exploitable": "false-positive",
+  inconclusive: "needs-runtime"
+};
 
 function fail(message) {
   console.error(`verify-assemble: ${message}`);
@@ -48,9 +57,20 @@ function validate(candidates) {
       for (const a of anchors) {
         if (!a.filePath || a.startLine === undefined) fail(`${id}: each evidenceAnchor must be { filePath, startLine }.`);
       }
+      // FP gate: a positive PoC isn't enough — show the NEGATIVE case (an input
+      // that should be safely rejected), so the rule/path discriminates.
+      if (!c.negativePoc || String(c.negativePoc).trim().length < 20) {
+        fail(`${id}: verdict "confirmed-exploitable" requires a negativePoc — an input that should be safely handled/rejected (proves the trigger discriminates, not just fires).`);
+      }
     }
     if (c.verdict === "not-exploitable" && !/guard|check|valid|sanitiz|escap|unreachable|param/i.test(rationale)) {
       fail(`${id}: verdict "not-exploitable" must name the guard that holds (or explain why the sink is unreachable) in its rationale.`);
+    }
+    // Devil's-advocate gate on decisive verdicts: argue the opposite, then rebut.
+    if (c.verdict === "confirmed-exploitable" || c.verdict === "not-exploitable") {
+      if (!c.devilsAdvocate || String(c.devilsAdvocate).trim().length < MIN_DEVILS_ADVOCATE) {
+        fail(`${id}: verdict "${c.verdict}" requires a devilsAdvocate (≥${MIN_DEVILS_ADVOCATE} chars): the strongest argument for the OPPOSITE verdict, and why it fails.`);
+      }
     }
   }
 }
@@ -76,6 +96,9 @@ export function assembleVerify(target, runDir) {
     attackVector: c.attackVector ?? null,
     preconditions: Array.isArray(c.preconditions) ? c.preconditions : [],
     pocSketch: c.pocSketch ?? null,
+    negativePoc: c.negativePoc ?? null,
+    devilsAdvocate: c.devilsAdvocate ?? null,
+    gateVerdict: GATE_BY_VERDICT[c.verdict],
     evidenceAnchors: Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : [],
     rationale: String(c.rationale ?? ""),
     pocReady: POC_READY.has(c.verdict),
@@ -98,6 +121,11 @@ export function assembleVerify(target, runDir) {
       preconditions: c.preconditions,
       pocSketch: c.pocSketch,
       pocReady: c.pocReady,
+      gateReview: {
+        verdict: c.gateVerdict,
+        negativePoc: c.negativePoc,
+        devilsAdvocate: c.devilsAdvocate
+      },
       verifiedAt
     }
   }));

@@ -34,14 +34,24 @@ corroborate with `codeql:query` (`database` = `<repo>/.kuzushi/codeql-db/<lang>`
 **B — Construct the concrete trigger.** Write the *actual* input that reaches the sink: the
 request/payload/argument, the `attackVector` (e.g. "unauthenticated HTTP POST /upload"), and the
 `preconditions` that must hold. Draw on the matched `intel` (known CVE payloads for this CWE).
-This becomes the `pocSketch`.
+This becomes the `pocSketch`. For `confirmed-exploitable`, also write a **`negativePoc`** — an
+input that *should* be safely handled/rejected. This proves your trigger **discriminates** (it
+fires on the attack and not on benign input), not that it merely fires.
 
 **C — Attempt EVERY guard between source and sink.** input validation, authz, allowlists,
 sanitizers, escaping, ORM parameterization, signature/CSRF/Origin checks. For each, write a
 concrete bypass attempt and whether it works. A guard you didn't try to bypass is not a guard
 that holds.
 
-**D — Pick a verdict from the closed set** (validated by assemble):
+**D — Devil's advocate (FP gate).** Before deciding, write the **strongest argument for the
+opposite verdict** — for a would-be `confirmed-exploitable`, the best case that it's a false
+positive (unreachable in practice, guard you missed, non-attacker-controlled source); for a
+would-be `not-exploitable`, the best case it *is* exploitable. Then rebut it or change your
+verdict. This is the `devilsAdvocate` field; it is required for the decisive verdicts.
+
+**E — Pick a verdict from the closed set** (validated by assemble) — this is a TRUE-positive
+(`confirmed-exploitable`) / FALSE-positive (`not-exploitable`) / needs-runtime (`inconclusive`)
+gate decision:
 - `confirmed-exploitable` — you reconstructed a concrete trigger that reaches the sink past every
   blocking guard (or there is no guard). **Requires** a `pocSketch` (`payload` + `howToTrigger`)
   and ≥1 `evidenceAnchor`. Be honest: "confirmed" means the *static* path is real, not that you
@@ -51,7 +61,7 @@ that holds.
 - `inconclusive` — you can't settle it from on-disk artifacts (needs runtime, a dependency you
   can't see, etc.). Say exactly what the empirical PoC must demonstrate.
 
-**E — Confidence.** A `confidence` in [0,1]: how sure are you, given only static evidence.
+**F — Confidence.** A `confidence` in [0,1]: how sure are you, given only static evidence.
 
 ## Output + assemble
 
@@ -64,15 +74,19 @@ Write to the prep's `draftPath` (`draft.verify.json`):
   "attackVector": "…",
   "preconditions": ["…"],
   "pocSketch": { "payload": "…", "howToTrigger": "…", "expectedEffect": "…" },
+  "negativePoc": "an input that SHOULD be safely handled/rejected (required for confirmed-exploitable)",
+  "devilsAdvocate": "strongest case for the opposite verdict, then why it fails (required for confirmed/​not-exploitable)",
   "evidenceAnchors": [{ "filePath": "…", "startLine": 1 }],
-  "rationale": "A–E written out"
+  "rationale": "A–F written out"
 }] }
 ```
 Then run the `assembleCommand`. Assemble **rejects**: verdict outside the set; `rationale` < 150
-chars; `confirmed-exploitable` without a `pocSketch` (`payload`+`howToTrigger`) or without an
-`evidenceAnchor`; `not-exploitable` without a named guard. It attaches the `verification` block
-onto each finding, sets its status (`confirmed` / `reviewed` / `needs-trace`), and tags
-`confirmed-exploitable` + `inconclusive` findings as **PoC-ready**.
+chars; `confirmed-exploitable` without a `pocSketch` (`payload`+`howToTrigger`), without an
+`evidenceAnchor`, or without a `negativePoc`; `confirmed-exploitable`/`not-exploitable` without a
+`devilsAdvocate` (≥60 chars); `not-exploitable` without a named guard. It attaches the
+`verification` block (including a `gateReview` with the TRUE/FALSE-positive call, the negativePoc,
+and the devil's-advocate pass) onto each finding, sets its status (`confirmed` / `reviewed` /
+`needs-trace`), and tags `confirmed-exploitable` + `inconclusive` findings as **PoC-ready**.
 
 ## Report
 

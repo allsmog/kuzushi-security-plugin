@@ -14,8 +14,9 @@ Verify the exploitability of the open findings for the current repository.
    If it reports no findings index, tell the user to run `/threat-hunt` (or `/taint-analysis`)
    first and stop.
 2. Read the prep's `prepPath`. For **each** candidate finding, do the full verify walk
-   (reconstruct source→sink → construct a concrete trigger/payload → attempt every guard →
-   verdict + confidence + PoC sketch), using the `kuzushi-tree-sitter` taint tools
+   (reconstruct source→sink → concrete trigger/payload **+ a negative PoC** → attempt every guard
+   → **devil's-advocate** the opposite verdict → TRUE/FALSE-positive verdict + confidence + PoC
+   sketch), using the `kuzushi-tree-sitter` taint tools
    (`tree_sitter:taint_sources` / `taint_sinks` / `callers` / `query`; codeql/joern only if a
    prebuilt DB/CPG already exists) and each candidate's matched threat-intel (`intel`).
 3. Write the `{ candidates: [...] }` bundle to the prep's `draftPath`, then run the
