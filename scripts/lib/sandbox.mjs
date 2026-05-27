@@ -47,6 +47,11 @@ function imageFor(language) {
   return LANG_IMAGES[language] ?? "debian:stable-slim";
 }
 
+// Single-quote a string for safe interpolation into an `sh -c` line.
+function shq(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 // Spawn a child process, capturing stdout/stderr and enforcing a wall-clock
 // timeout (SIGKILL on expiry). Resolves with {exitCode, signal, stdout, stderr,
 // durationMs, timedOut}.
@@ -81,12 +86,15 @@ function spawnCapture(command, args, options, timeoutMs) {
 export async function runInSandbox({ backend, language, harnessDir, runCommand, timeoutMs = 60000, trustLocal = false }) {
   if (backend === "docker") {
     const image = imageFor(language);
-    const args = [
-      "run", "--rm", "--network", "none",
-      "-v", `${harnessDir}:/work`, "-w", "/work",
-      image, "sh", "-c", runCommand
-    ];
-    const result = await spawnCapture("docker", args, {}, timeoutMs);
+    // Stage the harness by streaming a tar of harnessDir into the container over
+    // stdin (`docker run -i` + `tar -x`), NOT by bind-mounting it. A bind mount
+    // (`-v harnessDir:/work`) silently arrives EMPTY when harnessDir lives under a
+    // path Docker Desktop doesn't share (e.g. /private/tmp on macOS) — the harness
+    // then fails to load and the run is wasted. Streaming works regardless of the
+    // host's Docker file-sharing config, and --network none still holds.
+    const inner = `mkdir -p /work && tar -x -C /work -f - && cd /work && ${runCommand}`;
+    const pipeline = `tar -c -C ${shq(harnessDir)} . | docker run -i --rm --network none -w /work ${shq(image)} sh -c ${shq(inner)}`;
+    const result = await spawnCapture("sh", ["-c", pipeline], {}, timeoutMs);
     return { ...result, backend: "docker", image };
   }
   if (backend === "local" && trustLocal) {
@@ -116,7 +124,8 @@ export function classifyResult(result, expectedSignal = "crash") {
     return { proofLevel: 1, proofVerdict: "error" };
   }
   const out = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  // Hard crash signal from the sandboxed process is the strongest proof.
+  // Hard crash signal from the sandboxed process is the strongest proof — a real
+  // signal death is unambiguous, so it outranks everything below.
   if (CRASH_SIGNALS.has(result.signal)) {
     return { proofLevel: 4, proofVerdict: "exploited" };
   }
@@ -124,15 +133,19 @@ export function classifyResult(result, expectedSignal = "crash") {
   if (typeof result.exitCode === "number" && result.exitCode > 128) {
     return { proofLevel: 4, proofVerdict: "exploited" };
   }
+  // A harness that never built/loaded must NOT be read as a proof. This gate has
+  // to run BEFORE the textual-crash and expected-nonzero heuristics below: a load
+  // failure (MODULE_NOT_FOUND, missing file, syntax/compile error) exits non-zero
+  // and prints a stack trace, which those heuristics would otherwise mis-score as
+  // "exploited" — a false proof. Only a genuine signal death (above) outranks it.
+  if (BUILD_FAIL_PATTERNS.test(out)) {
+    return { proofLevel: 1, proofVerdict: "harness-failed-build" };
+  }
   if (CRASH_PATTERNS.test(out)) {
     return { proofLevel: 3, proofVerdict: "exploited" };
   }
   if (expectedSignal === "nonzero" && typeof result.exitCode === "number" && result.exitCode !== 0) {
     return { proofLevel: 3, proofVerdict: "exploited" };
-  }
-  // Distinguish "harness never built/ran" from "ran cleanly, no repro".
-  if (BUILD_FAIL_PATTERNS.test(out)) {
-    return { proofLevel: 1, proofVerdict: "harness-failed-build" };
   }
   return { proofLevel: 2, proofVerdict: "not-reproduced" };
 }
