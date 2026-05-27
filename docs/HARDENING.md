@@ -21,6 +21,39 @@ These are guardrails against the common dangerous shapes, not a sandbox. They
 **fail open**: if a hook errors, the tool call is allowed, so the guardrail can
 never wedge your session.
 
+## Tool-boundary policy (analyzer queries & working-tree writes)
+
+The analyzer MCP servers (`codeql:query`, `joern:query`) execute queries with the
+host's privileges, and `/fix` can write to your tree. A **policy plane** governs
+those surfaces. The shipped default (`policy.default.json` at the plugin root) is
+**non-breaking** and always-on for two controls:
+
+- **Path confinement** — a CodeQL `.ql` file or Joern CPG path must resolve under
+  the target repo, the plugin dir, or the OS temp dir. A query pointing at
+  `/etc/...` or `~/.ssh/...` is refused before anything runs.
+- **Inline-script size cap** — Joern scripts over `mcp.maxQueryBytes` (200 KB) are
+  refused.
+
+One control is **configurable** and defaults to permissive so existing analysis
+keeps working:
+
+- **`mcp.rawQuery`** — `"allow"` (default) · `"require-approval"` · `"deny"`. A
+  *raw* query is one not drawn from the validated rule pack (`.kuzushi/rules/`,
+  produced by `/rule-synth` and digest-attested). Under `require-approval`, a raw
+  query is refused unless a `.kuzushi/.approvals/raw-query` marker exists; under
+  `deny`, only pack queries run.
+
+Override per-repo by dropping a partial `<repo>/.kuzushi/policy.json` (shallow-
+merged over the default), e.g. to lock a CI run down:
+
+```json
+{ "mcp": { "rawQuery": "require-approval" }, "git": { "apply": "deny" } }
+```
+
+Run `/doctor` to see the effective policy (and its digest). Every run artifact is
+also stamped with a `provenance` block (`toolchainDigest`, `repoDigest`,
+`scopeDigest`, `policyDigest`) so a result is reproducible and auditable.
+
 ## What you should set yourself
 
 A plugin **cannot** set Claude Code permissions — those live in *your*

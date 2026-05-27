@@ -154,10 +154,20 @@ The plugin only spins up what your repo needs, and installs what it can.
 - **Databases**: `/build-databases` creates the CodeQL DB + Joern CPG **asynchronously** (logs
   to `.kuzushi/db-build.log`) so deep semantic queries work without blocking your session.
 
-Run `/doctor` any time to see exactly what's available.
+Run `/doctor` any time to see exactly what's available — including the effective
+**tool-boundary policy**.
 
 **System prerequisites** (only for the tools you use): Java 17+ (jdtls, Joern), Go (gopls),
 Python (semgrep). The plugin tells you what's missing and how to get it.
+
+### Trust plane
+
+The analyzer query surface and working-tree writes are governed by a policy
+(`policy.default.json`, override per-repo with `.kuzushi/policy.json`). Always-on: CodeQL/Joern
+query **path-confinement** (no escapes to `~/.ssh`, `/etc`, …) and an inline-script **size cap**.
+Configurable: `mcp.rawQuery` (`allow` → `require-approval` → `deny`) gates *raw* queries vs. the
+digest-attested rule pack, and `git.apply` gates working-tree writes. Every artifact carries a
+`provenance` block (toolchain/repo/scope/policy digests). See [docs/HARDENING.md](docs/HARDENING.md).
 
 ---
 

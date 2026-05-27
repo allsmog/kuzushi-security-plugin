@@ -3,11 +3,17 @@
 // state, under what scope and policy. All digests are best-effort and never
 // throw (a missing context.json just yields a null repo/scope digest).
 
+// NB: deliberately does NOT import artifact-store (which imports this module to
+// stamp provenance) — it reads the runs dir + JSON directly to stay cycle-free.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { storeFor, readJsonIfPresent } from "./artifact-store.mjs";
+import { join, resolve } from "node:path";
 import { policyDigest } from "./policy.mjs";
+
+function readJsonIfPresent(path) {
+  if (!existsSync(path)) return null;
+  try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
+}
 
 const PLUGIN_VERSION = (() => {
   try {
@@ -21,7 +27,7 @@ function shortHash(value) {
 
 // Most recent completed context.json for the target, if any.
 function latestContext(target) {
-  const runsDir = storeFor(target).runsDir;
+  const runsDir = join(resolve(target), ".kuzushi", "runs");
   if (!existsSync(runsDir)) return null;
   let latest = null;
   for (const name of readdirSync(runsDir)) {

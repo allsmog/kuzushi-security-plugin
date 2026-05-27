@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { emitResult } from "../lib/artifact-store.mjs";
 import { SUPPORTED_BACKENDS, mcpHealth } from "../lib/mcp.mjs";
 import { LSP_SERVERS, MCP_BACKENDS, toolAvailable } from "../lib/capabilities.mjs";
+import { loadPolicy, policyDigest } from "../lib/policy.mjs";
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -55,12 +56,26 @@ async function gather() {
     installHint: server.installHint
   }));
 
+  // Effective tool-boundary policy for the current dir.
+  const target = process.cwd();
+  const { effective, sources } = loadPolicy(target);
+  const policy = {
+    digest: policyDigest(target),
+    overridden: Boolean(sources.override),
+    rawQuery: effective.mcp?.rawQuery ?? "allow",
+    confineQueryPaths: effective.mcp?.confineQueryPaths ?? true,
+    maxQueryBytes: effective.mcp?.maxQueryBytes ?? 200000,
+    gitApply: effective.git?.apply ?? "require-approval",
+    writeRoots: effective.filesystem?.writeRoots ?? []
+  };
+
   return {
     ok: nodeDeps.ok,
     pluginRoot: PLUGIN_ROOT,
     nodeDeps,
     mcpServers,
-    lsp
+    lsp,
+    policy
   };
 }
 
@@ -83,6 +98,14 @@ function printReport(report) {
   for (const l of report.lsp) {
     const hint = l.installed ? "" : `   install: ${l.installHint}`;
     console.log(`  ${mark(l.installed)} ${l.name.padEnd(28)} ${l.languages.join("/")}${l.bundled ? " (bundled)" : ""}${hint}`);
+  }
+  if (report.policy) {
+    const p = report.policy;
+    console.log("");
+    console.log(`Tool-boundary policy (digest ${p.digest}${p.overridden ? ", overridden by .kuzushi/policy.json" : ", default"}):`);
+    console.log(`  raw analyzer queries: ${p.rawQuery}   (path-confinement: ${p.confineQueryPaths ? "on" : "off"}, max inline script: ${p.maxQueryBytes} bytes)`);
+    console.log(`  git apply (working-tree writes): ${p.gitApply}`);
+    console.log(`  write roots: ${p.writeRoots.join(", ") || "(none)"}`);
   }
 }
 

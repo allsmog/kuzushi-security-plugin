@@ -9,6 +9,7 @@ import { basename, delimiter, join, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { assertQueryAllowed } from "../../scripts/lib/policy.mjs";
 
 if (process.argv.includes("--help")) {
   console.log("codeql MCP server. Tools: codeql:health, codeql:databases, codeql:query.");
@@ -141,6 +142,11 @@ async function databases({ root = "." }) {
 async function query({ database, query: ql, format = "json", searchPath }) {
   if (!codeqlAvailable()) return codeqlMissing();
   if (!database || !ql) return { ok: false, reason: "database and query are required" };
+
+  // Tool-boundary policy: confine the query file to allowed roots and honor the
+  // raw-query posture before executing anything.
+  const gate = assertQueryAllowed({ queryPath: ql, fromPath: database });
+  if (!gate.ok) return gate;
 
   const scratch = mkdtempSync(join(tmpdir(), "kuzushi-codeql-"));
   const bqrs = join(scratch, "results.bqrs");

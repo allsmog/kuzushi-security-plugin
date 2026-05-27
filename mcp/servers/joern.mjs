@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { assertQueryAllowed } from "../../scripts/lib/policy.mjs";
 
 if (process.argv.includes("--help")) {
   console.log("joern MCP server. Tools: joern:health, joern:parse, joern:query.");
@@ -62,6 +63,11 @@ async function parse({ root, output }) {
 async function query({ cpg, script }) {
   if (!joernAvailable()) return joernMissing();
   if (!cpg || !script) return { ok: false, reason: "cpg and script are required" };
+
+  // Tool-boundary policy: confine the CPG path, cap the inline script size, and
+  // honor the raw-query posture before executing the script.
+  const gate = assertQueryAllowed({ queryPath: cpg, inlineScript: script, fromPath: cpg });
+  if (!gate.ok) return gate;
 
   const result = spawnSync("joern", ["--script", "-", `-Dpath=${cpg}`], {
     input: script,

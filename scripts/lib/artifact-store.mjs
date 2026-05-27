@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { provenanceFor } from "./provenance.mjs";
 
 const STORE_DIR_NAME = ".kuzushi";
 const LEGACY_STORE_DIR_NAME = ".security-agent";
