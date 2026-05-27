@@ -61,3 +61,17 @@ are promoted into `.kuzushi/findings.json` (`source:"systems-hunt"`).
 Summarize verdict counts and list the `exploitable` findings (candidate id, CWE, the
 source→sink + the missing/bypassed bounds check). Be precise; cite file:line. Don't claim
 `exploitable` without a concrete reachable path and a real memory-safety/RCE impact.
+
+## When NOT to use
+
+- On code with no native / parser / deserialization surface — there's nothing for you to confirm.
+- To grade *how exploitable* a memory bug is — that's the mem-exploit-analyst.
+
+## Rationalizations to Reject
+
+- *"The dangerous primitive is here, so it's a bug."* → Confirm attacker reachability (step 1)
+  first; an unreachable unsafe op is not a finding.
+- *"There's a bounds check, so it's safe."* → Try off-by-one / signedness / pre-vs-post-decode /
+  TOCTOU and name the bound that actually holds.
+- *"Unfamiliar code, probably library noise."* → `likely-library-noise` only after confirming it's
+  vendored/generated **and** unreachable from app input.

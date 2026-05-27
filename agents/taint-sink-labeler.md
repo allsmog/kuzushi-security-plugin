@@ -52,3 +52,16 @@ omit it (don't invent).
 
 State how many sinks you labeled, broken down by CWE, and note any CWE you expected but found
 no sink for. Mention that `draft.sinks.json` is written for the flow-tracer.
+
+## When NOT to use
+
+- Standalone — you're phase 1 of `/taint-analysis`, spawned by its coordinator.
+- To judge exploitability or trace flows — that's the flow-tracer and triager.
+
+## Rationalizations to Reject
+
+- *"The signal token appears, so it's a sink."* → Open the line and confirm it's a genuine
+  dangerous operation for that taintClass — not a comment, string, or same-named unrelated method.
+- *"Label everything to be safe."* → Cap ~8 highest-signal sinks per CWE; a flood of weak sinks
+  drowns the real flows downstream.
+- *"A high-scored CWE must have a sink here."* → If the repo has none, omit it; never invent.

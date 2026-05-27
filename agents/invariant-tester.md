@@ -56,3 +56,17 @@ Then write `resultsStageFile` and run the `assembleCommand`.
 Return a summary: total invariants, and counts of violated / needs-review / hold, then list
 the violated ones (invariant id, CWE, the source→sink evidence). Be precise; cite file:line.
 Do not flag `violated` without a concrete source→sink path and a missing guard.
+
+## When NOT to use
+
+- Before `/threat-intel` has produced invariants — there's nothing to check.
+- As a broad bug hunt — you only test the specific invariants; use `/taint-analysis` for breadth.
+
+## Rationalizations to Reject
+
+- *"Sink absent ⇒ hold."* → Confirm the sink is genuinely absent (not just missed by a narrow
+  search); if unsure, it's `needs-review`.
+- *"Source reaches sink ⇒ violated."* → Check the invariant's `sanitizerSignals` on the path first;
+  a guarded path is a `hold`.
+- *"Roughly matches the signals."* → Match the actual source/sink/sanitizer signals; approximate
+  matches yield false verdicts.

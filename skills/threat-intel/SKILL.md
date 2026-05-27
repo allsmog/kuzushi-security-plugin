@@ -22,3 +22,18 @@ Research the CVE threat landscape for the current repository and write
 4. Run the `assembleCommand` to persist `.kuzushi/threat-intel.json`.
 5. Report the counts and the top applicable CVEs + highest-value invariants. Then mention
    that `/invariant-test` can now verify those invariants against the code.
+
+## When NOT to use
+
+- Offline / air-gapped sessions — this is the one stage that needs live web search.
+- To check whether a CVE *actually affects this code* — that's `/invariant-test` (this stage
+  gathers and distills; it does not verify against the repo).
+
+## Rationalizations to Reject
+
+- *"This CVE is for our framework, so it applies."* → Version-check against the manifests; only
+  set `applies:true` when the in-tree version is in the vulnerable range.
+- *"Critical CVE, so it's relevant."* → Relevance is about *this* stack and domain; a critical CVE
+  in an unused code path or absent feature is noise.
+- *"Invariants are just CVE summaries."* → Each invariant must carry concrete source/sink/sanitizer
+  signals + CWE, or `/invariant-test` can't check it.

@@ -24,3 +24,18 @@ Verify the exploitability of the open findings for the current repository.
 4. Report the verdict counts, the `confirmed-exploitable` findings (fingerprint, CWE, the
    trigger), and which findings are now PoC-ready. Note the user can run `/poc` to empirically
    prove them.
+
+## When NOT to use
+
+- To *find* new bugs — verify only confirms findings a producer already wrote.
+- Before any findings exist — run `/threat-hunt`, `/taint-analysis`, or `/systems-hunt` first.
+- To empirically execute a PoC — that's `/poc`; verify is read-only and never runs code.
+
+## Rationalizations to Reject
+
+- *"The sink looks reachable, that's enough."* → `confirmed-exploitable` requires a **concrete
+  trigger** (an actual payload + how it reaches the sink), not a plausibility argument.
+- *"A guard is in the way, so not-exploitable."* → Name the guard **and** show every bypass you
+  tried failed; an unbypassed-but-untested guard is `inconclusive`, not `not-exploitable`.
+- *"I'm fairly sure, call it confirmed."* → Confidence is recorded explicitly; if you can't settle
+  it from on-disk artifacts, the honest verdict is `inconclusive` with what runtime evidence is needed.

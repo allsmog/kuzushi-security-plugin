@@ -161,6 +161,14 @@ contracts** that later steps (and your own tooling) build on:
 It's a faithful Node port/adaptation of the [kuzushi](#acknowledgements) security toolkit —
 no Rust build, no external binary, no daemon.
 
+## Hardening
+
+kuzushi opens **source you may not trust**, which changes the threat model for your own session.
+The plugin ships `PreToolUse` guardrail hooks that block `rm -rf`, `git push` to `main`/`master`,
+and reads of secret paths (`~/.ssh`, `~/.aws`, keychains, wallets, registry tokens). For the
+user-level settings a plugin can't set itself — notably `enableAllProjectMcpServers: false` so a
+target repo's own `.mcp.json` is never auto-loaded — see **[docs/HARDENING.md](docs/HARDENING.md)**.
+
 ## Privacy
 
 All analysis runs **locally** against your repo. The only step that reaches the network is

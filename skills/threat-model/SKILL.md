@@ -25,3 +25,18 @@ repository.
    data-flow diagram from `.kuzushi/threat-model-dfd.txt` verbatim **inside a triple-backtick
    fenced code block** (```). Mandatory — it's column-aligned ASCII and breaks if pasted as
    prose. Paste the file contents as-is; do not re-draw or summarize the diagram.
+
+## When NOT to use
+
+- To find or confirm concrete vulnerabilities — the model names *threats* to investigate;
+  `/threat-hunt`, `/taint-analysis`, and `/systems-hunt` do the finding.
+- To run SAST — semgrep is explicitly out of scope here (step 2).
+
+## Rationalizations to Reject
+
+- *"This is a small app, the data-flow diagram can be rough."* → Trust boundaries and data flows
+  are what every downstream stage keys off; a vague S3 weakens the whole pipeline.
+- *"I'll list the obvious threats and move on."* → Cover each STRIDE category against each trust
+  boundary; the threat you skip naming is the one nobody hunts.
+- *"I can infer the architecture without reading the code."* → Anchor decomposition in actual
+  files (tree-sitter / LSP), not assumptions about how the framework "usually" works.

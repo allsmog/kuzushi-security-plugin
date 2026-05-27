@@ -20,3 +20,8 @@ draws for MCP servers: **server ✓** means the plugin's Node server connects; *
 the external tool it drives (codeql, joern, semgrep, …) is installed. A server can be ready
 while its CLI is missing — those tools return a structured "missing" response until the CLI
 is installed.
+
+## When NOT to use
+
+- To *install* anything — doctor only reports status; use `/install` to fix what's `✗`.
+- To build the semantic indexes — that's `/build-databases`.

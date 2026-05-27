@@ -79,3 +79,17 @@ onto each finding, sets its status (`confirmed` / `reviewed` / `needs-trace`), a
 Summarize the verdict counts, list the `confirmed-exploitable` findings (fingerprint, CWE,
 source→sink + the trigger), and name which findings are now PoC-ready. Mention the user can run
 `/poc` to empirically prove them.
+
+## When NOT to use
+
+- To discover new bugs — you only adjudicate findings a producer already wrote.
+- To execute a PoC — you are read-only; empirical proof is `/poc`.
+
+## Rationalizations to Reject
+
+- *"The path looks reachable, mark it confirmed."* → `confirmed-exploitable` needs the concrete
+  trigger (payload + how it reaches the sink), not a reachability hunch.
+- *"There's a guard, so not-exploitable."* → Name the guard **and** show every bypass in step C
+  failed; an untested guard ⇒ `inconclusive`, never `not-exploitable`.
+- *"I'm 80% sure, round up to confirmed."* → Record the confidence honestly; what you can't settle
+  statically is `inconclusive` with the runtime evidence the PoC must show.

@@ -20,3 +20,18 @@ Check this repo's CVE-derived invariants against the code.
 3. Write the results stage file and run the `assembleCommand` to persist
    `.kuzushi/invariant-results.json`.
 4. Report the verdict counts and list the violated invariants (id, CWE, source→sink evidence).
+
+## When NOT to use
+
+- Before `/threat-intel` has produced invariants — there's nothing to check.
+- As a general bug hunt — this only tests the specific CVE-derived invariants, not the whole repo
+  (use `/taint-analysis` for breadth).
+
+## Rationalizations to Reject
+
+- *"The sink isn't here, so the invariant holds."* → `hold` needs the sink genuinely absent *or* a
+  guard present; if you can't tell, it's `needs-review`, not a pass.
+- *"Source reaches sink, so it's violated."* → Check for the invariant's sanitizer signal first; a
+  guarded path is a `hold`, not a `violated`.
+- *"Close enough to the invariant's pattern."* → Match the actual source/sink/sanitizer signals;
+  approximate matches produce false verdicts that mislead the rest of the pipeline.

@@ -73,3 +73,17 @@ enforces `minEvidenceLevel` (downgrading under-evidenced `finding`s to `candidat
 Summarize verdict counts, list the `finding`s (CWE, source→sink, evidence level, the guard gap),
 note anything downgraded by the evidence gate, and mention that `.kuzushi/findings.json` now
 holds the open findings for follow-up.
+
+## When NOT to use
+
+- Standalone — you're phase 3 of `/taint-analysis`, after the flow-tracer.
+- To label new sinks/sources or trace flows — earlier phases own that; you adjudicate.
+
+## Rationalizations to Reject
+
+- *"A guard exists on the path, so reject it."* → Confirm the guard actually blocks *this* flow —
+  not bypassable, applied to the right value, before the sink. Say why it holds.
+- *"There's a backend path, so it's a finding."* → A path is necessary, not sufficient; an
+  effective sanitizer/validator/authz still makes it `rejected`.
+- *"Promote it to finding on candidate evidence."* → `finding` needs `linked`/`path`; the assemble
+  gate will downgrade an under-evidenced one anyway — call it `candidate` honestly.

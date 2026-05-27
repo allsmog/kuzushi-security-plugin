@@ -24,3 +24,20 @@ Build and empirically run proof-of-concepts for the PoC-ready findings.
 4. Report the proof verdict + level per finding (and which were `exploited`). If `sandbox` was
    `none`, note the harnesses were written but not executed — the user can run them manually, or
    re-run with Docker available.
+
+## When NOT to use
+
+- On findings that aren't PoC-ready — run `/verify` first; it tags what's worth proving.
+- As a way to *find* or *triage* bugs — `/poc` only empirically confirms an already-reconstructed
+  trigger.
+- When you can't accept code execution — `/poc` builds and **runs** harnesses; if no sandbox is
+  available it writes them but won't execute, and you should not run them by hand on untrusted code.
+
+## Rationalizations to Reject
+
+- *"The harness is easier if it just imports the whole app."* → Build the **smallest** harness that
+  triggers the bug; a giant harness that crashes proves nothing specific.
+- *"It didn't crash, so the finding is wrong."* → `not-reproduced` is about *this harness*, not the
+  finding; a weak harness or wrong payload fails to reproduce a real bug. Re-read the pocSketch.
+- *"I'll just add a network call to make it work."* → The sandbox is offline by design; a PoC that
+  needs the network is testing the wrong thing.

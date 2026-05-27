@@ -76,3 +76,17 @@ Write `draft.flows.json`:
 State, per CWE, how many flows you found and at what evidence level, and which backend produced
 them (or that you fell back to structural linking because no DB/CPG was present). Note that
 `draft.flows.json` is written for the triager.
+
+## When NOT to use
+
+- Standalone — you're phase 2 of `/taint-analysis`, after the labelers.
+- To assign verdicts — you record evidence levels; the triager decides finding/candidate/rejected.
+
+## Rationalizations to Reject
+
+- *"Same CWE in the repo, call it a path."* → `path` requires a backend-returned dataflow; same-file
+  proximity is `linked`; bare co-occurrence is `candidate`. Don't inflate the level.
+- *"No DB/CPG, so I can't trace."* → Fall back to structural linking and report the honest lower
+  level; don't drop the flow.
+- *"I'll loosen the query to get a hit."* → Don't fabricate paths; an unsound query that "matches"
+  is worse than a `candidate`.

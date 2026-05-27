@@ -58,3 +58,19 @@ Summarize the run: ranked CWEs considered, sinks/sources labeled, flows by evide
 (`path` / `linked` / `candidate`) and backend used, and the triage verdict counts. List the
 `finding`s (CWE, source→sink, the guard gap) and note anything the evidence gate downgraded.
 Point the user at `.kuzushi/taint-analysis.json` and the open findings in `.kuzushi/findings.json`.
+
+## When NOT to use
+
+- For native / memory-safety bugs (OOB, UAF, deserialization, JNI) — use `/systems-hunt`.
+- When you already have a specific threat list to attack adversarially — `/threat-hunt` is more
+  targeted; this is the broad source→sink sweep.
+- To confirm a single known finding — that's `/verify`; to find its siblings, `/variant-hunt`.
+
+## Rationalizations to Reject
+
+- *"Source and sink share a CWE, so it's a flow."* → Co-occurrence is `candidate` evidence only;
+  the triager must see a real (`linked`/`path`) data path before calling it a `finding`.
+- *"A sanitizer is called nearby, so it's safe."* → Confirm the sanitizer is applied to the
+  tainted value, in the right context, before the sink — not just present in the file.
+- *"No CodeQL/Joern DB, so I can't trace."* → Fall back to same-file structural linking and report
+  the lower evidence level; don't drop the flow.

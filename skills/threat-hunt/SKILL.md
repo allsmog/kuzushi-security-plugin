@@ -22,3 +22,19 @@ Run the adversarial per-threat review for the current repository.
    `.kuzushi/findings.json`.
 4. Report the verdict counts and the `exploitable` findings (threatId, CWE, source→sink +
    the bypass), and note that `.kuzushi/findings.json` holds the open findings.
+
+## When NOT to use
+
+- Before a threat model exists — run `/threat-model` first (this consumes its threats).
+- To discover bug *classes* the threat model never named — use `/taint-analysis` or
+  `/systems-hunt` for breadth, then come back.
+- To confirm exploitability of an existing finding — that's `/verify` / `/poc`.
+
+## Rationalizations to Reject
+
+- *"A guard exists, so it's safe."* → No verdict of `reviewed-no-impact` without an **attempted
+  bypass** of every guard (step D). This is the #1 source of missed bugs.
+- *"It's probably library/framework code."* → `likely-library-noise` is for vendored/generated
+  code you've actually confirmed is unreachable — not a shrug.
+- *"I couldn't find the source quickly, so there's no bug."* → That's `needs-more-evidence` with
+  the files you still need, not a silent pass.

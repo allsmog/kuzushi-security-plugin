@@ -23,3 +23,10 @@ installs the codeql/joern CLI first if missing (~1–3 GB), and that the indexes
 for codeql/joern queries once it finishes (artifacts: `.kuzushi/codeql-db/<lang>`,
 `.kuzushi/joern/cpg.bin.zip`). Note: CodeQL uses buildless extraction (`--build-mode=none`)
 for Java/C#, so quality is lower than a full build and may be incomplete on some projects.
+
+## When NOT to use
+
+- When the codeql/joern CLIs aren't installed and you only want them present — that's `/install`
+  (though this command installs them first if missing).
+- When you don't need deep interprocedural queries — tree-sitter taint tools work without any DB;
+  the indexes are an optional depth upgrade, not a prerequisite.

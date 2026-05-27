@@ -83,3 +83,20 @@ guard. Exploitable/reviewed verdicts are promoted into `.kuzushi/findings.json`.
 
 Summarize verdict counts and list the `exploitable` findings (threatId, CWE, source→sink + the
 bypass). Mention that `.kuzushi/findings.json` now holds the open findings for follow-up.
+
+## When NOT to use
+
+- Before a threat model exists — you consume its threats; the skill tells the user to run
+  `/threat-model` first.
+- For native/memory-safety or broad source→sink sweeps — that's `/systems-hunt` / `/taint-analysis`.
+
+## Rationalizations to Reject
+
+The Carlini doctrine above, made explicit:
+
+- *"A guard exists → marked safe."* → Never `reviewed-no-impact` without an **attempted bypass** of
+  every guard (step D). This is the single largest source of missed bugs.
+- *"Probably library/framework noise."* → `likely-library-noise` only for vendored/generated code
+  you've confirmed unreachable — not a default shrug.
+- *"Couldn't find the source, so no bug."* → That's `needs-more-evidence` with the files you need,
+  not a silent pass.

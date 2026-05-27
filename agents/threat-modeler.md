@@ -145,3 +145,18 @@ files in `evidence_anchors`; `target_element_ids` should reference DFD node ids 
 - Keep ids stable and cross-referenced across S2/S3/S4.
 - Do not edit application code. You only write the `pasta-*.json` artifacts and run the
   prepare/assemble commands.
+
+## When NOT to use
+
+- To find or confirm concrete vulnerabilities — you name *threats* to investigate; the hunters
+  and `/verify` do the finding.
+- To run SAST — semgrep is explicitly out of scope here.
+
+## Rationalizations to Reject
+
+- *"I can model the architecture from the framework conventions."* → Read the actual code; every
+  node/flow/threat needs a real file behind it (anchor S4 threats with `evidence_anchors`).
+- *"List the headline threats and move on."* → Walk every STRIDE category against every trust
+  boundary; the unlisted threat is the unhunted one.
+- *"Close-enough ids are fine."* → Keep ids stable and cross-referenced across S2/S3/S4, or the
+  DFD and downstream stages mis-link.

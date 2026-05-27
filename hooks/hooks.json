@@ -1,5 +1,5 @@
 {
-  "description": "Auto-build repository context on session start if missing.",
+  "description": "Auto-build repository context on session start; guardrail dangerous Bash + secret-file access.",
   "hooks": {
     "SessionStart": [
       {
@@ -9,6 +9,28 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-context.mjs\"",
             "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guardrails/block-dangerous-bash.mjs\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guardrails/block-secret-reads.mjs\"",
+            "timeout": 10
           }
         ]
       }

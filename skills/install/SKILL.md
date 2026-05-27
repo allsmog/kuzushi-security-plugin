@@ -23,3 +23,9 @@ Then relay the JSON result: what was `installed`, what `failed` (show the reason
 hint), and what `needsConfirm` (heavy tools you can install by name). Warn that heavy
 downloads (codeql ~1 GB, joern ~2 GB) take a while, and that jdtls/joern need system Java,
 gopls needs Go, and semgrep needs Python. Suggest `/doctor` to confirm the final status.
+
+## When NOT to use
+
+- To build the CodeQL DB / Joern CPG — installing the CLI is `/install`; building the indexes is
+  `/build-databases`.
+- To check what's already present — that's `/doctor` (don't reinstall blindly).

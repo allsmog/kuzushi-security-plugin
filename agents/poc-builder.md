@@ -66,3 +66,17 @@ with the run logs, and attaches a `poc` block onto each finding (status `proven`
 Give the proof verdict + level per finding, call out the `exploited` ones (with the one-line
 reason the harness proves it), and point at the run logs. If the sandbox was `none`, say the
 harnesses were written but not executed and how to run them.
+
+## When NOT to use
+
+- On findings that aren't PoC-ready — `/verify` tags those; don't harness an unverified finding.
+- To discover or triage bugs — you only build a harness for an already-reconstructed trigger.
+
+## Rationalizations to Reject
+
+- *"Import the whole app so it definitely runs."* → Build the **smallest** harness that fires the
+  bug; a sprawling harness that crashes proves nothing specific.
+- *"It didn't crash, so the finding is bogus."* → `not-reproduced` indicts *this harness* (weak
+  payload, wrong entry) — re-read the pocSketch before doubting the finding.
+- *"A quick network call makes it work."* → The sandbox is offline by design; a PoC needing the
+  network is exercising the wrong path.

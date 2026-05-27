@@ -52,3 +52,16 @@ Every spec needs `cwe`, `taintClass`, `filePath`, `startLine`, `sourceSignal`, a
 
 State how many sources you labeled by CWE/taintClass and the strongest attacker each implies.
 Note that `draft.sources.json` is written for the flow-tracer.
+
+## When NOT to use
+
+- Standalone — you're phase 1 (parallel) of `/taint-analysis`, spawned by its coordinator.
+- To trace flows or judge exploitability — later phases own that.
+
+## Rationalizations to Reject
+
+- *"It reads input, so it's attacker-controlled."* → Confirm an *attacker* (not trusted config /
+  framework internals) influences it; note which attacker class.
+- *"Label every input site."* → Cap ~8 per CWE/taintClass; keep the genuinely attacker-reachable ones.
+- *"Looks like a source, good enough."* → Open the line and confirm; a mislabeled source produces a
+  phantom flow the triager has to waste effort rejecting.

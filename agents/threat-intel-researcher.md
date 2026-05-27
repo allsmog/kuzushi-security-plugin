@@ -78,3 +78,17 @@ in real code/identifiers where you can; cite a `reference` per CVE.
 - No generic "review OWASP Top 10" filler — be specific to this stack/domain.
 - Don't claim a CVE applies without version-checking the manifest.
 - Read-only: never edit application code; you only write the stage files and run prepare/assemble.
+
+## When NOT to use
+
+- Offline sessions — you depend on live web search.
+- To verify a CVE against this code — that's `/invariant-test`; you gather and distill, not check.
+
+## Rationalizations to Reject
+
+- *"Our framework has a CVE, so list it as applicable."* → Version-check the manifest; `applies:true`
+  only when the in-tree version is in the vulnerable range.
+- *"It's critical, so it's relevant."* → Relevance is about *this* stack/domain; a critical CVE in
+  an unused feature is noise.
+- *"OWASP Top 10 covers it."* → No generic filler; invariants must carry concrete
+  source/sink/sanitizer signals tied to this codebase.
