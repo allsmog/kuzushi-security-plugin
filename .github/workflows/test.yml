@@ -23,9 +23,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # The suite is dependency-free by design — it imports only scripts/lib and
-      # scripts/cmd, which use Node built-ins. So no `npm ci` (avoids lockfile
-      # drift while the plugin's heavy optional deps churn). Engine-backed tests
-      # (a real Joern /rule-synth run) self-skip when joern/codeql aren't on PATH,
-      # so the suite is green on stock GitHub runners.
+      # ripgrep is the scanners' workhorse: the producer prepares (sast,
+      # sharp-edges, crypto-review, authz, iac, supply-chain, …) shell out to `rg`
+      # to find candidate sites, and their tests assert real detections. Stock
+      # ubuntu runners don't ship rg, so without this those scans find nothing and
+      # the tests fail (they pass locally only because dev machines have rg).
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # The suite is otherwise dependency-free — it imports only scripts/lib and
+      # scripts/cmd (Node built-ins). No `npm ci` (avoids lockfile drift while the
+      # plugin's heavy optional deps churn). Engine-backed tests (a real Joern
+      # /rule-synth run) still self-skip when joern/codeql aren't on PATH.
       - run: npm test
