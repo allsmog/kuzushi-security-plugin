@@ -6,25 +6,28 @@
 // threat-intel by CWE so the agent can reconstruct a concrete trigger. No baked-in
 // CWE branches — the agent does the exploitability reasoning. Read-only.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
-const EXCERPT_RADIUS = 10;
+// The N independent lenses a verification panel uses — each verifier attacks the
+// finding from one angle so the panel catches failure modes a single pass misses.
+const PANEL_LENSES = [
+  { id: "reachability", focus: "Is the source genuinely attacker-controlled, and is the sink reachable on some real execution path from it? Trace it; default to NOT-reachable if you can't show the path." },
+  { id: "guard-bypass", focus: "Enumerate every guard/validation/sanitizer between source and sink and try to bypass each. Confirmed only if all are bypassable; otherwise name the one that holds." },
+  { id: "impact", focus: "If it fires, what is the concrete, attacker-meaningful impact (RCE/data theft/authz bypass/DoS)? Distinguish a real exploit from a theoretical one." }
+];
 
-// ±EXCERPT_RADIUS lines around a finding's first evidence anchor; handles
-// missing files / directory anchors gracefully (mirrors threat-hunt-prepare).
+// The enclosing function around a finding's first evidence anchor (was ±10 lines).
 function excerptFor(target, anchor) {
   if (!anchor?.filePath) return null;
   const path = resolve(target, anchor.filePath);
   if (!existsSync(path)) return { filePath: anchor.filePath, startLine: anchor.startLine ?? 1, missing: true, lines: [] };
   if (statSync(path).isDirectory()) return { filePath: anchor.filePath, startLine: 1, isDirectory: true, lines: [] };
-  const lines = readFileSync(path, "utf8").split(/\r?\n/);
   const anchorLine = Math.max(1, Number(anchor.startLine ?? 1));
-  const start = Math.max(1, anchorLine - EXCERPT_RADIUS);
-  const end = Math.min(lines.length, anchorLine + EXCERPT_RADIUS);
-  return { filePath: anchor.filePath, startLine: anchorLine, lines: lines.slice(start - 1, end).map((text, i) => ({ line: start + i, text })) };
+  return { filePath: anchor.filePath, startLine: anchorLine, lines: enclosingExcerpt(target, anchor.filePath, anchorLine) ?? [] };
 }
 
 // threat-intel CVE leads + invariants whose CWE matches the finding's CWE — these
@@ -53,6 +56,9 @@ export function prepareVerify(target, input = {}) {
   }
   const intel = readJsonIfPresent(store.threatIntelPath);
   const maxCandidates = Number(input.maxCandidates ?? 12);
+  // panel = N independent verifiers per finding (majority vote). 1 = classic
+  // single-pass /verify. Clamp to the number of defined lenses.
+  const panel = Math.min(PANEL_LENSES.length, Math.max(1, Number(input.panel ?? 1)));
 
   const candidates = (findingsDoc.findings ?? [])
     .filter(isCandidate)
@@ -72,6 +78,7 @@ export function prepareVerify(target, input = {}) {
       intel: intelFor(f, intel)
     }));
 
+  const lenses = PANEL_LENSES.slice(0, panel);
   const run = openRun(resolvedTarget, "verify");
   run.writeJson("prep.json", {
     runId: run.runId,
@@ -81,20 +88,36 @@ export function prepareVerify(target, input = {}) {
     findingsSummary: findingsDoc.summary ?? null,
     threatIntelPresent: Boolean(intel),
     references: artifactSnapshot(resolvedTarget),
+    panel,
+    lenses,
     candidates,
     input
   });
 
-  return {
+  const cmdDir = import.meta.dirname ?? resolve(".");
+  const base = {
     ok: true,
     status: "prepared",
     target: resolvedTarget,
     runId: run.runId,
     runDir: run.runDir,
     prepPath: join(run.runDir, "prep.json"),
-    draftPath: join(run.runDir, "draft.verify.json"),
     candidateCount: candidates.length,
-    assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "verify-assemble.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
+    panel
+  };
+  if (panel === 1) {
+    return {
+      ...base,
+      draftPath: join(run.runDir, "draft.verify.json"),
+      assembleCommand: `node "${join(cmdDir, "verify-assemble.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
+    };
+  }
+  // Panel mode: one draft per lens (draft.verify.0.json …), aggregated by consensus.
+  return {
+    ...base,
+    lenses,
+    draftPaths: lenses.map((l, i) => ({ lens: l.id, path: join(run.runDir, `draft.verify.${i}.json`) })),
+    assembleCommand: `node "${join(cmdDir, "verify-panel-assemble.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };
 }
 

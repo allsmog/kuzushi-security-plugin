@@ -49,13 +49,32 @@ fingerprinting) lives in scripts that can't be reasoned around.
    (dangerous imports, RWX segments) tied back to source. Assessment-grade and
    deliberately not an exploitation tool — see [HARDENING.md](HARDENING.md).
 
+5. **Raw bug-finding power — the recall *ceiling*.** Coverage isn't recall: every
+   producer was **pattern-gated** (it only ever looked at lines a regex matched), so a
+   bug no pattern names was invisible regardless of model quality. Xint's edge is
+   "reads every line in context." Four changes attack that ceiling:
+   - **`/deep-scan`** — a whole-file reader that finds bugs by *reading* risk-ranked
+     files, not grepping. On the benchmark's `hidden-tenant` case (a tokenless logic
+     bug) the pattern lanes score **0%** and deep-scan **100%** — the exact gap.
+   - **Full-function context** — producers now hand the agent the *enclosing function*
+     (was ±10 lines), so a guard in a wrapper above the sink is visible.
+   - **Cross-file reachability** — `scripts/cmd/callers.mjs` resolves a function's call
+     sites repo-wide (tree-sitter callers is single-file); `/sweep --deep` also
+     auto-builds CodeQL/Joern when present for true interprocedural flow.
+   - **Adversarial verify panel** — `/verify --input '{"panel":3}'` runs N independent
+     verifiers (distinct lenses, majority vote, trigger required to confirm), so the
+     extra recall isn't buried in false positives.
+
 ## Where Xint is still ahead (no spin)
 
 - **Raw throughput** on millions of LOC in a single run — a cloud cluster beats a
   local session on wall-clock for very large targets.
-- **Track record** — published 0days and competition wins. kuzushi's claim is
-  measured by its own benchmark (see [`../bench/README.md`](../bench/README.md)), not
-  by trophies.
+- **Proven raw recall on real targets.** Xint has published 0days and competition
+  wins. kuzushi's file-routing recall is measured (`npm run bench`: baseline 67% →
+  pattern /sweep 83% → deep /sweep 100% on the synthetic suite), and a real-CVE lane
+  exists (`npm run bench:cve`) — but **reasoning-level** recall on real CVEs still
+  needs the LLM-in-the-loop run. Until that lane is exercised end-to-end, this is
+  *closing* the gap, not closed.
 - **Deep binary analysis** — Xint analyzes binaries as first-class targets;
   `/binary-recon` is triage, and `/mem-exploitability` is assessment, not full
   decompilation.

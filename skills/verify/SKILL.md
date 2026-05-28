@@ -26,6 +26,23 @@ Verify the exploitability of the open findings for the current repository.
    trigger), and which findings are now PoC-ready. Note the user can run `/poc` to empirically
    prove them.
 
+## Panel mode (recommended for un-pattern-gated leads, e.g. `/deep-scan`)
+
+Run `verify-prepare … --input '{"panel":3}'`. The prep then carries `panel`, the
+`lenses` (reachability, guard-bypass, impact), and `draftPaths` (one per lens). A
+single verifier can be confidently wrong; the panel makes the call by majority.
+
+- For **each lens**, spawn an independent `verifier` sub-agent (one Task call each,
+  in a single message so they run concurrently). Give each the prep, the **lens
+  focus** to specialize on, and "write your `{ lens, candidates:[…] }` to
+  `draft.verify.<k>.json`". The verifiers do **not** see each other's drafts — the
+  independence is the point.
+- When all lenses are done, run the `assembleCommand` (`verify-panel-assemble`). It
+  computes per-finding consensus (majority confirms; a `confirmed-exploitable`
+  consensus still requires at least one lens to supply a concrete trigger, else it
+  downgrades to `inconclusive`) and patches the index with a `verification.panel`
+  block (votes, agreement). Use this from `/sweep` on high-severity findings.
+
 ## When NOT to use
 
 - To *find* new bugs — verify only confirms findings a producer already wrote.

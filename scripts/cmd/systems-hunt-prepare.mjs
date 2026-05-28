@@ -10,6 +10,7 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Native boundaries, unsafe memory primitives, binary/archive parsers, plus two
 // high-signal systems sinks (deserialization, process exec).
@@ -48,6 +49,7 @@ function collectScannedCandidates(target, maxCandidates, scope = ".", maxHitsPer
         filePath: hit.filePath,
         line: hit.line,
         text: hit.text,
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line),
         proofLevel: "artifact-review-only",
         nextChecks: NEXT_CHECKS
       });

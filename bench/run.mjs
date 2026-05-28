@@ -1,26 +1,26 @@
 #!/usr/bin/env node
 // kuzushi benchmark harness.
 //
-// "Better than Xint" is unfalsifiable until it's measured. This harness makes the
-// claim a number — without needing an LLM in the loop, so it runs in CI.
+// "Better than Xint on raw bug-finding power" is unfalsifiable until it's measured.
+// This makes it a number — without an LLM in the loop, so it runs in CI.
 //
-// It measures CANDIDATE RECALL: the deterministic prepare phase of every producer
-// is a pattern scanner, and a vulnerability a producer never even surfaces as a
-// candidate can never be reported. So "did /sweep route some producer to every
-// known-vulnerable site?" is a real, reproducible precursor to end-to-end recall —
-// and it's exactly the whole-repo-coverage gap /sweep was built to close.
+// It measures CANDIDATE RECALL: a producer's deterministic prepare phase decides
+// which sites get looked at at all; a vuln no producer surfaces can never be
+// reported. So "did kuzushi route attention to every known-vulnerable site?" is a
+// sound, reproducible precursor to end-to-end recall. Three lanes per case:
+//   • baseline  — one pattern producer (taint-analysis), whole repo
+//   • pattern   — full /sweep, pattern producers only
+//   • deep      — full /sweep --deep (adds the whole-file reader /deep-scan)
+// The headline is deep − pattern: the recall the un-pattern-gated reader adds,
+// especially on bugs no regex matches (custom wrappers, cross-file flows).
 //
-// For each case it computes recall two ways and reports the lift:
-//   • baseline: a single producer (taint-analysis) run once, whole repo, default caps
-//   • sweep:    the full /sweep plan — every applicable producer × every shard
-//
-// Full end-to-end recall (with the agents reasoning + verifying) is the manual path
-// documented in bench/README.md; this is the CI-able floor.
+// `--cve` runs the same lanes against real projects cloned at a vulnerable commit
+// (bench/cves/<id>/, fetched on demand) — the credible "as good as Xint" evidence.
 
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, existsSync, writeFileSync, cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prepareSweep } from "../scripts/cmd/sweep-prepare.mjs";
 import { prepareTaintAnalysis } from "../scripts/cmd/taint-analysis-prepare.mjs";
@@ -28,24 +28,20 @@ import { storeFor } from "../scripts/lib/artifact-store.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CASES_DIR = join(HERE, "cases");
+const CVES_DIR = join(HERE, "cves");
 const LINE_TOLERANCE = 6;
-const SWEEP_FLOOR = 0.6; // overall sweep recall must clear this for `npm run bench` to pass
+const DEEP_FLOOR = 0.8; // overall deep recall must clear this for `npm run bench` to pass
 
 function norm(p) {
   return String(p ?? "").replace(/^\.\//, "");
 }
 
-// Recursively harvest every (filePath, line?) anchor from a prep.json-shaped
-// object — robust to each producer's candidate shape (authz/crypto/logic carry
-// {filePath,line}; threat-hunt carries excerpt.filePath; taint carries
-// candidateFiles string arrays). We also treat bare path strings under a
-// `candidateFiles`/`files` key as file-level anchors.
+// Recursively harvest every (filePath, line?) anchor from a prep.json-shaped object
+// — robust to each producer's shape (pattern producers carry {filePath,line};
+// deep-scan carries files:[{filePath}]; taint carries candidateFiles string arrays).
 function harvest(node, out) {
   if (node == null) return;
-  if (Array.isArray(node)) {
-    for (const x of node) harvest(x, out);
-    return;
-  }
+  if (Array.isArray(node)) { for (const x of node) harvest(x, out); return; }
   if (typeof node !== "object") return;
   if (typeof node.filePath === "string") {
     const line = Number(node.line ?? node.startLine);
@@ -68,120 +64,120 @@ function anchorsHit(expected, harvested) {
   ).length;
 }
 
-// Run one producer prepareCommand (from the plan), read its prep.json, harvest.
 function harvestFromCommand(prepareCommand) {
   const r = spawnSync(prepareCommand, { shell: true, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   const out = [];
   if (r.status !== 0 && !r.stdout) return out;
   let envelope;
   try { envelope = JSON.parse(r.stdout); } catch { return out; }
-  const prepPath = envelope?.prepPath;
-  if (!prepPath || !existsSync(prepPath)) return out;
-  try { harvest(JSON.parse(readFileSync(prepPath, "utf8")), out); } catch { /* ignore */ }
+  if (!envelope?.prepPath || !existsSync(envelope.prepPath)) return out;
+  try { harvest(JSON.parse(readFileSync(envelope.prepPath, "utf8")), out); } catch { /* ignore */ }
   return out;
 }
 
-function runCase(caseDir) {
-  const name = caseDir;
-  const root = join(CASES_DIR, caseDir);
+// Run a /sweep plan (optionally deep) and harvest every job's prep anchors.
+function sweepHarvest(repo, opts) {
+  prepareSweep(repo, opts);
+  const planDoc = JSON.parse(readFileSync(storeFor(repo).sweepPlanPath, "utf8"));
+  const out = [];
+  for (const job of planDoc.jobs) out.push(...harvestFromCommand(job.prepareCommand));
+  return out;
+}
+
+function runCase(root, name) {
   const expected = JSON.parse(readFileSync(join(root, "expected.json"), "utf8")).expected ?? [];
-  // Copy the case repo to a temp dir so producer runs don't write .kuzushi/
-  // artifacts into the committed cases/ tree.
-  const repo = mkdtempSync(join(tmpdir(), `kz-bench-${caseDir}-`));
+  const repo = mkdtempSync(join(tmpdir(), `kz-bench-${name}-`));
   cpSync(join(root, "repo"), repo, { recursive: true });
 
-  // Baseline: a single producer, whole repo, default caps.
-  const baseHarvest = [];
+  // Lane 1: single-producer baseline.
+  const base = [];
   try {
     const prep = prepareTaintAnalysis(repo, {});
-    if (prep.prepPath && existsSync(prep.prepPath)) harvest(JSON.parse(readFileSync(prep.prepPath, "utf8")), baseHarvest);
-  } catch { /* baseline best-effort */ }
-  const baseHits = anchorsHit(expected, baseHarvest);
+    if (prep.prepPath && existsSync(prep.prepPath)) harvest(JSON.parse(readFileSync(prep.prepPath, "utf8")), base);
+  } catch { /* best-effort */ }
 
-  // Sweep: every applicable producer × every shard.
-  const plan = prepareSweep(repo, {});
-  const planDoc = JSON.parse(readFileSync(storeFor(repo).sweepPlanPath, "utf8"));
-  const sweepHarvest = [];
-  for (const job of planDoc.jobs) {
-    sweepHarvest.push(...harvestFromCommand(job.prepareCommand));
-  }
-  const sweepHits = anchorsHit(expected, sweepHarvest);
+  // Lane 2: pattern sweep. Lane 3: deep sweep (adds /deep-scan).
+  const pattern = sweepHarvest(repo, {});
+  const deep = sweepHarvest(repo, { deep: true });
 
+  const n = expected.length || 1;
   return {
     name,
     expected: expected.length,
-    baselineHits: baseHits,
-    baselineRecall: expected.length ? baseHits / expected.length : 1,
-    sweepHits,
-    sweepRecall: expected.length ? sweepHits / expected.length : 1,
-    shardCount: plan.shardCount,
-    jobCount: plan.jobCount
+    baselineRecall: anchorsHit(expected, base) / n,
+    patternRecall: anchorsHit(expected, pattern) / n,
+    deepRecall: anchorsHit(expected, deep) / n
   };
 }
 
-function pct(x) {
-  return `${Math.round(x * 1000) / 10}%`;
+function pct(x) { return `${Math.round(x * 1000) / 10}%`; }
+
+function discoverCases(dir, requireRepo) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, "expected.json")))
+    .filter((d) => !requireRepo || existsSync(join(dir, d.name, "repo")))
+    .map((d) => d.name)
+    .sort();
+}
+
+function scoreboard(title, results, floorNote) {
+  const tot = results.reduce((a, r) => a + r.expected, 0) || 1;
+  const sum = (k) => results.reduce((a, r) => a + r[k] * r.expected, 0) / tot;
+  const lines = [`# ${title}`, "",
+    "Candidate recall — fraction of known-vulnerable sites a producer's deterministic prepare",
+    "phase surfaces (the precursor to end-to-end recall). `deep` adds the whole-file reader",
+    "`/deep-scan`; its lift over `pattern` is the bugs no regex matches.", "",
+    "| Case | Expected | baseline | pattern /sweep | deep /sweep | deep lift |",
+    "|---|---|---|---|---|---|"];
+  for (const r of results) {
+    lines.push(`| ${r.name} | ${r.expected} | ${pct(r.baselineRecall)} | ${pct(r.patternRecall)} | ${pct(r.deepRecall)} | +${pct(r.deepRecall - r.patternRecall)} |`);
+  }
+  lines.push(`| **overall** | **${results.reduce((a, r) => a + r.expected, 0)}** | **${pct(sum("baselineRecall"))}** | **${pct(sum("patternRecall"))}** | **${pct(sum("deepRecall"))}** | **+${pct(sum("deepRecall") - sum("patternRecall"))}** |`);
+  if (floorNote) { lines.push("", `_${floorNote}_`); }
+  lines.push("");
+  return { text: lines.join("\n"), overallDeep: sum("deepRecall"), overallPattern: sum("patternRecall") };
 }
 
 function main() {
-  if (!existsSync(CASES_DIR)) {
-    console.error(`no cases dir at ${CASES_DIR}`);
-    process.exit(1);
+  const cveMode = process.argv.includes("--cve");
+
+  if (cveMode) {
+    const names = discoverCases(CVES_DIR, true);
+    const declared = discoverCases(CVES_DIR, false);
+    if (!declared.length) { console.error(`no CVE cases declared under ${CVES_DIR}`); process.exit(1); }
+    if (!names.length) {
+      console.error(`No CVE case is fetched. Run the fetch.sh in a bench/cves/<id>/ dir first:`);
+      for (const d of declared) console.error(`  bash ${join(CVES_DIR, d, "fetch.sh")}`);
+      console.error("(Real-CVE cases clone real projects on demand; nothing is committed.)");
+      process.exit(2);
+    }
+    const results = names.map((n) => runCase(join(CVES_DIR, n), n));
+    const sb = scoreboard("kuzushi CVE benchmark scoreboard", results, `${names.length}/${declared.length} CVE cases fetched. Run other fetch.sh scripts for more.`);
+    writeFileSync(join(HERE, "scoreboard.cve.md"), sb.text);
+    process.stdout.write(`${sb.text}\n`);
+    console.error(`\nCVE bench: deep recall ${pct(sb.overallDeep)} vs pattern ${pct(sb.overallPattern)} over ${names.length} fetched case(s).`);
+    return;
   }
-  const cases = readdirSync(CASES_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && existsSync(join(CASES_DIR, d.name, "expected.json")))
-    .map((d) => d.name)
-    .sort();
 
-  if (!cases.length) {
-    console.error("no benchmark cases found");
-    process.exit(1);
-  }
+  const cases = discoverCases(CASES_DIR, false);
+  if (!cases.length) { console.error("no benchmark cases found"); process.exit(1); }
+  const results = cases.map((n) => runCase(join(CASES_DIR, n), n));
+  const sb = scoreboard("kuzushi benchmark scoreboard", results, `Generated by \`npm run bench\`. Floor for pass: overall deep recall ≥ ${pct(DEEP_FLOOR)}.`);
+  writeFileSync(join(HERE, "scoreboard.md"), sb.text);
+  process.stdout.write(`${sb.text}\n`);
 
-  const results = cases.map(runCase);
-  const totExpected = results.reduce((n, r) => n + r.expected, 0);
-  const totSweep = results.reduce((n, r) => n + r.sweepHits, 0);
-  const totBase = results.reduce((n, r) => n + r.baselineHits, 0);
-  const overallSweep = totExpected ? totSweep / totExpected : 1;
-  const overallBase = totExpected ? totBase / totExpected : 1;
-
-  // Scoreboard.
-  const lines = [];
-  lines.push("# kuzushi benchmark scoreboard");
-  lines.push("");
-  lines.push("Candidate recall — fraction of known-vulnerable sites a producer's deterministic");
-  lines.push("prepare phase surfaces as a candidate (the precursor to end-to-end recall). Higher is");
-  lines.push("better; `/sweep` should dominate a single-producer baseline by routing every applicable");
-  lines.push("producer across every shard. See methodology in this directory's README.");
-  lines.push("");
-  lines.push("| Case | Expected | Baseline (taint only) | /sweep | Lift |");
-  lines.push("|---|---|---|---|---|");
+  let ok = sb.overallDeep >= DEEP_FLOOR;
   for (const r of results) {
-    lines.push(`| ${r.name} | ${r.expected} | ${r.baselineHits}/${r.expected} (${pct(r.baselineRecall)}) | ${r.sweepHits}/${r.expected} (${pct(r.sweepRecall)}) | +${pct(r.sweepRecall - r.baselineRecall)} |`);
-  }
-  lines.push(`| **overall** | **${totExpected}** | **${pct(overallBase)}** | **${pct(overallSweep)}** | **+${pct(overallSweep - overallBase)}** |`);
-  lines.push("");
-  lines.push(`_Generated by \`npm run bench\`. Floor for pass: overall /sweep recall ≥ ${pct(SWEEP_FLOOR)}._`);
-  lines.push("");
-  const scoreboard = `${lines.join("\n")}`;
-  writeFileSync(join(HERE, "scoreboard.md"), scoreboard);
-  process.stdout.write(`${scoreboard}\n`);
-
-  // Gate: sweep must clear the floor AND never do worse than the baseline.
-  let ok = overallSweep >= SWEEP_FLOOR;
-  for (const r of results) {
-    if (r.sweepRecall < r.baselineRecall) {
-      console.error(`REGRESSION: ${r.name} sweep recall ${pct(r.sweepRecall)} < baseline ${pct(r.baselineRecall)}`);
+    if (r.deepRecall < r.patternRecall) {
+      console.error(`REGRESSION: ${r.name} deep recall ${pct(r.deepRecall)} < pattern ${pct(r.patternRecall)}`);
       ok = false;
     }
   }
-  if (!ok) {
-    console.error(`\nbench FAILED (overall sweep recall ${pct(overallSweep)}; floor ${pct(SWEEP_FLOOR)})`);
-    process.exit(1);
-  }
-  console.error(`\nbench PASSED — overall /sweep recall ${pct(overallSweep)} vs baseline ${pct(overallBase)}`);
+  if (!ok) { console.error(`\nbench FAILED (overall deep recall ${pct(sb.overallDeep)}; floor ${pct(DEEP_FLOOR)})`); process.exit(1); }
+  console.error(`\nbench PASSED — deep recall ${pct(sb.overallDeep)} vs pattern ${pct(sb.overallPattern)} vs baseline.`);
 }
 
 main();
 
-export { harvest, anchorsHit, runCase, resolve };
+export { harvest, anchorsHit, runCase };

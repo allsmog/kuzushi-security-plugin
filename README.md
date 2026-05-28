@@ -133,7 +133,8 @@ claude --plugin-dir .
 
 | Command | What it does | Writes |
 |---|---|---|
-| `/sweep` | **Whole-repo orchestrator.** Shards the repo by module (budget-sized) and fans every applicable producer (taint, authz, logic-hunt, crypto, sharp-edges, systems-hunt, iac, supply-chain, threat-hunt, binary-recon) out across **every** shard in parallel, then pipelines each new finding through `/verify`. Records a **coverage map** (which shards were reached + the uncovered set — no silent sub-sampling) and writes findings to the shared lock-guarded index. `--input '{"offline":true}'` skips any network producer (zero-exfil). The local, auditable answer to cloud "scan-everything" tools. | `.kuzushi/sweep.json`, `coverage-map.json`, `findings.json` |
+| `/sweep` | **Whole-repo orchestrator.** Shards the repo by module (budget-sized) and fans every applicable producer (taint, authz, logic-hunt, crypto, sharp-edges, systems-hunt, iac, supply-chain, threat-hunt, binary-recon) out across **every** shard in parallel, then pipelines each new finding through `/verify`. Records a **coverage map** (which shards were reached + the uncovered set — no silent sub-sampling) and writes findings to the shared lock-guarded index. `--input '{"offline":true}'` skips any network producer (zero-exfil); `'{"deep":true}'` adds the whole-file reader and an interprocedural-DB plan. The local, auditable answer to cloud "scan-everything" tools. | `.kuzushi/sweep.json`, `coverage-map.json`, `findings.json` |
+| `/deep-scan` | **Whole-file deep reader** — the recall lever that beats pattern-gating. Risk-ranks files (entry points, trust boundaries, blast radius, churn, security-relevant paths), then the deep-scanner agent **reads each in full** and reasons from first principles, finding the long tail (project-specific wrappers, plain-logic flaws, cross-file flows) that regex-based producers structurally miss. Token-expensive, budget-bounded, honest about the unread remainder. Leads flow to `/verify` (panel). | `.kuzushi/deep-scan.json`, `findings.json` |
 | `/deep-context` | **Deep system-understanding pass** (before threat modeling). The context-analyst agent reads the code line-by-line where it matters and builds a grounded model — modules, entry points, actors, trust boundaries, data stores, and **system invariants** — with file:line evidence and anti-hallucination rules. **Context only** (no vuln-finding/fixes/severity); `/threat-model` consumes it. | `.kuzushi/deep-context.json` |
 | `/threat-model` | Agent builds a **PASTA** threat model in phases (objectives → scope → decomposition → threats) + an ASCII data-flow diagram. | `.kuzushi/threat-model.json`, `threat-model-dfd.txt` |
 | `/threat-intel` | Researches recent **critical/high CVEs** for the detected stack (version-checked) and **similar apps**, distilled into machine-checkable invariants. *(uses web search)* | `.kuzushi/threat-intel.json` |
@@ -171,10 +172,12 @@ Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
 `diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
-`iac-reviewer`, `authz-reviewer`, `logic-hunter`, `binary-recon`, `traffic-mapper`, `rule-synthesist`,
-`fixer`, `chain-finder`) that run in isolated context and
+`iac-reviewer`, `authz-reviewer`, `logic-hunter`, `binary-recon`, `deep-scanner`, `traffic-mapper`,
+`rule-synthesist`, `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/sweep` is a **coordinator** (`sweep-coordinator`) that fans the
-producers out across repo shards in parallel and aggregates a coverage map. `/taint-analysis` is a **coordinator** that sequences four of
+producers out across repo shards in parallel and aggregates a coverage map. `/verify` supports a
+**panel mode** (`--input '{"panel":3}'`) that runs N independent verifiers per finding and decides
+by majority — precision for the un-pattern-gated leads `/deep-scan` produces. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.
 

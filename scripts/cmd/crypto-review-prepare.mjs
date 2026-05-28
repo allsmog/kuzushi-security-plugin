@@ -9,6 +9,7 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
 import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Each entry is a lead for the agent — not a verdict. Categories mirror the two
 // Trail of Bits skills this ports (constant-time-analysis, zeroize-audit) plus
@@ -53,7 +54,8 @@ function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern
         cwe: pattern.cwe,
         filePath: hit.filePath,
         line: hit.line,
-        text: hit.text
+        text: hit.text,
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line)
       });
       if (candidates.length >= maxCandidates) break;
     }

@@ -142,6 +142,9 @@ export function storeFor(target) {
     // Business-logic review (/logic-hunt): idempotency / transaction-atomicity /
     // price-quantity / state-machine abuse. Promotes into the shared findings index.
     logicHuntPath: join(root, "logic-hunt.json"),
+    // Whole-file deep reader (/deep-scan): vulnerability hypotheses from reading
+    // risk-ranked files in full (not pattern-gated). Promotes into findings index.
+    deepScanPath: join(root, "deep-scan.json"),
     // Read-only static binary triage (/binary-recon): dangerous imports, RWX
     // segments, suspicious strings on ELF/PE/Mach-O. Assessment only.
     binaryReconPath: join(root, "binary-recon.json"),

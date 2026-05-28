@@ -507,7 +507,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   }
   additionalContext +=
     `\n\nCommands: /sweep (whole-repo parallel orchestrator: shards the repo and fans every ` +
-    `applicable producer out across it, then verifies → findings.json + coverage-map.json), ` +
+    `applicable producer out across it, then verifies → findings.json + coverage-map.json; ` +
+    `add deep:true to include /deep-scan), /deep-scan (whole-file deep reader — finds bugs by ` +
+    `reading risk-ranked files, not pattern-matching; catches the long tail), ` +
     `/deep-context (deep system-understanding pass → deep-context.json), ` +
     `/threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +

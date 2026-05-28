@@ -12,6 +12,11 @@ x-ray/
 # from the repo root (default project dir) — regenerable, never source.
 workspace/
 
+# Real-CVE benchmark sources are cloned on demand by bench/cves/<id>/fetch.sh —
+# third-party code, never committed. The fetch script + expected.json ARE committed.
+bench/cves/*/repo/
+bench/scoreboard.cve.md
+
 # Logs
 *.log
 npm-debug.log*

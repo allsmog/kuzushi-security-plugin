@@ -8,6 +8,7 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
 import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Footgun signals grouped by sharp-edges category. These are LEADS — the agent
 // confirms whether each is a real misuse-prone edge for the stated adversary.
@@ -43,7 +44,8 @@ function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern
         category: pattern.category,
         filePath: hit.filePath,
         line: hit.line,
-        text: hit.text
+        text: hit.text,
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line)
       });
       if (candidates.length >= maxCandidates) break;
     }

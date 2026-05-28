@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "bench": "node bench/run.mjs",
+    "bench:cve": "node bench/run.mjs --cve",
     "bench:smoke": "node scripts/cmd/bench-smoke.mjs"
   },
   "engines": {

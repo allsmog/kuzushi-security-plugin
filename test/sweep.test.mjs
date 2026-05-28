@@ -92,6 +92,25 @@ test("sweep: explicit producer subset restricts the plan", () => {
   assert.deepEqual([...new Set(plan.jobs.map((j) => j.producer))], ["authz"]);
 });
 
+test("sweep: deep-scan joins only in deep mode, budgeted by maxFiles", () => {
+  const t = repo();
+  seedRepo(t);
+  prepareSweep(t, {});
+  let plan = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  assert.ok(!plan.jobs.some((j) => j.producer === "deep-scan"), "deep-scan absent by default");
+
+  prepareSweep(t, { deep: true });
+  plan = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  const deepJobs = plan.jobs.filter((j) => j.producer === "deep-scan");
+  assert.ok(deepJobs.length >= 1, "deep-scan present in deep mode");
+  for (const j of deepJobs) assert.ok(j.prepInput.maxFiles >= 1, "deep jobs budget by maxFiles, not maxCandidates");
+  // Deep mode carries an interproc plan; offline never recommends a network build.
+  assert.ok(plan.interproc, "deep mode includes an interproc plan");
+  prepareSweep(t, { deep: true, offline: true });
+  const off = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  assert.notEqual(off.interproc.status, "recommended", "offline never recommends building DBs");
+});
+
 test("coverage: a partial plan reports the uncovered shards", () => {
   const t = repo();
   seedRepo(t);

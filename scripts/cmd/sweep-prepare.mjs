@@ -29,6 +29,9 @@ const NATIVE_LANGS = ["C", "C++", "Rust", "Objective-C", "Go"];
 // when the sweep is run with { offline:true } (the zero-exfil guarantee).
 const PRODUCERS = {
   "threat-hunt": { agent: "threat-hunter", scope: "repo", langs: "any", requires: "threat-model", default: true },
+  // Whole-file deep reader — the un-pattern-gated recall lever. Off by default
+  // (token-expensive); included when the sweep is run with { deep:true }.
+  "deep-scan": { agent: "deep-scanner", scope: "shard", langs: "any", deepOnly: true, default: false },
   "taint-analysis": { agent: "taint-triager", scope: "shard", langs: "any", default: true },
   authz: { agent: "authz-reviewer", scope: "shard", langs: WEB_LANGS, default: true },
   "logic-hunt": { agent: "logic-hunter", scope: "shard", langs: WEB_LANGS, default: true },
@@ -66,6 +69,38 @@ function meetsRequirement(requires, target, store, binaries) {
   return true;
 }
 
+function cliOk(cmd, args = ["--version"]) {
+  try { return spawnSync(cmd, args, { stdio: "ignore" }).status === 0; } catch { return false; }
+}
+
+// Interprocedural depth is best-effort: cross-file taint wants a CodeQL DB / Joern
+// CPG. In deep mode we recommend building them when the engines are present and the
+// DBs aren't, and we say so honestly when they're not (the flow tracing degrades to
+// same-file linking). This only RECOMMENDS — the coordinator runs the build.
+function interprocPlan({ deep, offline, store }) {
+  if (!deep) return null;
+  const codeqlDb = existsSync(store.codeqlDbDir);
+  const joernCpg = existsSync(store.joernCpgPath);
+  if (codeqlDb || joernCpg) {
+    return { status: "ready", codeqlDb, joernCpg, note: "prebuilt semantic DB present — flow tracing can cross files." };
+  }
+  if (offline) {
+    return { status: "degraded", reason: "offline — not building semantic DBs; cross-file flow tracing degrades to same-file linking." };
+  }
+  const haveCodeql = cliOk("codeql");
+  const haveJoern = cliOk("joern-parse", ["--help"]) || cliOk("joern", ["--help"]);
+  if (!haveCodeql && !haveJoern) {
+    return { status: "unavailable", reason: "no codeql/joern CLI on PATH — install for cross-file depth; flow tracing degrades to same-file linking." };
+  }
+  const which = haveCodeql && haveJoern ? "both" : haveCodeql ? "codeql" : "joern";
+  return {
+    status: "recommended",
+    engines: { codeql: haveCodeql, joern: haveJoern },
+    note: "engines available but no DB built — build for cross-file depth before flow-tracing jobs.",
+    buildCommand: `node "${join(CMD_DIR, "build-databases.mjs")}" --target "${store.target}" --input '{"which":"${which}","background":true}'`
+  };
+}
+
 function prepareCommand(producer, target, prepInput) {
   const input = JSON.stringify(prepInput).replace(/"/g, '\\"');
   return `node "${join(CMD_DIR, `${producer}-prepare.mjs`)}" --target "${target}" --input "${input}"`;
@@ -75,6 +110,7 @@ export function prepareSweep(target, input = {}) {
   const resolvedTarget = resolve(target);
   const store = storeFor(resolvedTarget);
   const offline = Boolean(input.offline);
+  const deep = Boolean(input.deep);
   const maxFilesPerShard = Number(input.maxFilesPerShard ?? 60);
 
   const requested = Array.isArray(input.producers) && input.producers.length
@@ -87,6 +123,8 @@ export function prepareSweep(target, input = {}) {
 
   const selected = Object.entries(PRODUCERS).filter(([name, spec]) => {
     if (requested) return requested.has(name);
+    // deepOnly producers (the token-heavy whole-file reader) join only in deep mode.
+    if (spec.deepOnly) return deep;
     return spec.default;
   });
 
@@ -121,7 +159,10 @@ export function prepareSweep(target, input = {}) {
     let emitted = 0;
     for (const shard of shards) {
       if (!appliesToShard(spec, shard)) continue;
-      const prepInput = { sweep: true, scopeDir: shard.scopeDir, maxCandidates: capFor(shard.fileCount) };
+      // deep-scan budgets by files-to-read; pattern producers budget by candidate hits.
+      const prepInput = spec.deepOnly
+        ? { sweep: true, scopeDir: shard.scopeDir, maxFiles: capFor(shard.fileCount) }
+        : { sweep: true, scopeDir: shard.scopeDir, maxCandidates: capFor(shard.fileCount) };
       jobs.push({
         jobId: `j${++jobId}`,
         producer,
@@ -144,10 +185,12 @@ export function prepareSweep(target, input = {}) {
     runDir: run.runDir,
     target: resolvedTarget,
     offline,
+    deep,
     inventory: { totalFiles: inv.totalFiles, byLanguage: inv.byLanguage },
     shardCount: shards.length,
     shards: shards.map((s) => ({ id: s.id, name: s.name, scopeDir: s.scopeDir, fileCount: s.fileCount, byLanguage: s.byLanguage })),
     producerSet: selected.map(([name]) => name),
+    interproc: interprocPlan({ deep, offline, store }),
     jobCount: jobs.length,
     jobs,
     skipped,

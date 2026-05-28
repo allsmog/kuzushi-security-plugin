@@ -12,8 +12,7 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
 import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
-
-const EXCERPT_RADIUS = 10;
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Each pattern is a *shape*, not a bug. The agent decides if the protecting
 // invariant (idempotency key, lock, DB transaction, ownership/limit check) is
@@ -30,16 +29,6 @@ const LOGIC_PATTERNS = [
   { id: "price-math", logicClass: "price-quantity",
     query: "\\b(price|amount|total|subtotal|discount|tax|fee)\\b\\s*[-+*]=?|\\*\\s*\\b(qty|quantity|count|units)\\b" }
 ];
-
-function excerptFor(target, filePath, line) {
-  const path = resolve(target, filePath);
-  if (!existsSync(path) || statSync(path).isDirectory()) return null;
-  const lines = readFileSync(path, "utf8").split(/\r?\n/);
-  const anchorLine = Math.max(1, Number(line ?? 1));
-  const start = Math.max(1, anchorLine - EXCERPT_RADIUS);
-  const end = Math.min(lines.length, anchorLine + EXCERPT_RADIUS);
-  return lines.slice(start - 1, end).map((text, i) => ({ line: start + i, text }));
-}
 
 function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern = 8) {
   const candidates = [];
@@ -59,7 +48,7 @@ function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern
         logicClass: pattern.logicClass,
         pattern: pattern.id,
         filePath: hit.filePath, line: hit.line, text: hit.text,
-        excerpt: excerptFor(target, hit.filePath, hit.line)
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line)
       });
       if (candidates.length >= maxCandidates) break;
     }
