@@ -29,7 +29,12 @@ nothing leaves the machine.
    lock, so concurrent finalizes are safe and dedupe by fingerprint.
 4. **Pipeline, don't barrier.** A job's finding should flow to `/verify` as soon as
    that producer finalizes — don't wait for the whole fan-out to finish before
-   verifying. Each finding is independently verified before you present it.
+   verifying. Each finding is independently verified before you present it. For
+   `deep-scan` leads specifically — they were not gated by a deterministic pattern, so
+   they carry more false-positive risk — run `/verify` in **panel mode**
+   (`--input '{"panel":3}'`): three independent verifiers, majority vote, a concrete
+   trigger required to confirm. A wrong deep-read hypothesis gets refuted here instead
+   of reaching the user.
 5. Optionally write a per-job run report to the run dir as `draft.sweep.json`
    (`{ jobs: [{ jobId, producer, status, candidateCount }] }`) so the summary
    records what actually ran.

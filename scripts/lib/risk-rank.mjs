@@ -13,6 +13,24 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { readJsonIfPresent, storeFor } from "./artifact-store.mjs";
 import { inventory, languageOf } from "./sharding.mjs";
+import { runRg, parseJsonMatches, buildGlobs } from "./ripgrep.mjs";
+
+// Files that DEFINE request/command entry points — the attacker-reachable surface.
+// This is the reachability signal that call-count misses: a command handler or HTTP
+// route is dispatched (table / framework), so it has few inbound C calls, yet it is
+// exactly where untrusted input enters. Catches redis `*Command(`, web routes,
+// lambda handlers, `main`, etc. Returns Map(file -> entryPointCount).
+const ENTRY_DEF = "\\w+Command\\s*\\(|@app\\.(route|get|post|put|delete|patch)|@(Get|Post|Put|Delete|Patch|Request)Mapping|app\\.(get|post|put|delete|patch|use)\\s*\\(|router\\.(get|post|put|delete|patch)\\s*\\(|exports\\.handler|def\\s+\\w+\\(\\s*request|func\\s+\\w+\\(\\s*\\w+\\s+http\\.|int\\s+main\\s*\\(|fastify\\.(get|post)";
+function entryPointDefFiles(target, scopeDir) {
+  const counts = new Map();
+  const r = runRg(target, ["--json", "-n", "-e", ENTRY_DEF, ...buildGlobs(), scopeDir === "." ? "." : scopeDir]);
+  if (!r.ok) return counts;
+  for (const hit of parseJsonMatches(r.stdout, 20000)) {
+    const f = norm(hit.filePath);
+    counts.set(f, (counts.get(f) ?? 0) + 1);
+  }
+  return counts;
+}
 
 const SECURITY_HINT = /(auth|login|logout|session|token|password|passwd|cred|secret|crypto|cipher|hash|jwt|oauth|saml|admin|payment|billing|charge|checkout|order|invoice|upload|download|exec|command|shell|spawn|query|\bsql\b|database|\bdb\b|deserial|pickle|yaml|xml|template|render|redirect|cors|csrf|permission|role|\bacl\b|tenant|account|\buser\b|route|controller|handler|middleware|validate|sanitiz|escape|webhook|ingest|parse)/i;
 
@@ -33,16 +51,27 @@ function trustBoundaryFiles(store) {
   return set;
 }
 
-// file -> max callerCount of any symbol defined in it (blast-radius proxy).
+// file -> total inbound calls to the functions it defines (blast-radius / reachability
+// proxy). SUM, not max: a core file full of heavily-called functions is where bugs
+// reach the most code. This is the dominant ranking signal when a code-graph exists —
+// it's what makes a file like redis's t_stream.c rank without a keyword match.
 function callerWeight(store) {
   const cg = readJsonIfPresent(store.codeGraphPath);
   const byFile = new Map();
   for (const s of cg?.symbols ?? []) {
     if (!s?.file) continue;
     const f = norm(s.file);
-    byFile.set(f, Math.max(byFile.get(f) ?? 0, Number(s.callerCount) || 0));
+    byFile.set(f, (byFile.get(f) ?? 0) + (Number(s.callerCount) || 0));
   }
   return byFile;
+}
+
+// Compress a raw inbound-call sum into a bounded reachability score (0..8) so one
+// giant file can't dominate everything, but high-reachability files clearly outrank
+// keyword-only hits. log2-ish bands.
+function reachScore(sum) {
+  if (sum <= 0) return 0;
+  return Math.min(8, Math.round(Math.log2(sum + 1) * 1.6));
 }
 
 function recentlyChanged(target, limit = 80) {
@@ -76,16 +105,25 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
   const boundaries = trustBoundaryFiles(store);
   const callers = callerWeight(store);
   const changed = recentlyChanged(target);
+  const entryDefs = entryPointDefFiles(target, scopeDir);
 
   const scored = files.map((file) => {
     const reasons = [];
     let score = 0;
-    if (entries.has(file)) { score += 5; reasons.push("entry-point"); }
-    if (boundaries.has(file)) { score += 4; reasons.push("trust-boundary"); }
+    // (1) Attacker-reachable surface: files defining request/command entry points.
+    // The strongest signal — it's where untrusted input enters — and it catches the
+    // dispatch-table handlers (redis `*Command`) that call-count ranking misses.
+    const ed = entryDefs.get(file) ?? 0;
+    if (ed > 0) { score += Math.min(7, 3 + ed); reasons.push(`entry-defs=${ed}`); }
+    // (2) Blast radius: inbound calls to the file's functions (reach), bounded.
     const cw = callers.get(file) ?? 0;
-    if (cw > 0) { score += Math.min(3, Math.ceil(cw / 4)); reasons.push(`callers=${cw}`); }
+    const rs = reachScore(cw);
+    if (rs > 0) { score += rs; reasons.push(`reach=${cw}`); }
+    if (entries.has(file)) { score += 4; reasons.push("entry-point"); }
+    if (boundaries.has(file)) { score += 3; reasons.push("trust-boundary"); }
     if (changed.has(file)) { score += 2; reasons.push("recently-changed"); }
-    if (SECURITY_HINT.test(file)) { score += 2; reasons.push("security-relevant-path"); }
+    // Keyword path hint is only a weak tiebreak now, not a primary signal.
+    if (SECURITY_HINT.test(file)) { score += 1; reasons.push("security-relevant-path"); }
     return { filePath: file, language: languageOf(file), score, reasons };
   });
 

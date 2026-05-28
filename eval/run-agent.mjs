@@ -85,6 +85,11 @@ export function deepScanTask({ prepPath, repoDir, pluginDir, draftPath }) {
     `and you have the tree_sitter:* MCP tools for spans/refs.`,
     `Write your findings as JSON of the exact shape { "candidates": [ ... ] } to:`,
     `  ${draftPath}`,
+    `Each "finding" candidate MUST include: verdict:"finding", cwe, severity, title,`,
+    `rationale (>=150 chars), evidenceAnchors:[{filePath,startLine}], and selfCheck`,
+    `(>=40 chars: the guard/invariant that would make it safe, confirmed absent in the`,
+    `code). Run your bug-class checklist (esp. use-after-free / GC-rooting / integer`,
+    `overflow / stack overflow) on every file, not just injection.`,
     `Then stop. Do not search for or read any "expected", "answer", or CVE-ground-truth`,
     `files — judge the code on its merits only.`
   ].join("\n");

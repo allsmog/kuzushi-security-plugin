@@ -35,16 +35,40 @@ traversal, SSRF, race conditions, memory-safety in native code, secrets handling
 broken crypto usage, and — especially — bugs that use **project-specific wrappers**
 (a custom `db.run()` / `safeEval()` / `render()` ) that no generic pattern matches.
 
+## Bug-class checklist (run it on every file — the misses live in the boring ones)
+
+Injection/authz/logic are the easy classes. The bugs that survive for years are
+usually **memory & lifetime** bugs in C/C++/Rust-unsafe and in interpreters/VMs —
+explicitly check for these, they are easy to read past:
+- **Use-after-free / double-free / use-after-return**: an object freed (or moved, or
+  going out of scope) on one path and still read/written on another. In GC'd runtimes
+  and parsers/VMs (Lua, V8, Python C-API): an allocation that is **not rooted/anchored**
+  before a call that can allocate or trigger GC — the collector frees it mid-use. (This
+  is exactly the class to look for in `*parser*`, `*lexer*`, `*vm*`, `*gc*`, C-API glue.)
+- **Integer overflow → undersized allocation → OOB**: `len/count` from input feeding a
+  `malloc(n*size)` / fixed stack array / index without a bound check.
+- **Stack buffer overflow**: a fixed-size stack buffer/vector written from an
+  attacker-influenced count without reallocating (e.g. `T buf[N]; ... buf[i]` for `i>=N`).
+- **OOB read/write, off-by-one, sign-confusion, unchecked `memcpy`/`strcpy`/format**.
+- TOCTOU / races on shared state; missing locks around check-then-act.
+
 ## Output (per file you read)
 
 Emit zero or more candidates:
 - `verdict`: `finding` (a concrete bug you can name a data path + impact for —
-  requires `evidenceAnchors` {filePath,startLine} and a `cwe`), `candidate` (a real
-  suspicion you couldn't fully confirm — say what you'd need), or `rejected` (you
-  considered a specific risk in this file and it's adequately handled — name the
-  guard).
+  requires `evidenceAnchors` {filePath,startLine}, a `cwe`, and a `selfCheck`),
+  `candidate` (a real suspicion you couldn't fully confirm — say what you'd need), or
+  `rejected` (you considered a specific risk in this file and it's adequately handled —
+  name the guard).
 - `rationale` (≥150 chars): the trusted assumption that breaks and how an attacker
   reaches it. Show the path, not a label.
+- **`selfCheck` (required for `finding`, ≥40 chars) — falsify yourself first.** Before
+  you assert a bug, name the guard/invariant that *would* make this code safe (the
+  length check, the lock, the `enterlevel`/depth limit, the GC root, the ownership
+  check) and confirm **in the code** that it is actually absent or insufficient. If
+  the guard is present and adequate, this is not a `finding` — it's `rejected`. (This
+  is the step that turns a plausible-but-wrong guess like "unbounded recursion" into a
+  correct verdict once you check that the recursion *is* in fact guarded.)
 - `bugClass`, `severity`, `title` where you can.
 
 Write the `{ candidates: [...] }` bundle to the prep's `draftPath`, then run the

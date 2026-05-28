@@ -37,6 +37,12 @@ function validate(candidates) {
         if (!a.filePath || a.startLine === undefined) fail(`item ${id}: each evidenceAnchor must be { filePath, startLine }.`);
       }
       if (!c.cwe) fail(`item ${id}: verdict "finding" requires a cwe (e.g. "CWE-89").`);
+      // Self-falsification gate: a finding must name the guard/invariant that would
+      // make it safe and confirm it's absent — the discipline that kills
+      // plausible-but-wrong hypotheses (the determinism-boundary enforcement of it).
+      if (String(c.selfCheck ?? "").length < 40) {
+        fail(`item ${id}: verdict "finding" requires a selfCheck (≥40 chars): the guard/invariant that would make this safe, confirmed absent or insufficient in the code.`);
+      }
     }
   }
 }
@@ -69,7 +75,8 @@ export function finalizeDeepScan(target, runDir) {
     evidence: (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine })),
     rationale: String(c.rationale ?? ""),
     nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : ["/verify (panel) this deep-read lead before treating it as confirmed"],
-    ...(c.bugClass ? { bugClass: c.bugClass } : {})
+    ...(c.bugClass ? { bugClass: c.bugClass } : {}),
+    ...(c.selfCheck ? { selfCheck: String(c.selfCheck) } : {})
   }));
   const findingsDoc = upsertFindings(resolvedTarget, newFindings);
 

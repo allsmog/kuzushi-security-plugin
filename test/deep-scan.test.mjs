@@ -68,6 +68,7 @@ test("deep-scan finalize: promotes a read-derived finding; rejects bad verdict +
     { deepId: "d1", bugClass: "sqli", verdict: "finding", severity: "high", cwe: "CWE-89",
       title: "SQLi via custom db.run wrapper",
       rationale: `run(q) concatenates the untrusted q directly into a SQL string passed to the project's db.run helper; no parameterization or escaping anywhere on the path ${LONG}`,
+      selfCheck: "A parameterized query or an escaping/whitelist guard would make this safe; neither is present on the path from q to db.run.",
       evidenceAnchors: [{ filePath: "src/api.js", startLine: 1 }] }
   ] });
   const res = finalizeDeepScan(t, prep.runDir);
@@ -83,4 +84,29 @@ test("deep-scan finalize: promotes a read-derived finding; rejects bad verdict +
   // bad verdict is refused.
   writeDraft(prep.runDir, "draft.deep-scan.json", { candidates: [{ deepId: "d3", verdict: "nope", rationale: LONG }] });
   expectReject(() => finalizeDeepScan(t, prep.runDir));
+});
+
+test("deep-scan finalize: a finding without selfCheck is rejected (self-falsification gate)", () => {
+  const t = repo(); emptyFindings(t);
+  write(t, "src/api.js", "function run(q){ return db.run('SELECT '+q); }\n");
+  const prep = prepareDeepScan(t, { maxFiles: 5 });
+  writeDraft(prep.runDir, "draft.deep-scan.json", { candidates: [
+    { deepId: "x", verdict: "finding", cwe: "CWE-89", rationale: LONG,
+      evidenceAnchors: [{ filePath: "src/api.js", startLine: 1 }] }  // no selfCheck
+  ] });
+  expectReject(() => finalizeDeepScan(t, prep.runDir));
+});
+
+test("risk-rank: an entry-point-dense file outranks a keyword-only file (reachability over keyword)", () => {
+  const t = repo();
+  // handler.js DEFINES routes (attacker surface) but has no security keyword in its path
+  write(t, "lib/handler.js", "app.post('/a',(q,r)=>{}); app.get('/b',(q,r)=>{}); app.put('/c',(q,r)=>{});\n");
+  // auth_helpers.js matches the keyword hint but defines no entry points
+  write(t, "lib/auth_helpers.js", "function fmt(s){ return s.trim(); }\n");
+  const { ranked } = rankFiles(t, { maxFiles: 10 });
+  const h = ranked.find((r) => r.filePath === "lib/handler.js");
+  const a = ranked.find((r) => r.filePath === "lib/auth_helpers.js");
+  assert.ok(h && a, "both ranked");
+  assert.ok(h.score > a.score, "entry-point-dense file outranks the keyword-only file");
+  assert.ok(h.reasons.some((x) => x.startsWith("entry-defs")), "entry-defs is the reason");
 });
