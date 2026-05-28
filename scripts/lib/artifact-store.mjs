@@ -133,6 +133,18 @@ export function storeFor(target) {
     // Cross-finding chaining (/chain): links related findings into higher-impact
     // attack chains; attaches a `chains` ref onto each member finding.
     chainsPath: join(root, "chains.json"),
+    // Whole-repo /sweep: the orchestrator's plan (shards × producers), the
+    // aggregate run summary, and the coverage map (which files each producer
+    // actually examined vs. the full inventory — the recall backstop).
+    sweepPlanPath: join(root, "sweep-plan.json"),
+    sweepPath: join(root, "sweep.json"),
+    coverageMapPath: join(root, "coverage-map.json"),
+    // Business-logic review (/logic-hunt): idempotency / transaction-atomicity /
+    // price-quantity / state-machine abuse. Promotes into the shared findings index.
+    logicHuntPath: join(root, "logic-hunt.json"),
+    // Read-only static binary triage (/binary-recon): dangerous imports, RWX
+    // segments, suspicious strings on ELF/PE/Mach-O. Assessment only.
+    binaryReconPath: join(root, "binary-recon.json"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),

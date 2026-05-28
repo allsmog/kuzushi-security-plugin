@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "bench": "node bench/run.mjs",
     "bench:smoke": "node scripts/cmd/bench-smoke.mjs"
   },
   "engines": {

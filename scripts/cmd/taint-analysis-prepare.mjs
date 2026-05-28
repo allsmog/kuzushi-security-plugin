@@ -14,7 +14,7 @@ import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { hasContextRun, hasCodeqlDb, hasJoernCpg } from "../lib/context-status.mjs";
 import { rankCatalog, buildStructuralQueries, languagesFromDisplayNames } from "../lib/taint-catalog.mjs";
-import { listFiles, runRg } from "../lib/ripgrep.mjs";
+import { listFiles, runRg, scopePath } from "../lib/ripgrep.mjs";
 
 const DEFAULTS = { maxCatalogEntries: 20, maxCandidateFiles: 80, maxPatternsForSearch: 120 };
 
@@ -58,12 +58,12 @@ function inferLanguages(target) {
 
 // ripgrep the grep-able structural patterns (fixed strings) and return the set
 // of candidate files, capped. Patterns longer/codey enough to narrow the repo.
-function candidateFiles(target, patterns, cap) {
+function candidateFiles(target, patterns, cap, scope = ".") {
   const usable = [...new Set(patterns)].filter((p) => p && p.length >= 3).slice(0, DEFAULTS.maxPatternsForSearch);
   if (!usable.length) return [];
   const args = ["-l", "-F", "--no-messages"];
   for (const p of usable) args.push("-e", p);
-  args.push(".");
+  args.push(scope);
   const result = runRg(target, args);
   if (!result.ok) return [];
   return result.stdout.split(/\r?\n/).map((s) => s.replace(/^\.\//, "")).filter(Boolean).slice(0, cap);
@@ -88,8 +88,9 @@ export function prepareTaintAnalysis(target, input = {}) {
   // Candidate files: sink/source-bearing tokens narrow where labelers look.
   const sinkPatterns = ranked.flatMap((e) => [...e.sinkSignals, ...e.structuralQueries]);
   const sourcePatterns = ranked.flatMap((e) => e.structuralQueries);
-  const sinkCandidateFiles = candidateFiles(resolvedTarget, sinkPatterns, maxCandidateFiles);
-  const sourceCandidateFiles = candidateFiles(resolvedTarget, sourcePatterns, maxCandidateFiles);
+  const scope = scopePath(input);
+  const sinkCandidateFiles = candidateFiles(resolvedTarget, sinkPatterns, maxCandidateFiles, scope);
+  const sourceCandidateFiles = candidateFiles(resolvedTarget, sourcePatterns, maxCandidateFiles, scope);
 
   const codeql = hasCodeqlDb(resolvedTarget);
   const joern = hasJoernCpg(resolvedTarget);

@@ -506,7 +506,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `solvers for /path-solve).`;
   }
   additionalContext +=
-    `\n\nCommands: /deep-context (deep system-understanding pass → deep-context.json), ` +
+    `\n\nCommands: /sweep (whole-repo parallel orchestrator: shards the repo and fans every ` +
+    `applicable producer out across it, then verifies → findings.json + coverage-map.json), ` +
+    `/deep-context (deep system-understanding pass → deep-context.json), ` +
     `/threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
     `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
     `memory-safety review), /supply-chain (dependency takeover/abandonment risk), /sharp-edges (footgun APIs / ` +
@@ -518,7 +520,9 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
     `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +
     `/sast (semgrep scan → triage → findings), /crypto-review (timing/zeroization/RNG misuse), ` +
-    `/authz (missing authz / IDOR / privesc), /iac (Dockerfile/k8s/Terraform misconfig), ` +
+    `/authz (missing authz / IDOR / privesc), /logic-hunt (business-logic flaws: ` +
+    `idempotency / TOCTOU / transaction-atomicity / price-quantity / state-machine), ` +
+    `/iac (Dockerfile/k8s/Terraform misconfig), /binary-recon (read-only ELF/PE/Mach-O triage), ` +
     `/traffic-map (offline Burp/HAR → handler correlation), ` +
     `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
     `CodeQL/Joern rule pack), /code-graph (cache caller-counts / blast radius), ` +

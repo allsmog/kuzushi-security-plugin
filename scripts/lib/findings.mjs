@@ -11,9 +11,49 @@
 //     rationale, nextChecks:[], updatedAt }
 
 import { createHash } from "node:crypto";
+import { mkdirSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
 import { assertFindingsDocument } from "./schemas.mjs";
+
+// Cross-process mutex around the read-modify-write of findings.json. /sweep fans
+// producers out in parallel; without this, two finalizes racing on the same index
+// would lose-update each other. mkdir is atomic on every real filesystem, so a
+// lock *directory* is a portable mutex. We spin with a short synchronous sleep and
+// take over a lock older than STALE_MS so a crashed holder can't wedge the index.
+const LOCK_STALE_MS = 30_000;
+const LOCK_TIMEOUT_MS = 15_000;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function withFindingsLock(store, fn) {
+  const lockDir = `${store.findingsPath}.lock`;
+  // The store dir may not exist yet on a first write — the lock dir's parent must.
+  mkdirSync(store.root, { recursive: true });
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lockDir);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let age = 0;
+      try { age = Date.now() - statSync(lockDir).mtimeMs; } catch { age = 0; }
+      if (age > LOCK_STALE_MS) {
+        try { rmSync(lockDir, { recursive: true, force: true }); continue; } catch { /* lost the race */ }
+      }
+      if (Date.now() > deadline) throw new Error(`findings lock timeout: ${lockDir} held >${LOCK_TIMEOUT_MS}ms`);
+      sleepSync(25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* already gone */ }
+  }
+}
 
 // Closed verdict set (shared with threat-hunt-finalize) → finding status.
 // taint-analysis adds the IRIS triage verdicts (finding/candidate/rejected).
@@ -152,25 +192,27 @@ function buildSummary(findings) {
 // fingerprint (latest wins). Returns the written document.
 export function upsertFindings(target, newFindings) {
   const store = storeFor(target);
-  const existing = readJsonIfPresent(store.findingsPath);
-  const byFp = new Map();
-  for (const f of existing?.findings ?? []) {
-    if (f.fingerprint) byFp.set(f.fingerprint, f);
-  }
-  const now = new Date().toISOString();
-  for (const raw of newFindings) {
-    // Relativize evidence BEFORE fingerprinting so the stable id is computed on
-    // the relative path — otherwise the same bug emitted absolute on one run and
-    // relative on another would dedupe-miss.
-    const withRel = { ...raw, evidence: normalizeEvidence(raw.evidence, target), updatedAt: now };
-    const fp = withRel.fingerprint ?? fingerprint(withRel);
-    byFp.set(fp, normalizeFinding({ ...withRel, fingerprint: fp }, now, target));
-  }
-  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
-  const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
-  assertFindingsDocument(document);
-  atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
-  return document;
+  return withFindingsLock(store, () => {
+    const existing = readJsonIfPresent(store.findingsPath);
+    const byFp = new Map();
+    for (const f of existing?.findings ?? []) {
+      if (f.fingerprint) byFp.set(f.fingerprint, f);
+    }
+    const now = new Date().toISOString();
+    for (const raw of newFindings) {
+      // Relativize evidence BEFORE fingerprinting so the stable id is computed on
+      // the relative path — otherwise the same bug emitted absolute on one run and
+      // relative on another would dedupe-miss.
+      const withRel = { ...raw, evidence: normalizeEvidence(raw.evidence, target), updatedAt: now };
+      const fp = withRel.fingerprint ?? fingerprint(withRel);
+      byFp.set(fp, normalizeFinding({ ...withRel, fingerprint: fp }, now, target));
+    }
+    const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
+    const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
+    assertFindingsDocument(document);
+    atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
+    return document;
+  });
 }
 
 // Merge-aware update for downstream modules (verify, poc) that attach a result
@@ -181,22 +223,24 @@ export function upsertFindings(target, newFindings) {
 // stale/typo'd id surfaces loudly instead of silently no-op'ing. Returns the doc.
 export function patchFindings(target, patches) {
   const store = storeFor(target);
-  const existing = readJsonIfPresent(store.findingsPath);
-  if (!existing) throw new Error(`${store.findingsPath} not found — nothing to patch`);
-  const byFp = new Map();
-  for (const f of existing.findings ?? []) {
-    if (f.fingerprint) byFp.set(f.fingerprint, f);
-  }
-  const now = new Date().toISOString();
-  for (const patch of patches) {
-    const fp = patch.fingerprint;
-    const current = fp ? byFp.get(fp) : undefined;
-    if (!current) throw new Error(`patchFindings: unknown fingerprint "${fp}"`);
-    byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now, target));
-  }
-  const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
-  const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
-  assertFindingsDocument(document);
-  atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
-  return document;
+  return withFindingsLock(store, () => {
+    const existing = readJsonIfPresent(store.findingsPath);
+    if (!existing) throw new Error(`${store.findingsPath} not found — nothing to patch`);
+    const byFp = new Map();
+    for (const f of existing.findings ?? []) {
+      if (f.fingerprint) byFp.set(f.fingerprint, f);
+    }
+    const now = new Date().toISOString();
+    for (const patch of patches) {
+      const fp = patch.fingerprint;
+      const current = fp ? byFp.get(fp) : undefined;
+      if (!current) throw new Error(`patchFindings: unknown fingerprint "${fp}"`);
+      byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now, target));
+    }
+    const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
+    const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
+    assertFindingsDocument(document);
+    atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);
+    return document;
+  });
 }

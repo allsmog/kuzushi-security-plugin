@@ -8,7 +8,7 @@
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
-import { runRg, parseJsonMatches, rankHit, buildGlobs } from "../lib/ripgrep.mjs";
+import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
 
 // Each entry is a lead for the agent — not a verdict. Categories mirror the two
 // Trail of Bits skills this ports (constant-time-analysis, zeroize-audit) plus
@@ -33,12 +33,12 @@ const CRYPTO_PATTERNS = [
     query: "(Math\\.random|\\brand\\s*\\(|\\bsrand\\s*\\(|random\\.random\\(|mt_rand|new Random\\().{0,60}(token|secret|\\bkey\\b|nonce|\\biv\\b|salt|password|otp|session)|(token|secret|\\bkey\\b|nonce|\\biv\\b|salt|password|otp|session).{0,60}(Math\\.random|\\brand\\s*\\(|\\bsrand\\s*\\(|random\\.random\\(|mt_rand|new Random\\()", cwe: "CWE-338" }
 ];
 
-function collectCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
+function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern = 6) {
   const candidates = [];
   const globs = buildGlobs();
   for (const pattern of CRYPTO_PATTERNS) {
     if (candidates.length >= maxCandidates) break;
-    const result = runRg(target, ["--json", "-n", "-i", "--max-count", "4", "-e", pattern.query, ...globs, "."]);
+    const result = runRg(target, ["--json", "-n", "-i", "--max-count", "4", "-e", pattern.query, ...globs, scope]);
     const remaining = maxCandidates - candidates.length;
     const hits = result.ok
       ? parseJsonMatches(result.stdout, 300)
@@ -64,7 +64,7 @@ function collectCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
 export function prepareCryptoReview(target, input = {}) {
   const resolvedTarget = resolve(target);
   const maxCandidates = Number(input.maxCandidates ?? 30);
-  const candidates = collectCandidates(resolvedTarget, maxCandidates);
+  const candidates = collectCandidates(resolvedTarget, maxCandidates, scopePath(input));
 
   const run = openRun(resolvedTarget, "crypto-review");
   run.writeJson("prep.json", {

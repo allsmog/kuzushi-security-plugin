@@ -133,6 +133,7 @@ claude --plugin-dir .
 
 | Command | What it does | Writes |
 |---|---|---|
+| `/sweep` | **Whole-repo orchestrator.** Shards the repo by module (budget-sized) and fans every applicable producer (taint, authz, logic-hunt, crypto, sharp-edges, systems-hunt, iac, supply-chain, threat-hunt, binary-recon) out across **every** shard in parallel, then pipelines each new finding through `/verify`. Records a **coverage map** (which shards were reached + the uncovered set — no silent sub-sampling) and writes findings to the shared lock-guarded index. `--input '{"offline":true}'` skips any network producer (zero-exfil). The local, auditable answer to cloud "scan-everything" tools. | `.kuzushi/sweep.json`, `coverage-map.json`, `findings.json` |
 | `/deep-context` | **Deep system-understanding pass** (before threat modeling). The context-analyst agent reads the code line-by-line where it matters and builds a grounded model — modules, entry points, actors, trust boundaries, data stores, and **system invariants** — with file:line evidence and anti-hallucination rules. **Context only** (no vuln-finding/fixes/severity); `/threat-model` consumes it. | `.kuzushi/deep-context.json` |
 | `/threat-model` | Agent builds a **PASTA** threat model in phases (objectives → scope → decomposition → threats) + an ASCII data-flow diagram. | `.kuzushi/threat-model.json`, `threat-model-dfd.txt` |
 | `/threat-intel` | Researches recent **critical/high CVEs** for the detected stack (version-checked) and **similar apps**, distilled into machine-checkable invariants. *(uses web search)* | `.kuzushi/threat-intel.json` |
@@ -146,6 +147,8 @@ claude --plugin-dir .
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/crypto-review` | **Crypto-misuse review.** The crypto-reviewer agent confirms each candidate handles a secret, then flags timing side-channels (variable-time compare of a MAC/token, CWE-208), missing/elidable zeroization (CWE-226/14), and non-cryptographic RNG minting secrets (CWE-338). Distinct from `/sast` and `/sharp-edges`. | `.kuzushi/crypto-review.json`, `findings.json` |
 | `/authz` | **Authorization-model review.** Scans endpoints + object-access-by-id sites; the authz-reviewer agent finds missing authz (CWE-862), IDOR / broken object-level authz (CWE-639), privilege escalation, and broken ownership. | `.kuzushi/authz.json`, `findings.json` |
+| `/logic-hunt` | **Business-logic flaw review** — the class taint/SAST are structurally blind to. Scans for money/state mutations, checkout/redeem entrypoints, price math, and status transitions; the logic-hunter agent reconstructs the multi-step flow and tests it for **idempotency** gaps (replayable actions, CWE-837), **TOCTOU** races (CWE-367), non-atomic **transactions** (CWE-362), **price/quantity** manipulation (CWE-840), and **state-machine** re-entry (CWE-841) — naming the invariant that should protect each action. | `.kuzushi/logic-hunt.json`, `findings.json` |
+| `/binary-recon` | **Read-only static binary triage.** Detects ELF/PE/Mach-O by magic bytes and surfaces dangerous imported symbols and writable+executable segments via on-PATH binutils (`nm`/`readelf`/`objdump`); the binary-recon agent judges which signals are real exposures in context and ties them to source. **Assessment only** — no execution, no exploit-oriented disassembly. | `.kuzushi/binary-recon.json`, `findings.json` |
 | `/iac` | **Config & container security.** Scans Dockerfiles, Kubernetes/Compose, and Terraform/IaC for misconfigurations (privileged containers, root, unpinned images, hardcoded secrets, public network/storage, disabled TLS); the iac-reviewer agent confirms each in context. | `.kuzushi/iac.json`, `findings.json` |
 | `/traffic-map` | **Offline Burp/HAR import.** Parses a HAR or Burp "Save items" XML export into observed endpoints, then the traffic-mapper agent correlates each to its source handler (x-ray + code-graph) and flags the gaps the traffic reveals (shadow surface, unauthenticated mutating endpoints, params reaching sinks). Offline — no proxy. | `.kuzushi/traffic-map.json`, `findings.json` |
 | `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
@@ -168,9 +171,10 @@ Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
 `diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
-`iac-reviewer`, `authz-reviewer`, `traffic-mapper`, `rule-synthesist`,
+`iac-reviewer`, `authz-reviewer`, `logic-hunter`, `binary-recon`, `traffic-mapper`, `rule-synthesist`,
 `fixer`, `chain-finder`) that run in isolated context and
-inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
+inherit the plugin's MCP tools. `/sweep` is a **coordinator** (`sweep-coordinator`) that fans the
+producers out across repo shards in parallel and aggregates a coverage map. `/taint-analysis` is a **coordinator** that sequences four of
 them — `taint-sink-labeler` and `taint-source-labeler` (in parallel), then `taint-flow-tracer`,
 then `taint-triager` — passing data through staged JSON drafts.
 
@@ -258,8 +262,18 @@ target repo's own `.mcp.json` is never auto-loaded — see **[docs/HARDENING.md]
 ## Privacy
 
 All analysis runs **locally** against your repo. The only steps that reach the network are
-`/threat-intel` (web search for CVEs) and optional tool downloads in `/install` /
-`/build-databases`, and those are policy-gated. Nothing is uploaded.
+`/threat-intel` (web search for CVEs), `/supply-chain` (registry/`gh` lookups), and optional tool
+downloads in `/install` / `/build-databases`, and those are policy-gated. Nothing is uploaded.
+`/sweep --input '{"offline":true}'` skips every network-touching producer for an air-gapped run —
+the one guarantee a cloud SAST that uploads your source structurally cannot make.
+
+## How it compares
+
+For an honest head-to-head with cloud LLM-SAST (specifically **Xint Code**) — where kuzushi wins by
+construction (local / auditable / closed-loop / free), where the cloud tools are still ahead (raw
+throughput, track record), and what `/sweep`, `/logic-hunt`, and `/binary-recon` added to close the
+gap — see **[docs/vs-xint.md](docs/vs-xint.md)**. Benchmark methodology lives in
+**[bench/README.md](bench/README.md)**.
 
 ## Contributing
 

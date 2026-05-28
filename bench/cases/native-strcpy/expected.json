@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "src/parse.c", "line": 6, "cwe": "CWE-787", "note": "unbounded strcpy into fixed buffer" } ] }
