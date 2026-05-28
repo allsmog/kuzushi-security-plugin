@@ -16,6 +16,9 @@ workspace/
 # third-party code, never committed. The fetch script + expected.json ARE committed.
 bench/cves/*/repo/
 bench/scoreboard.cve.md
+# eval scoreboards are run-specific (model/cost/timestamp); the curated record is eval/README.md
+eval/scoreboard.md
+eval/scoreboard.cve.md
 
 # Logs
 *.log

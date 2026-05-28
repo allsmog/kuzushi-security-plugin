@@ -8,7 +8,9 @@
     "test": "node --test test/*.test.mjs",
     "bench": "node bench/run.mjs",
     "bench:cve": "node bench/run.mjs --cve",
-    "bench:smoke": "node scripts/cmd/bench-smoke.mjs"
+    "bench:smoke": "node scripts/cmd/bench-smoke.mjs",
+    "eval": "node eval/eval.mjs",
+    "eval:cve": "node eval/eval.mjs --cve"
   },
   "engines": {
     "node": ">=20"
