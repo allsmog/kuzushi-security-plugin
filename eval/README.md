@@ -108,10 +108,30 @@ authenticated session; each run is billed (the scoreboard reports total cost).
   route — `lparser.c` #26, `t_stream.c` #21 → routing is now **3/3**. (Re-running the
   full LLM eval to reconfirm costs ~$9; deferred — routing is verified deterministically.)
 
-- **Honest status:** routing is solved (3/3 deterministically). The unsolved part is the
-  **reasoning-level find** — even when routed to the right file, the Sonnet deep-scanner
-  did not identify the subtle Redis bugs (GC-UAF, stack overflow) and emitted FPs. The
-  remaining gap to parity is reasoning quality on subtle memory bugs, which likely needs
-  a stronger model (Opus), deeper per-file reading (smaller budget × more passes), and a
-  larger CVE set scored for find-rate **and** FP-rate. The harness is what makes each of
-  those a measurable experiment instead of a guess.
+- **Opus re-measure (Opus, 1 run, maxFiles 30, $22.31):**
+
+  | Case | routed | found | confirmed | FP-proxy |
+  |---|---|---|---|---|
+  | minimist | ✅ | ✅ | ✅ | 0 |
+  | redis Lua RCE | ✅ | ❌ | ❌ | 1 |
+  | redis XACKDEL | ✅ | ❌ | ❌ | 0 |
+  | **overall** | **100%** | **33%** | **33%** | |
+
+  Two findings: (1) **routing is now 100%** end-to-end (the input-processor ranking fix
+  confirmed live — both Redis files reached). (2) **Model strength is NOT the
+  bottleneck** — Opus, reading the right files, still missed both Redis bugs blind. The
+  Lua GC-UAF needs a deep Lua-internals rooting invariant; the XACKDEL stack overflow
+  sits at line ~3537 in a 3,500-line file and was missed *despite correct routing* — a
+  breadth-vs-depth signal (30 whole files ⇒ shallow per-file attention).
+
+- **Where this leaves parity (no spin):** routing = solved; reasoning-level find on
+  subtle memory bugs is **not**, and a Sonnet→Opus swap did not move it (find-rate flat
+  at 33%, the minimist case). The next experiment the harness points to is **depth**
+  (few files, read deeply, multi-pass) rather than more files or a bigger model — and an
+  honest possibility is that some of these (the Lua GC-UAF) are at/over the edge of
+  reliable one-pass blind discovery for current models. The value delivered is the
+  measurement loop itself: every claim here is a reproducible `npm run eval:cve` number,
+  not an assertion.
+
+  Spend so far across all eval runs: ~$35 (Sonnet baseline $3.48 + lever re-run $9.24 +
+  Opus $22.31, plus a synthetic validation $0.42).
