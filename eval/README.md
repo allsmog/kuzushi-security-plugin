@@ -87,4 +87,31 @@ authenticated session; each run is billed (the scoreboard reports total cost).
     GC use-after-free and emitted a different (FP) finding. → Phase 4 (methodology),
     Phase 5 (panel to refute the FP).
 
-- **Lever deltas:** recorded here as each lands (re-run `npm run eval:cve`).
+- **Lever re-measure (Sonnet, 1 run, maxFiles 30, $9.24)** — the harness earning its
+  keep by refuting a false "improvement":
+
+  | Case | baseline (maxFiles 10) | after levers (maxFiles 30) |
+  |---|---|---|
+  | minimist | routed/found/confirmed ✅ | ✅ |
+  | redis Lua RCE | routed ✅ · found ❌ | routed ❌ (regressed) · found ❌ |
+  | redis XACKDEL | routed ❌ · found ❌ | routed ✅ (fixed) · found ❌ |
+  | **overall** | 67 / **33** / 33% | 67 / **33** / 33% |
+
+  The levers **did not improve blind find-rate** (still 33%) and the reachability
+  ranking *regressed* the Lua case: entry-point density over-favored first-party
+  `*Command` files and pushed the vendored Lua parser out of the budget. Without this
+  harness that would have shipped as a "win."
+
+- **Ranking-regression fix (deterministic, no LLM cost):** added an `input-processor`
+  signal (parser/lexer/decoder/deserializer/VM) so attacker-data surfaces reached via
+  APIs keep real weight. Verified on the real repos at maxFiles 30: **both** files now
+  route — `lparser.c` #26, `t_stream.c` #21 → routing is now **3/3**. (Re-running the
+  full LLM eval to reconfirm costs ~$9; deferred — routing is verified deterministically.)
+
+- **Honest status:** routing is solved (3/3 deterministically). The unsolved part is the
+  **reasoning-level find** — even when routed to the right file, the Sonnet deep-scanner
+  did not identify the subtle Redis bugs (GC-UAF, stack overflow) and emitted FPs. The
+  remaining gap to parity is reasoning quality on subtle memory bugs, which likely needs
+  a stronger model (Opus), deeper per-file reading (smaller budget × more passes), and a
+  larger CVE set scored for find-rate **and** FP-rate. The harness is what makes each of
+  those a measurable experiment instead of a guess.

@@ -34,6 +34,13 @@ function entryPointDefFiles(target, scopeDir) {
 
 const SECURITY_HINT = /(auth|login|logout|session|token|password|passwd|cred|secret|crypto|cipher|hash|jwt|oauth|saml|admin|payment|billing|charge|checkout|order|invoice|upload|download|exec|command|shell|spawn|query|\bsql\b|database|\bdb\b|deserial|pickle|yaml|xml|template|render|redirect|cors|csrf|permission|role|\bacl\b|tenant|account|\buser\b|route|controller|handler|middleware|validate|sanitiz|escape|webhook|ingest|parse)/i;
 
+// Input-processing files are a top attacker-data surface, but they're reached through
+// library/C-API calls (lua parser, deserializers, codecs), so neither entry-point
+// density NOR inbound-call-count ranks them — yet they're exactly where the deep,
+// long-lived memory bugs live (e.g. the Redis Lua parser GC-UAF). Give these a real
+// weight so a reachability-driven ranker doesn't drop them for first-party handlers.
+const INPUT_PROC = /(pars(e|er)|lex(er)?|tokeniz|scanner|decode|decoder|deserial|unmarshal|unpack|inflate|unzip|\bvm\b|interp|bytecode|codec|reader|loader|protocol)/i;
+
 function entryPointFiles(store) {
   const set = new Set();
   const ep = readJsonIfPresent(`${store.xRayDir}/entry-points.json`);
@@ -122,7 +129,10 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
     if (entries.has(file)) { score += 4; reasons.push("entry-point"); }
     if (boundaries.has(file)) { score += 3; reasons.push("trust-boundary"); }
     if (changed.has(file)) { score += 2; reasons.push("recently-changed"); }
-    // Keyword path hint is only a weak tiebreak now, not a primary signal.
+    // Input-processing surface (parser/decoder/deserializer/VM): real weight — these
+    // are reached via APIs, not entry-point defs, but are prime memory-bug surfaces.
+    if (INPUT_PROC.test(file)) { score += 5; reasons.push("input-processor"); }
+    // Generic keyword path hint stays a weak tiebreak.
     if (SECURITY_HINT.test(file)) { score += 1; reasons.push("security-relevant-path"); }
     return { filePath: file, language: languageOf(file), score, reasons };
   });
