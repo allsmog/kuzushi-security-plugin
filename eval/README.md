@@ -159,10 +159,17 @@ bugs unfound blind across Sonnet-30, Opus-30, and Sonnet-batch-5). What moved:
   depth-batching (batch-5 = no change). Only a single-file read found the tractable bug,
   and that's both unscalable and statistically thin (n=1).
 
-This is **not parity with Xint**, and the harness is what lets us say so with evidence
-instead of vibes. The remaining gap is genuine reasoning-at-scale on subtle memory bugs;
-plausible next directions (each a measurable `npm run eval:cve` experiment, none yet
-proven): a **structured per-function pass** that forces enumerate-every-fixed-buffer-and-
-check-bounds rather than free reading; **repeated sampling** (k runs/file, union) to beat
-variance; and a **larger CVE corpus** scored for find-rate *and* FP-rate. The deliverable
-that endures is the measurement loop, not a parity claim.
+This is **not parity with Xint** on blind *static* discovery, and the harness is what lets
+us say so with evidence instead of vibes. The remaining gap is reasoning-at-scale on subtle
+memory bugs by *reading*.
+
+**But the empirical path closes it for the proof half.** Rather than out-read the bug, we
+borrowed the AIxCC core — prove it by *running* under sanitizers (`/sanitize-pov`,
+`scripts/lib/sanitizers.mjs`). Validated end-to-end on **real Redis CVE-2025-62507**: built
+the target with its own `make SANITIZER=address`, sent `XACKDEL … IDS 9 …`, AddressSanitizer
+aborted with `stack-buffer-overflow` in `xackdelCommand`, the oracle mapped it to CWE-121,
+and the finding was promoted to `proven` (CWE sharpened from a seeded vague CWE-119). The bug
+the static reader missed at breadth is **proven by execution** — ~10 min, ~½ GB, no network.
+So: static blind-discovery ≈ 33% (honest, low); empirical proof of a real memory CVE = works.
+The enduring deliverables are the **measurement loop** and the **sanitizer oracle** — not a
+parity claim on raw discovery, which still wants a fuzzing fleet kuzushi doesn't have.

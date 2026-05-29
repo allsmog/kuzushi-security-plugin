@@ -103,8 +103,17 @@ build failure is `harness-failed-build`, never a false proof. It's wired into th
 CONFIRM routing for native/memory findings (consented, since it executes).
 
 This directly attacks the class that beat the reader: ASan catches a use-after-free or a
-buffer overflow at *runtime* regardless of how subtle it looks in source. Tested
-end-to-end on a real ASan compile (a planted overflow → recovered CWE-787 → `proven`).
+buffer overflow at *runtime* regardless of how subtle it looks in source.
+
+**Validated end-to-end on a real CVE.** Built real Redis at the vulnerable commit with its
+own `make SANITIZER=address`, started the ASan server, and sent `XACKDEL … IDS 9 …` (>the
+8-slot static buffer). AddressSanitizer aborted with `stack-buffer-overflow`, backtrace
+`#1 xackdelCommand` — **CVE-2025-62507**. kuzushi's oracle parsed it (→ CWE-121) and
+`/sanitize-pov` promoted the finding to `proven`, sharpening the CWE from a seeded vague
+`CWE-119` to the sanitizer's exact `CWE-121`. The same bug the *static reader missed at
+breadth* is **proven by execution** — build-to-proof in one consented run, ~10 min /
+~½ GB transient. This is the gap-closer working on a real 0day-class memory bug, not a
+fixture.
 
 ## Where Xint is still ahead (no spin)
 
@@ -113,8 +122,9 @@ end-to-end on a real ASan compile (a planted overflow → recovered CWE-787 → 
   primary *discovery* engine. kuzushi's `/fuzz` is the seed of that but not a cluster
   campaign. The honest gap now: we can *prove* a memory finding by execution, but
   *discovering* the unknown ones still leans on the (weaker) static reader rather than a
-  fuzzing fleet. Validating `/sanitize-pov` end-to-end on a real CVE (it needs the target's
-  own build — e.g. `make CFLAGS=-fsanitize=address`) is the next concrete step.
+  fuzzing fleet. (Discovery now also has a sanitizer path: `/fuzz` builds C/C++ targets with
+  ASan and `fuzz-triage` classifies crashes by the same oracle — but it's laptop-scale, not
+  a coverage-guided cluster campaign.)
 - **Raw throughput** on millions of LOC — a cluster beats a laptop session on wall-clock,
   and depth-at-breadth (focus every file) costs real money locally.
 - **Deep binary analysis** — Xint treats binaries as first-class; `/binary-recon` is
