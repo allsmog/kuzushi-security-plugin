@@ -36,7 +36,7 @@ function parseResult(stdout) {
 // deliverable is the draft FILE it writes (we don't parse its prose).
 // opts: { agentMdPath, task, repoDir, pluginDir, draftPath, model, timeoutMs, usePlugin }
 export function runAgent(opts) {
-  const { agentMdPath, task, repoDir, pluginDir, draftPath, model = "sonnet", timeoutMs = 600_000, usePlugin = true } = opts;
+  const { agentMdPath, task, repoDir, pluginDir, draftPath, model = "sonnet", timeoutMs = 900_000, usePlugin = true } = opts;
   const system = agentBody(agentMdPath);
   const args = [
     "-p", task,

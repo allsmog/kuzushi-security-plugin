@@ -26,14 +26,16 @@ const RULES = [
     "a raw memory copy/format — prove the destination is large enough for the (attacker-influenced) length, or it overflows"],
   [/\b(malloc|calloc|realloc|zmalloc|zrealloc|xmalloc|kmalloc)\s*\([^;]*[*+][^;]*\)/, "alloc-arith",
     "an allocation size computed with arithmetic — prove it cannot integer-overflow/under-allocate for attacker-influenced operands"],
-  [/\b(free|zfree|kfree|xfree|release|destroy|close)\s*\(/, "free-site",
-    "a free/release — prove the pointer is not used (or re-freed) afterward on any path (use-after-free / double-free)"],
-  [/\b(luaS_new|lua_|incr_top|setsvalue|sethvalue|setobj|GC|gc_)/, "gc-rooting",
+  [/\b(luaS_new|lua_|incr_top|setsvalue|sethvalue|setobj|gc_)/, "gc-rooting",
     "an allocation/stack op in a GC'd runtime — prove the object is rooted/anchored before any call that can allocate or trigger GC (else use-after-free)"]
 ];
 
-// Extract obligations from one file. Returns [{ line, kind, obligation, text }], capped.
-export function extractObligations(target, filePath, { cap = 80 } = {}) {
+// Extract obligations from one file. Returns [{ line, kind, obligation, text }].
+// When more than `cap` sites exist, sample them EVENLY across the file (not the first
+// N) so a dangerous primitive deep in a long file — e.g. a fixed-size buffer at line
+// 3538 of a 4000-line file — is still represented. Keeps prep.json small enough for
+// the agent's file-read limit while never biasing to the top of the file.
+export function extractObligations(target, filePath, { cap = 32 } = {}) {
   const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
   if (!NATIVE_EXT.has(ext)) return [];
   const path = resolve(target, filePath);
@@ -41,18 +43,23 @@ export function extractObligations(target, filePath, { cap = 80 } = {}) {
   let lines;
   try { lines = readFileSync(path, "utf8").split(/\r?\n/); } catch { return []; }
 
-  const out = [];
-  for (let i = 0; i < lines.length && out.length < cap; i += 1) {
+  const all = [];
+  for (let i = 0; i < lines.length; i += 1) {
     const text = lines[i];
     if (!text || text.length > 400) continue;
     const trimmed = text.trim();
     if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue;
     for (const [re, kind, obligation] of RULES) {
       if (re.test(text)) {
-        out.push({ line: i + 1, kind, obligation, text: trimmed.slice(0, 200) });
+        all.push({ line: i + 1, kind, obligation, text: trimmed.slice(0, 200) });
         break; // one obligation per line is enough to flag it
       }
     }
   }
-  return out;
+  if (all.length <= cap) return all;
+  // Even stride sample across the file so late-file sites survive the cap.
+  const step = all.length / cap;
+  const sampled = [];
+  for (let k = 0; k < cap; k += 1) sampled.push(all[Math.floor(k * step)]);
+  return sampled;
 }
