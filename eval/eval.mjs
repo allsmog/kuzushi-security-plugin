@@ -16,7 +16,7 @@ import { mkdtempSync, mkdirSync, cpSync, existsSync, readFileSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { storeFor } from "../scripts/lib/artifact-store.mjs";
+import { storeFor, readJsonIfPresent } from "../scripts/lib/artifact-store.mjs";
 import { prepareDeepScan } from "../scripts/cmd/deep-scan-prepare.mjs";
 import { finalizeDeepScan } from "../scripts/cmd/deep-scan-finalize.mjs";
 import { prepareDeepHunt } from "../scripts/cmd/deep-hunt-prepare.mjs";
@@ -51,6 +51,12 @@ const BATCH = Number(opt("--batch", "0"));  // >0: deep-read the routed files in
 const CVE_MODE = args.includes("--cve");
 
 export const norm = (p) => String(p ?? "").replace(/^\.\//, "");
+
+// Read the findings index, tolerating its ABSENCE. A case whose only agent draft is
+// rejected by a finalize (e.g. deep-hunt's ≥2-distinct-files gate) promotes nothing
+// and never creates findings.json — that must score as "no findings", not crash the
+// whole corpus run with ENOENT (the bug that killed cases 3–9 of the first full run).
+const readFindings = (work) => readJsonIfPresent(storeFor(work).findingsPath)?.findings ?? [];
 
 function nodeMatch(expected, filePath, startLine) {
   if (norm(filePath) !== norm(expected.filePath)) return false;
@@ -131,7 +137,7 @@ function oneRun(caseDir, expected) {
   if (!anyDraft) return { ...trace, cost, found: false, confirmed: false, note: "deep-agent wrote no draft", work };
 
   // score: did a deep-scan finding land on an expected anchor?
-  let findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? [];
+  let findings = readFindings(work);
   const matched = findings.filter((f) => f.source === "deep-scan" && expected.some((e) => anchorMatch(e, f)));
   trace.found = matched.length > 0;
   trace.deepFindingCount = findings.filter((f) => f.source === "deep-scan").length;
@@ -148,7 +154,7 @@ function oneRun(caseDir, expected) {
     if (vr.draftWritten) {
       const vfin = safe(() => assembleVerify(work, vprep.runDir));
       trace.verifyError = vfin.ok ? null : vfin.error;
-      findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? [];
+      findings = readFindings(work);
     }
   }
 
@@ -191,7 +197,7 @@ function oneRunDeepHunt(caseDir, expected) {
   safe(() => finalizeDeepHunt(work, hprep.runDir));
 
   // score: did a deep-hunt finding's path touch an expected anchor?
-  let findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? [];
+  let findings = readFindings(work);
   const dh = findings.filter((f) => f.source === "deep-hunt");
   const matched = dh.filter((f) => expected.some((e) => findingHitsExpected(e, f)));
   trace.found = matched.length > 0;
@@ -207,7 +213,7 @@ function oneRunDeepHunt(caseDir, expected) {
       repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
     });
     cost += vr.cost; trace.verifyAgent = { ok: vr.ok, cost: vr.cost, secs: Math.round(vr.elapsedMs / 1000) };
-    if (vr.draftWritten) { safe(() => assembleVerify(work, vprep.runDir)); findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? []; }
+    if (vr.draftWritten) { safe(() => assembleVerify(work, vprep.runDir)); findings = readFindings(work); }
   }
 
   trace.confirmed = findings.some((f) => expected.some((e) => findingHitsExpected(e, f)) && f.verification?.verdict === "confirmed-exploitable");
