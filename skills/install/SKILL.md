@@ -1,5 +1,6 @@
 ---
 name: install
+user-invocable: false
 description: Install/vendor the analysis tooling for this repo's detected languages — LSP servers (rust-analyzer, clangd, jdtls) and MCP backend CLIs. Pass a tool name to install a specific one, including the heavy ones (e.g. /install codeql, /install joern). Use when /doctor shows tools missing.
 argument-hint: "[tool|all]"
 allowed-tools: Bash

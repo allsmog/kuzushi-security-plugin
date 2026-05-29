@@ -2,7 +2,7 @@
 name: fuzz-init
 description: Low-level stage for /fuzz. Initialize a local fuzzing campaign plan from confirmed/proven findings. Prefer /fuzz for normal use.
 allowed-tools: Bash, Read, Write, Edit
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz init

@@ -1,7 +1,7 @@
 ---
 name: taint-analysis
 description: IRIS-style source→sink taint hunt. Ranks a typed CWE catalog for the repo, then drives subagents to label dangerous sinks, label sources of user input, run Joern/CodeQL dataflow queries (or same-file linking) to connect them, and triage each flow as finding/candidate/rejected. Promotes verdicts into .kuzushi/findings.json. Benefits from a prebuilt CodeQL DB / Joern CPG but degrades gracefully.
-user-invocable: true
+user-invocable: false
 ---
 
 # Taint analysis (coordinator)

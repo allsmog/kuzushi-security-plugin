@@ -3,7 +3,7 @@ name: binary-recon
 description: Read-only static triage of compiled binaries (ELF / PE / Mach-O). Detects them by magic bytes, then surfaces dangerous imported symbols, writable+executable segments, and hardening gaps via on-PATH binutils (nm / readelf / objdump). Assessment only — no execution, no exploit-oriented disassembly. Promotes verdicts into .kuzushi/findings.json (source "binary-recon").
 context: fork
 agent: binary-recon
-user-invocable: true
+user-invocable: false
 ---
 
 # Binary recon

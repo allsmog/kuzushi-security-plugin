@@ -3,7 +3,7 @@ name: iac
 description: Config & container security review. Scans Dockerfiles, Kubernetes/Compose manifests, and Terraform/IaC for misconfigurations (privileged containers, root, unpinned images, hardcoded secrets, public network/storage, disabled TLS); the iac-reviewer agent confirms each in context and promotes real ones into .kuzushi/findings.json (source "iac"). Distinct from /sast (source injection) and the insecure-defaults companion (app config values).
 context: fork
 agent: iac-reviewer
-user-invocable: true
+user-invocable: false
 ---
 
 # IaC review

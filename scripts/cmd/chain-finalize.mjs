@@ -38,6 +38,21 @@ export function finalizeChain(target, runDir) {
 
   const findingsDoc = readJsonIfPresent(store.findingsPath);
   const known = new Set((findingsDoc?.findings ?? []).map((f) => f.fingerprint));
+  const severityByFp = new Map((findingsDoc?.findings ?? []).map((f) => [f.fingerprint, String(f.severity ?? "").toLowerCase()]));
+
+  // The composed impact of a chain is never less than its strongest link — a path
+  // that ends in an RCE is critical even if assembled from medium primitives, and a
+  // chain must never be reported below its max member severity.
+  function escalate(claimed, members) {
+    let bestWord = String(claimed ?? "high").toLowerCase();
+    let bestRank = SEVERITY_RANK[bestWord] ?? SEVERITY_RANK.high;
+    for (const m of members) {
+      const w = severityByFp.get(m);
+      const r = SEVERITY_RANK[w] ?? 0;
+      if (r > bestRank) { bestRank = r; bestWord = w; }
+    }
+    return bestWord;
+  }
 
   const chains = draft.chains.map((c, i) => {
     const members = [...new Set((c.members ?? []).filter(Boolean))];
@@ -48,11 +63,17 @@ export function finalizeChain(target, runDir) {
       fail(`chain ${i}: narrative is ${narrative.length} chars (min ${MIN_NARRATIVE_LENGTH}). Walk precondition → pivot → impact across the members.`);
     }
     const id = c.chainId ?? chainId(members);
+    // kind: "attack-path" (entry→asset path search) vs "composition" (legacy compose).
+    // Inferred when not set, so older drafts stay valid.
+    const kind = c.kind ?? (c.entryPoint || c.asset ? "attack-path" : "composition");
     return {
       chainId: id,
       title: c.title ?? id,
+      kind,
       members,
-      severity: c.severity ?? "high",
+      severity: escalate(c.severity, members),
+      ...(c.entryPoint ? { entryPoint: String(c.entryPoint) } : {}),
+      ...(c.asset ? { asset: String(c.asset) } : {}),
       steps: Array.isArray(c.steps) ? c.steps : [],
       narrative,
       evidenceAnchors: Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : []
@@ -81,7 +102,7 @@ export function finalizeChain(target, runDir) {
   const result = {
     ok: true, status: "completed", target: resolvedTarget,
     chainCount: chains.length, chainsPath: store.chainsPath,
-    chains: ranked.map((c) => ({ chainId: c.chainId, title: c.title, severity: c.severity, members: c.members })),
+    chains: ranked.map((c) => ({ chainId: c.chainId, title: c.title, kind: c.kind, severity: c.severity, members: c.members, ...(c.entryPoint ? { entryPoint: c.entryPoint } : {}), ...(c.asset ? { asset: c.asset } : {}) })),
     findingsPath: store.findingsPath, findingsSummary: updated?.summary ?? null
   };
   run.finalize(result);

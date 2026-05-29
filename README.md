@@ -24,9 +24,9 @@ schemas, and a SessionStart hook wire up Tree-sitter, Semgrep, CodeQL, Joern, fu
 language tooling only when the repo needs them.
 
 ```
-context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc ─► fix
- (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox- (PoC⁺
-  deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)   patch)
+context ─► x-ray ─► threat-model ─► threat-intel ─► ┌ invariant-test ┐ ─► findings.json ─► verify ─► poc ─► fix ─► report
+ (langs,    (entry    (PASTA DFD +    (CVEs for       └ threat-hunt   ┘     (open          (exploit-  (sandbox- (PoC⁺   (fix-first
+  deps)      points)   threats)        stack + peers)  (adversarial)         findings)      ability)    proven)   patch)  report)
                                                                                   │
                                                                                   └─► mem-exploitability
                                                                                       (memory-corruption tier
@@ -92,44 +92,53 @@ claude --plugin-dir .
 
 ## Quickstart
 
-1. Start Claude Code in any source repo. The SessionStart hook **auto-builds repository
-   context** (file inventory, languages, component hints) and prints a status report.
-2. It then offers the next steps as you go — run x-ray, build a PASTA threat model, research
-   CVEs, hunt threats. Or drive them yourself with the skills below.
+Start Claude Code in any source repo. The SessionStart hook **auto-builds repository
+context** (files, languages, components), prints a status report, and suggests one next
+step. You don't need to learn 40 commands — kuzushi is **four phases**, and most reviews
+are two commands: **`/sweep` then `/report`**.
 
 ```
-/deep-context        # deep system-understanding pass (modules, trust boundaries, invariants)
-/code-graph          # cache entry points + per-symbol caller counts (blast-radius signal)
-/traffic-map         # offline Burp/HAR import → correlate observed endpoints to source handlers
-/threat-model        # PASTA model → .kuzushi/threat-model.json (+ ASCII data-flow diagram)
-/threat-intel        # research critical/high CVEs (this stack + similar apps) → invariants
-/supply-chain        # dependency takeover/abandonment risk (maintainers, cadence) → findings
-/threat-hunt         # adversarial per-threat review → .kuzushi/findings.json
-/invariant-test      # check the CVE-derived invariants against the code
-/taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
-/sast                # semgrep scan → triage hits into findings.json
-/sharp-edges         # footgun APIs / dangerous defaults (misuse-resistance review) → findings
-/crypto-review       # timing side-channels, missing zeroization, weak crypto RNG → findings
-/authz               # authorization-model review: missing authz, IDOR, privilege escalation → findings
-/iac                 # config & container security: Dockerfile/k8s/Terraform misconfig → findings
-/diff-review         # security review of a change (regressions + blast radius) → findings
-/variant-hunt        # find siblings of a confirmed bug across the repo → findings.json
-/semgrep-rule        # distill confirmed findings into test-driven Semgrep rules
-/rule-synth          # distill confirmed findings into validated CodeQL/Joern rules (digest-attested pack)
-/verify              # reconstruct each open finding's trigger → exploitability verdict + PoC sketch
-/path-solve          # solve the guard predicate to reach a sink /verify left inconclusive (concolic-lite)
-/poc                 # build a harness for each verified finding, run it in a sandbox → empirical proof
-/fuzz                # plan/run/triage/minimize/promote local fuzz proof
-/mem-exploitability  # memory-corruption findings → exploitability tier + mitigation posture (assessment only)
-/fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
-/chain               # link related findings into higher-impact attack chains (analysis overlay)
-/export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
-/doctor              # what's installed / missing, with install commands
+                           (→ = typeable in the / menu ·  + = runs inside the phase or when you ask)
+1  MAP        understand the code           (x-ray runs automatically on session start)
+   → /threat-model           PASTA threat model + ASCII data-flow diagram
+   + deep-context · code-graph · dfd · threat-intel · invariant-test
+
+2  HUNT       find vulnerabilities
+   → /sweep                  whole-repo: fans the hunters out by language, then verifies
+   + taint · authz · logic-hunt · crypto · sharp-edges · systems · iac
+     supply-chain · sast · threat-hunt · binary-recon · traffic-map
+
+3  CONFIRM    prove it's real
+   → /verify                 reconstruct trigger → verdict; routes each finding to its proof
+   → /poc                    build + sandbox-run one harness (executes; explicit)
+   + fuzz · path-solve · mem-exploitability   (verify picks these by language / finding-type)
+
+4  FIX · SHIP  remediate + deliver
+   → /fix                    minimal patch, PoC⁺-validated, applied behind approval
+   → /report                 prioritized "fix first" report (Markdown / HTML)
+   + chain · variant-hunt · export-sarif · semgrep-rule · rule-synth
+
+   entry: /diff-review (review a PR)     setup: /doctor (+ install · build-databases)
 ```
+
+**Happy path:** `/sweep` finds and verifies across the whole repo, then `/report` gives
+you a prioritized, shareable writeup. Only the `→` commands are in the `/` menu; the `+`
+tools aren't separate commands — they run inside their phase (e.g. `/sweep` selects the
+hunters by language) or when you ask for them in plain language. The full reference is the
+table below.
 
 ---
 
 ## Skills
+
+This is the **full reference** — every capability the plugin ships. Only **8 are in the `/`
+menu** (the phase drivers + a couple of entry points): `/sweep`, `/verify`, `/poc`, `/fix`,
+`/report`, `/threat-model`, `/diff-review`, `/doctor`. The rest are **not separate commands you
+type** — they run *inside their phase* (e.g. `/sweep` fans out the hunters by language; `/verify`
+routes a finding to `/fuzz` / `/mem-exploitability` / `/path-solve`) or when you **ask in plain
+language** ("do an authz review", "draw the data-flow diagram"). They stay fully available —
+just demoted from the menu so it reads as the four phases. (Mechanism: `user-invocable: false`
+in each skill's frontmatter — hidden from `/`, still model-invocable.)
 
 | Command | What it does | Writes |
 |---|---|---|
@@ -152,6 +161,7 @@ claude --plugin-dir .
 | `/binary-recon` | **Read-only static binary triage.** Detects ELF/PE/Mach-O by magic bytes and surfaces dangerous imported symbols and writable+executable segments via on-PATH binutils (`nm`/`readelf`/`objdump`); the binary-recon agent judges which signals are real exposures in context and ties them to source. **Assessment only** — no execution, no exploit-oriented disassembly. | `.kuzushi/binary-recon.json`, `findings.json` |
 | `/iac` | **Config & container security.** Scans Dockerfiles, Kubernetes/Compose, and Terraform/IaC for misconfigurations (privileged containers, root, unpinned images, hardcoded secrets, public network/storage, disabled TLS); the iac-reviewer agent confirms each in context. | `.kuzushi/iac.json`, `findings.json` |
 | `/traffic-map` | **Offline Burp/HAR import.** Parses a HAR or Burp "Save items" XML export into observed endpoints, then the traffic-mapper agent correlates each to its source handler (x-ray + code-graph) and flags the gaps the traffic reveals (shadow surface, unauthenticated mutating endpoints, params reaching sinks). Offline — no proxy. | `.kuzushi/traffic-map.json`, `findings.json` |
+| `/report` | **Prioritized security report — the human deliverable.** Deterministic transform of `findings.json` into a ranked, readable report (`.kuzushi/report.md`; `html` also writes `report.html`). Orders findings **fix-first** by severity × proof state × exploitability × blast radius (`scripts/lib/risk.mjs`), and folds in attack chains, `/sweep` coverage (the honest "what wasn't scanned" set), and provenance. Actionable findings by default; `all` includes reviewed/noise. Read-only rendering — makes no security decision; pair with `/export-sarif` for CI. | `.kuzushi/report.md`, `report.html` |
 | `/export-sarif` | **SARIF export.** Deterministic transform of `findings.json` into SARIF 2.1.0 (`.kuzushi/findings.sarif`) for CI code-scanning, dashboards, and IDEs — one rule per CWE, severity→level, fingerprints carried. `all` includes reviewed/noise too. | `.kuzushi/findings.sarif` |
 | `/variant-hunt` | **Variant analysis.** For each confirmed/proven finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
 | `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
@@ -277,6 +287,16 @@ construction (local / auditable / closed-loop / free), where the cloud tools are
 throughput, track record), and what `/sweep`, `/logic-hunt`, and `/binary-recon` added to close the
 gap — see **[docs/vs-xint.md](docs/vs-xint.md)**. Benchmark methodology lives in
 **[bench/README.md](bench/README.md)**.
+
+## Where it's headed — raw detection power
+
+The active priority is finding **more, harder, and chained** vulnerabilities. The eval showed the
+find-rate lever is *not* model strength — it's removing structural ceilings: interprocedural
+dataflow is opt-in (degrades to same-file without a CPG), discovery is one-pass, and `/chain` only
+composes findings that already exist rather than *searching* entry→asset attack paths. The
+prioritized levers — interprocedural-by-default, a hypothesis-driven deep-hunt loop, a proactive
+attack-path engine, framework-aware entry-point enumeration, ensemble discovery, and
+class-specialized reasoning (gadget chains, TOCTOU) — are tracked in **[ROADMAP.md](ROADMAP.md#raising-detection-power-current-priority)**.
 
 ## Contributing
 

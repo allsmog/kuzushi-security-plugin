@@ -17,14 +17,23 @@ repository.
 2. Work the PASTA phases in order — S1 Objectives → S2 Scope → S3 Decomposition → S4
    Threats — writing each `pasta-s*.json` in the schema your agent definition specifies.
    Gather evidence with `tree_sitter:*` (AST, taint sources/sinks, callers) and ambient LSP
-   while reading files. Use `codeql:query` / `joern:query` only if a database/CPG already
-   exists. **Do NOT run semgrep** — SAST scanning is out of scope for threat modeling.
+   while reading files. If `.kuzushi/deep-context.json` or `code-graph.json` exist (the deeper
+   MAP passes), read them for grounded modules / trust boundaries / blast radius instead of
+   re-deriving. Use `codeql:query` / `joern:query` only if a database/CPG already exists.
+   **Do NOT run semgrep** — SAST scanning is out of scope for threat modeling.
 3. Run the assemble step it prints to persist `.kuzushi/threat-model.json` and render the
    ASCII data-flow diagram.
 4. Report a brief summary (threat counts by category + top threats), then paste the ASCII
    data-flow diagram from `.kuzushi/threat-model-dfd.txt` verbatim **inside a triple-backtick
    fenced code block** (```). Mandatory — it's column-aligned ASCII and breaks if pasted as
    prose. Paste the file contents as-is; do not re-draw or summarize the diagram.
+
+> **MAP depth.** The deeper map passes — `deep-context` (line-by-line system model),
+> `code-graph` (caller counts / blast radius), `threat-intel` (CVEs → invariants), `dfd`, and
+> `invariant-test` — are part of this phase, not separate commands. They're pulled in here when
+> they add signal; on a large or unfamiliar codebase, a `deep-context` pass first yields a richer
+> model (ask for it and it runs). `/threat-intel` + `/invariant-test` follow the model when you
+> want version-checked CVE coverage.
 
 ## When NOT to use
 

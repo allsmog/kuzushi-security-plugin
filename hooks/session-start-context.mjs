@@ -218,6 +218,21 @@ function toolingLines(tooling) {
   return [`    LSP:  ${lsp}`, `    MCP:  ${mcp}`];
 }
 
+// The single most useful next command for where the user is in the 4-phase flow
+// (MAP → HUNT → CONFIRM → FIX·SHIP). Returns null while an earlier consent-gated
+// step (x-ray / threat model) is still pending — those blocks below already drive
+// the next action. Keeping this to ONE recommendation is the point: 40 commands is
+// overwhelming, a phase map plus one obvious next step is not.
+function recommendedNext({ xray, threatModel, findings, hasReport }) {
+  if (!xray.built || !threatModel.built) return null; // the offers below handle setup
+  if (!findings.present) return { cmd: "/sweep", why: "the map is built — hunt the whole repo in one pass (it verifies findings as it goes)" };
+  if (findings.verifiable) return { cmd: "/verify", why: "there are open findings — confirm which are actually exploitable" };
+  if (findings.pocPending) return { cmd: "/poc", why: "verified findings are PoC-ready — prove them in a sandbox" };
+  if ((findings.confirmed || findings.proven) && !hasReport) return { cmd: "/report", why: "you have confirmed findings — render the prioritized report to triage and share" };
+  if (findings.fixable) return { cmd: "/fix", why: "confirmed/proven findings can be patched and PoC⁺-validated" };
+  return { cmd: "/report", why: "render the current findings into a prioritized, shareable report" };
+}
+
 function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, threatIntel, threatHunt, systemsHunt, verify, poc, memExploit, fix, chains, findings, codeqlDb, joernCpg, tooling }) {
   let policy = null;
   try { policy = loadPolicy(cwd).effective; } catch { policy = null; }
@@ -296,6 +311,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
     `repository context for this session's working directory. On your first turn, ` +
     `display the following report to the user verbatim, inside a fenced code block, ` +
     `and add no commentary unless asked:\n\n${report}`;
+
+  // ONE clear next action for where they are in the 4-phase flow (the phase map at
+  // the very end gives the full breadth). This is the antidote to command overwhelm:
+  // a single obvious step, not a menu of 40.
+  const hasReport = existsSync(join(storeFor(cwd).root, "report.md"));
+  const nextStep = recommendedNext({ xray, threatModel, findings, hasReport });
+  if (nextStep) {
+    additionalContext +=
+      `\n\nAfter the report, surface exactly ONE recommended next step to the user: ` +
+      `\`${nextStep.cmd}\` — ${nextStep.why}. Present it as the suggested next command; don't auto-run it.`;
+  }
 
   // When x-ray hasn't been run, ask Claude to propose running it. Running the
   // command surfaces the native Allow/Deny permission prompt (the consent gate).
@@ -380,13 +406,8 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `Mention it for deeper memory-safety coverage; don't auto-run it.`;
   }
 
-  // Breadth producers available on any repo (don't depend on a threat model):
-  // /supply-chain (deps), /sharp-edges (footgun APIs), /crypto-review, /diff-review (a change).
-  additionalContext +=
-    `\n\nAlso available without a threat model: /supply-chain (dependency takeover/abandonment risk — ` +
-    `uses the network, asks first), /sharp-edges (footgun APIs / dangerous defaults), /crypto-review ` +
-    `(timing side-channels / missing zeroization / weak crypto RNG), and /diff-review ` +
-    `(security review of a git change — regressions + blast radius). Mention when relevant; don't auto-run.`;
+  // (Breadth producers — /supply-chain, /sharp-edges, /crypto-review, /diff-review,
+  // etc. — are surfaced by phase in the phase map at the end, not as a wall here.)
 
   // Verify / poc are only surfaced when the findings index has findings — no
   // findings, nothing to verify or prove. Both are on-demand notes (not auto-run);
@@ -456,6 +477,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `tree behind an explicit Allow/Deny prompt (with a rollback command). Only run on the user's request.`;
   }
 
+  // /report — the human-facing deliverable. Surface whenever findings exist; it
+  // ranks "fix first" and renders chains/coverage/provenance. Read-only rendering.
+  if (findings.present) {
+    additionalContext +=
+      `\n\n.kuzushi/findings.json has findings — /report renders them into a prioritized, human-facing ` +
+      `security report (.kuzushi/report.md; add "html" for report.html): a "fix first" ranking by ` +
+      `severity × proof state × exploitability × blast radius, plus attack chains, coverage, and provenance. ` +
+      `It's the deliverable to read/share (vs. /export-sarif for CI). Read-only; mention it whenever the ` +
+      `user wants a summary or asks "what should I fix first".`;
+  }
+
   // /chain — surface once ≥2 live findings exist to reason over. On-demand note.
   if (findings.present && findings.chainable && !chains.built) {
     additionalContext +=
@@ -505,31 +537,23 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
       `(codeql ~1GB / joern ~2GB for deeper semantic queries; z3 / crosshair are small concolic ` +
       `solvers for /path-solve).`;
   }
+  // Phase map — the antidote to "40 commands". Only the 8 tier-1 commands are typeable
+  // (in the / menu); the "+" items are NOT separate commands — they run inside their
+  // phase (sweep picks hunters by language; verify routes by finding-type) or when the
+  // user asks in plain language. Shown verbatim so the column alignment survives.
   additionalContext +=
-    `\n\nCommands: /sweep (whole-repo parallel orchestrator: shards the repo and fans every ` +
-    `applicable producer out across it, then verifies → findings.json + coverage-map.json; ` +
-    `add deep:true to include /deep-scan), /deep-scan (whole-file deep reader — finds bugs by ` +
-    `reading risk-ranked files, not pattern-matching; catches the long tail), ` +
-    `/deep-context (deep system-understanding pass → deep-context.json), ` +
-    `/threat-model (build/rebuild PASTA model), /threat-intel (research CVEs), ` +
-    `/threat-hunt (adversarial per-threat review → findings.json), /systems-hunt (native / ` +
-    `memory-safety review), /supply-chain (dependency takeover/abandonment risk), /sharp-edges (footgun APIs / ` +
-    `dangerous defaults), /diff-review (security review of a change: regressions + blast radius), ` +
-    `/variant-hunt (find siblings of a confirmed bug), /invariant-test (check CVE ` +
-    `invariants vs code), /verify (exploitability verdict + PoC sketch for open findings), ` +
-    `/path-solve (solve guards to reach an inconclusive sink), ` +
-    `/poc (build + sandbox-run a harness to prove verified findings), /fuzz (local fuzz proof loop), /mem-exploitability (memory-corruption ` +
-    `exploitability assessment → tiers + mitigation posture), /fix (generate + PoC⁺-validate a patch, apply behind ` +
-    `approval), /chain (link findings into attack chains), /taint-analysis (IRIS source→sink hunt), ` +
-    `/sast (semgrep scan → triage → findings), /crypto-review (timing/zeroization/RNG misuse), ` +
-    `/authz (missing authz / IDOR / privesc), /logic-hunt (business-logic flaws: ` +
-    `idempotency / TOCTOU / transaction-atomicity / price-quantity / state-machine), ` +
-    `/iac (Dockerfile/k8s/Terraform misconfig), /binary-recon (read-only ELF/PE/Mach-O triage), ` +
-    `/traffic-map (offline Burp/HAR → handler correlation), ` +
-    `/semgrep-rule (confirmed finding → reusable Semgrep rule), /rule-synth (confirmed finding → validated ` +
-    `CodeQL/Joern rule pack), /code-graph (cache caller-counts / blast radius), ` +
-    `/export-sarif (findings → SARIF 2.1.0), /build-databases (codeql DB + ` +
-    `joern CPG, async), /doctor (tooling status), /install (install tools).`;
+    `\n\nFinally, to keep the command surface from overwhelming the user, show them this phase map ` +
+    `verbatim inside a fenced code block (it is column-aligned). Most reviews need only two commands — ` +
+    `/sweep then /report:\n\n` +
+    `kuzushi — security review in 4 phases   (only the shown /commands are typeable; "+" runs inside the phase or on request)\n` +
+    `  1 MAP        /threat-model     + deep-context · code-graph · dfd · threat-intel · invariant-test   (x-ray auto-runs)\n` +
+    `  2 HUNT       /sweep            + taint · authz · logic-hunt · crypto · sharp-edges · systems · iac · supply-chain · sast · threat-hunt · binary-recon · traffic-map\n` +
+    `                                   (/sweep selects these by language; or ask: "do an authz review")\n` +
+    `  3 CONFIRM    /verify  /poc     + fuzz · path-solve · mem-exploitability   (/verify routes each finding to its proof path)\n` +
+    `  4 FIX·SHIP   /fix  /report     + chain · variant-hunt · export-sarif · semgrep-rule · rule-synth\n` +
+    `  entry  /diff-review (review a PR)     setup  /doctor (+ install · build-databases)\n\n` +
+    `Happy path: /sweep (find + verify across the whole repo) → /report (prioritized, shareable report). ` +
+    `The "+" tools aren't commands to type — they run inside their phase or when you ask for them.`;
 
   emit({
     systemMessage: report,

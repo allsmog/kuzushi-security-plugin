@@ -2,7 +2,7 @@
 name: fuzz-promote
 description: Low-level stage for /fuzz. Attach fuzz evidence to findings and promote only exploited fuzz results to proven. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz promote

@@ -1,5 +1,6 @@
 ---
 name: code-graph
+user-invocable: false
 description: Build a cached code-graph (.kuzushi/code-graph.json) — entry points + per-symbol caller counts (blast-radius / attack-surface signal) — so producers like /diff-review query it instead of re-deriving caller info live. Uses real Joern call edges when a CPG is built, else a deterministic ripgrep heuristic (no heavy tooling required). Re-run after large code changes.
 allowed-tools: Bash
 ---

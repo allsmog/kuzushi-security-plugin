@@ -1,5 +1,6 @@
 ---
 name: build-databases
+user-invocable: false
 description: Build the heavy semantic indexes the codeql/joern backends query — a CodeQL database (per detected language) and a Joern CPG — under .kuzushi/. Runs asynchronously in the background (doesn't block the session); installs the CLI first if missing. Pass "codeql" or "joern" to build just one.
 argument-hint: "[codeql|joern]"
 allowed-tools: Bash

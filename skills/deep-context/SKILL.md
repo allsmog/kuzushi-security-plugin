@@ -3,7 +3,7 @@ name: deep-context
 description: Deep system-understanding pass before threat modeling. The context-analyst agent reads the code (line-by-line where it matters) and builds a grounded model — modules, entry points, actors, trust boundaries, data stores, system invariants — with file:line evidence, written to .kuzushi/deep-context.json. Context only — it never finds vulns, fixes, or severities. Best run after x-ray, before /threat-model.
 context: fork
 agent: context-analyst
-user-invocable: true
+user-invocable: false
 ---
 
 # Deep context

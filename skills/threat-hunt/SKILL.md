@@ -3,7 +3,7 @@ name: threat-hunt
 description: Adversarial per-threat review (Carlini doctrine). For each threat in .kuzushi/threat-model.json, state attacker capabilities, walk source→sink, attempt to bypass every guard, and assign a verdict with evidence. Promotes findings into .kuzushi/findings.json. Requires /threat-model first.
 context: fork
 agent: threat-hunter
-user-invocable: true
+user-invocable: false
 ---
 
 # Threat hunt

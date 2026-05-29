@@ -1,5 +1,6 @@
 ---
 name: export-sarif
+user-invocable: false
 description: Export .kuzushi/findings.json as a SARIF 2.1.0 file (.kuzushi/findings.sarif) so findings are consumable by CI code-scanning, dashboards, and IDEs. Deterministic transform — no analysis. Pass "all" to include reviewed/noise findings too.
 argument-hint: "[all]"
 allowed-tools: Bash

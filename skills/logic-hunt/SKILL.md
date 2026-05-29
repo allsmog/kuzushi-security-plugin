@@ -3,7 +3,7 @@ name: logic-hunt
 description: Business-logic flaw review. Finds idempotency gaps (replayable payments/actions), check-then-act / TOCTOU races, non-atomic multi-step transactions, price/quantity manipulation, and workflow state-machine abuse — the bugs taint and SAST are structurally blind to. Promotes verdicts into .kuzushi/findings.json (source "logic-hunt").
 context: fork
 agent: logic-hunter
-user-invocable: true
+user-invocable: false
 ---
 
 # Logic hunt

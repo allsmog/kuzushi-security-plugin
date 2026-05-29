@@ -3,7 +3,7 @@ name: path-solve
 description: Concolic-lite path-constraint solving for hard-to-reach sinks. For findings /verify left inconclusive, the path-solver agent extracts the guard predicate between source and sink and solves it into a concrete reaching input — via the concolic MCP backend (Z3 / CrossHair) when installed, else by reasoning (LLM). Attaches a pathSolution block; feeds /verify and /fuzz. Heuristic, not a proof.
 context: fork
 agent: path-solver
-user-invocable: true
+user-invocable: false
 ---
 
 # Path solve

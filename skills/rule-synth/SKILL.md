@@ -3,7 +3,7 @@ name: rule-synth
 description: Synthesize CodeQL queries / Joern scripts from confirmed findings — the heavy semantic engines /semgrep-rule (Semgrep-only) doesn't cover. The rule-synthesist agent writes a tight rule per seed; the host runs a native compile → fire-on-seed → repo-run → precision gate and persists only validated rules into a digest-attested pack under .kuzushi/rules/{codeql,joern}/, promoting new matches as candidate leads. Needs a confirmed finding + a built CodeQL DB / Joern CPG.
 context: fork
 agent: rule-synthesist
-user-invocable: true
+user-invocable: false
 ---
 
 # Rule synthesis (CodeQL / Joern)

@@ -52,8 +52,12 @@ it:
   reachability** ("who calls this function, anywhere?") run
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/callers.mjs" --target "<repo>" --symbol <fn>`
   — it lists repo-wide call sites (definition excluded) so you know which files to
-  open next. Read the called function if the bug depends on it. Don't stop at the
-  ±lines you were handed — open the whole file, and neighbors when a flow crosses them.
+  open next. To follow data the **other** way ("what does this function call, and where
+  is that callee defined?") run
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/callees.mjs" --target "<repo>" --file <f> --line <n>`
+  — chain the two to walk a source→sink flow across files. Read the called function if the
+  bug depends on it. Don't stop at the ±lines you were handed — open the whole file, and
+  neighbors when a flow crosses them.
 
 You are looking for the full range, not just injection: missing/incorrect authz and
 ownership, business-logic and state-machine abuse, unsafe deserialization, path

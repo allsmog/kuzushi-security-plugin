@@ -3,7 +3,7 @@ name: deep-scan
 description: Whole-file deep reader — finds bugs by READING risk-ranked files in full and reasoning from first principles, not by grepping for known patterns. Catches the long tail (project-specific wrappers, business logic, cross-function flaws) that pattern-gated producers structurally miss. Token-expensive; budget-bounded and risk-ranked. Promotes leads into .kuzushi/findings.json (source "deep-scan").
 context: fork
 agent: deep-scanner
-user-invocable: true
+user-invocable: false
 ---
 
 # Deep scan

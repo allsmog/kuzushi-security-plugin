@@ -3,7 +3,7 @@ name: variant-hunt
 description: Variant analysis — find siblings of a confirmed bug. For each confirmed/exploitable finding in .kuzushi/findings.json, the variant-hunter agent sweeps the repo for other sites with the same bug class (exact match → generalize), triages each, and promotes variants into findings.json (source "variant-hunt", refId variant-of:<seed>). Requires at least one confirmed finding first.
 context: fork
 agent: variant-hunter
-user-invocable: true
+user-invocable: false
 ---
 
 # Variant hunt

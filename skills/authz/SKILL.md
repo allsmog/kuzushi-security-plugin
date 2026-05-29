@@ -3,7 +3,7 @@ name: authz
 description: Authorization-model review. Scans endpoints + object-access-by-id sites; the authz-reviewer agent finds missing authorization (CWE-862), IDOR / broken object-level authz (CWE-639), privilege escalation, and broken ownership, and promotes them into .kuzushi/findings.json (source "authz"). Complements /threat-hunt (which hunts named threats) with a dedicated authz pass.
 context: fork
 agent: authz-reviewer
-user-invocable: true
+user-invocable: false
 ---
 
 # Authz review
