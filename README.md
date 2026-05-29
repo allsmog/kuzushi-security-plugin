@@ -281,23 +281,48 @@ downloads in `/install` / `/build-databases`, and those are policy-gated. Nothin
 `/sweep --input '{"offline":true}'` skips every network-touching producer for an air-gapped run —
 the one guarantee a cloud SAST that uploads your source structurally cannot make.
 
-## How it compares
+## How well it actually finds bugs (the honest number)
 
-For an honest head-to-head with cloud LLM-SAST (specifically **Xint Code**) — where kuzushi wins by
-construction (local / auditable / closed-loop / free), where the cloud tools are still ahead (raw
-throughput, track record), and what `/sweep`, `/logic-hunt`, and `/binary-recon` added to close the
-gap — see **[docs/vs-xint.md](docs/vs-xint.md)**. Benchmark methodology lives in
-**[bench/README.md](bench/README.md)**.
+kuzushi does **not** claim a headline find-rate. It ships a blind, LLM-in-the-loop eval
+(**[eval/README.md](eval/README.md)**) that runs the *real* agents via `claude -p` against
+fix-derived CVE ground truth — and reports low numbers honestly. What the measurement has taught
+us, stated plainly:
 
-## Where it's headed — raw detection power
+- **Routing is largely solved.** The risk ranker (plus `/deep-hunt`'s file-seeded anchoring) puts
+  the vulnerable file in scope on the CVE corpus — routing reached ~100% in the measured runs.
+  *Whether the right file gets read* is no longer the bottleneck.
+- **Finding subtle bugs is the open problem — and it's a reasoning gap, not a model gap.** On real
+  Redis memory-corruption CVEs, the strongest model, reading the *right* file, still missed the bug
+  blind. Blind static find-rate on the hard cases plateaus (~33% on a small real-CVE corpus).
+  Bigger read budgets, a stronger model, and better anchoring each got **refuted** by the eval as a
+  "win" — recall didn't move. This is exactly why the eval exists.
+- **For the hard memory class, empirical execution is the lever that works.** `/sanitize-pov`
+  (ASan/UBSan) and `/fuzz` *prove* a memory bug by triggering it — that is what cracked a real Redis
+  CVE (XACKDEL) which static reading missed. **Reading finds the broad / logic / web / cross-file
+  classes; execution finds the subtle memory ones.** Use both halves.
 
-The active priority is finding **more, harder, and chained** vulnerabilities. The eval showed the
-find-rate lever is *not* model strength — it's removing structural ceilings: interprocedural
-dataflow is opt-in (degrades to same-file without a CPG), discovery is one-pass, and `/chain` only
-composes findings that already exist rather than *searching* entry→asset attack paths. The
-prioritized levers — interprocedural-by-default, a hypothesis-driven deep-hunt loop, a proactive
-attack-path engine, framework-aware entry-point enumeration, ensemble discovery, and
-class-specialized reasoning (gadget chains, TOCTOU) — are tracked in **[ROADMAP.md](ROADMAP.md#raising-detection-power-current-priority)**.
+The corpus is small (single-digit CVEs, growing), so treat these as *directional, measured* results,
+not a leaderboard. The value isn't the number — it's that the number is **honest, reproducible, and
+local**, and that the instrument won't let an "improvement" ship unmeasured.
+
+### vs. cloud LLM-SAST (Xint Code)
+
+kuzushi wins **by construction** — local / auditable / closed-loop / free / air-gappable — and the
+cloud tools are **genuinely ahead** where it counts most: raw throughput on millions of LOC, and a
+*published track record of real 0days*. kuzushi's recall on hard real CVEs is honestly measured and
+still has a way to go (see above). The honest pitch is **not** "matches Xint's find-rate" — it's
+"the answers it does produce are local, reproducible, and come with a verify→prove→fix loop a cloud
+report doesn't." Full comparison: **[docs/vs-xint.md](docs/vs-xint.md)**.
+
+## Where it's headed
+
+The detection levers that improve *routing / coverage / structure* are in — interprocedural taint
+without a CPG, the `/deep-hunt` hypothesis loop, the proactive attack-path `/chain`, and
+framework-aware entry-point enumeration. The eval's clear message is that the **remaining gap is
+reasoning and empirical proof on hard bugs, not plumbing** — so the priority is the empirical lane
+(`/sanitize-pov`, `/fuzz`) for the memory class, class-specialized reasoning, and a **larger eval
+corpus** to measure generalization honestly rather than overfit to a handful of cases. Tracked in
+**[ROADMAP.md](ROADMAP.md)**.
 
 ## Contributing
 

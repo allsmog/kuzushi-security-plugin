@@ -1,6 +1,6 @@
 {
   "name": "kuzushi-security-plugin",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Local-first vulnerability confirmation and remediation pipeline for Claude Code: threat modeling, SAST/taint, PoC/fuzz proof, rule synthesis, SARIF, and PoC+ patch validation.",
   "type": "module",
   "private": true,
