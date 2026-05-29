@@ -33,5 +33,15 @@ jobs:
       # The suite is otherwise dependency-free — it imports only scripts/lib and
       # scripts/cmd (Node built-ins). No `npm ci` (avoids lockfile drift while the
       # plugin's heavy optional deps churn). Engine-backed tests (a real Joern
-      # /rule-synth run) still self-skip when joern/codeql aren't on PATH.
+      # /rule-synth run) still self-skip when joern/codeql aren't on PATH, and the
+      # compile/run sanitizer tests self-skip when no C compiler is present
+      # (ubuntu-latest ships gcc, so they DO run here — their fuzz PRNG is the
+      # embedded xorshift in fuzz-driver.c precisely so a fixed-seed run reproduces
+      # identically on this Linux runner and on a macOS dev box, with no rand() flake).
+      #
+      # What is DELIBERATELY not gated here: the LLM-in-the-loop eval (`npm run
+      # eval:cve`). It spawns real `claude -p` sessions — billed, nondeterministic,
+      # minutes-to-hours long — so it is a manual measurement (see eval/README.md),
+      # never a blocking CI check. This `npm test` (deterministic, fast, free) is the
+      # gate; the eval is the instrument you run by hand to move the find-rate number.
       - run: npm test

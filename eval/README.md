@@ -84,6 +84,12 @@ each run is billed (the scoreboard reports total cost). The cross-file CVE lane 
 one that proves L1–L4 moved the number — run it where deep-scan's baseline missed (e.g.
 the Redis XACKDEL case, a routing/cross-file miss at 33%).
 
+> **Not a CI gate — by design.** This eval is billed, nondeterministic, and
+> minutes-to-hours long, so it is **never** part of `npm test` / the GitHub `test`
+> workflow. The deterministic suite (`npm test`) is the gate that blocks regressions;
+> this eval is the manual instrument you run by hand to *move* the find-rate. A low
+> eval number is a real result, not a build failure.
+
 ## Results log
 
 - **Harness validation (synthetic `hidden-tenant`, Sonnet, 1 run):** routed/found/

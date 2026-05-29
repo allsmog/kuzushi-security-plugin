@@ -124,7 +124,15 @@ fixture.
   *discovering* the unknown ones still leans on the (weaker) static reader rather than a
   fuzzing fleet. (Discovery now also has a sanitizer path: `/fuzz` builds C/C++ targets with
   ASan and `fuzz-triage` classifies crashes by the same oracle — but it's laptop-scale, not
-  a coverage-guided cluster campaign.)
+  a coverage-guided cluster campaign.) We tried to close the *coverage-guided* half with an
+  engine **ladder** — local libFuzzer → libFuzzer in a `kuzushi-fuzz` Docker image →
+  portable ASan dumb-fuzz — and report the result honestly: the bundled `ubuntu-clang-14`
+  image **links and runs** libFuzzer but coverage feedback did not engage (`cov:1`, the gate
+  unbeaten) on trivial harnesses in testing, so the ladder treats it as *experimental* and
+  the dependable floor remains the dumb-fuzzer **seeded** from `/path-solve` and `/verify`
+  payloads (proven in `test/fuzz-driver.test.mjs`: a gate-clearing seed finds a deep-gated
+  overflow the unseeded run misses at the same budget). Real coverage-guidance needs a
+  matched LLVM; that's wiring + a working image, not a solved capability.
 - **Raw throughput** on millions of LOC — a cluster beats a laptop session on wall-clock,
   and depth-at-breadth (focus every file) costs real money locally.
 - **Deep binary analysis** — Xint treats binaries as first-class; `/binary-recon` is
