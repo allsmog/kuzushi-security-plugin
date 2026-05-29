@@ -99,6 +99,31 @@ export function deepScanTask({ prepPath, repoDir, pluginDir, draftPath }) {
   ].join("\n");
 }
 
+// Task prompt for the deep-hunter forked agent — the interprocedural hypothesis loop.
+// It gets the ranked anchors + the forward/backward walk CLIs and is told to produce a
+// CONFIRMED CROSS-FILE path per finding (the gate the finalizer enforces). Stays blind.
+export function deepHuntTask({ prepPath, repoDir, pluginDir, draftPath }) {
+  return [
+    `You are running as the deep-hunter (your system prompt has your full instructions).`,
+    `Prep file (JSON): ${prepPath} — it lists ranked \`anchors\` ({kind:"source"|"sink",`,
+    `filePath, line, signal, enclosingFunction}), a \`budget\` (maxAnchors/maxHops/rounds),`,
+    `and \`reachability\` (the walk CLIs).`,
+    `Repo root to analyze: ${repoDir}. Plugin scripts at: ${pluginDir}.`,
+    `For each anchor run the hypothesis loop: read the enclosing function, hypothesize a`,
+    `source→sink flow, and WALK it across files — reading each hop to confirm the tainted`,
+    `value actually propagates — using:`,
+    `  node ${pluginDir}/scripts/cmd/callees.mjs --target ${repoDir} --file <f> --line <n>   (forward)`,
+    `  node ${pluginDir}/scripts/cmd/callers.mjs --target ${repoDir} --symbol <fn>           (backward)`,
+    `Attempt every guard on the path; self-falsify before emitting.`,
+    `Write JSON { "candidates": [ ... ] } to: ${draftPath}.`,
+    `Each "finding" MUST include: verdict:"finding", cwe, severity, title, evidenceLevel,`,
+    `source:{filePath,startLine}, sink:{filePath,startLine}, a path:[{filePath,startLine,role}]`,
+    `with >=2 hops spanning >=2 files, rationale (>=150 chars), and selfCheck (>=40 chars).`,
+    `Use "candidate" when you cannot confirm a cross-file path. Then stop. Do not read any`,
+    `"expected", "answer", or CVE-ground-truth files — judge the code on its merits only.`
+  ].join("\n");
+}
+
 export function verifyTask({ prepPath, repoDir, pluginDir, draftPath }) {
   return [
     `You are running as the verifier (your system prompt has your full instructions).`,

@@ -52,18 +52,37 @@ Per case (averaged over `--reps`):
 A **low number is a valid, honest result** — the baseline the capability levers must
 beat. The harness exits non-zero only on its own failure, never on a low score.
 
+## Two lanes: `deep-scan` (default) and `deep-hunt`
+
+`--mode deep-scan` (default) measures the **whole-file reader**. `--mode deep-hunt`
+measures the **interprocedural hypothesis hunt**: it anchors trace points (entry points
++ dangerous sinks), runs the real `deep-hunter` agent to **walk source→sink across
+files** (via the `callees`/`callers` CLIs), finalizes, then verifies — scoring on the
+same corpus so the two recall lanes are directly comparable. The deep-hunt scoreboard
+adds a **`cross-file`** column: of the runs that *found* the bug, how many did so with a
+flow spanning **≥2 files** — the recall same-file taint and pattern-gating can't produce.
+A found/hit is any evidence anchor **or path node** landing on the expected line (±6), so
+a cross-file flow isn't scored a miss when the planted line is the sink, not the source.
+
 ## Running
 
 ```
-npm run eval                       # synthetic cases (bench/cases/*)
+npm run eval                       # deep-scan lane, synthetic cases (bench/cases/*)
 npm run eval -- --case hidden-tenant --model sonnet --maxFiles 8
-npm run eval:cve                   # real CVEs (fetch bench/cves/<id>/fetch.sh first)
-npm run eval:cve -- --model sonnet --reps 3 --maxFiles 12
+npm run eval:cve                   # deep-scan lane, real CVEs (fetch bench/cves/<id>/fetch.sh first)
+
+npm run eval:deep-hunt             # deep-hunt lane, synthetic cases
+npm run eval:deep-hunt:cve         # deep-hunt lane, real CVEs  → eval/scoreboard.deep-hunt.cve.md
+npm run eval:deep-hunt:cve -- --model sonnet --reps 3 --maxAnchors 24
 ```
 
-Flags: `--model` (sonnet|opus|…), `--reps` (runs/case for variance), `--maxFiles`
-(deep-scan read budget), `--case <name>` (one case). Needs `claude` on PATH and an
-authenticated session; each run is billed (the scoreboard reports total cost).
+Flags: `--mode` (`deep-scan` | `deep-hunt`), `--model` (sonnet|opus|…), `--reps`
+(runs/case), `--maxFiles` (deep-scan read budget), `--maxAnchors` (deep-hunt anchor
+budget), `--case <name>` (one case), `--cve`. Scoreboards are lane-specific:
+`scoreboard[.deep-hunt][.cve].md`. Needs `claude` on PATH and an authenticated session;
+each run is billed (the scoreboard reports total cost). The cross-file CVE lane is the
+one that proves L1–L4 moved the number — run it where deep-scan's baseline missed (e.g.
+the Redis XACKDEL case, a routing/cross-file miss at 33%).
 
 ## Results log
 
