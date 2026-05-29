@@ -122,3 +122,19 @@ export function hasLibFuzzer(cc) {
   } catch { _libfuzzer = false; }
   return _libfuzzer;
 }
+
+// Coverage-guided libFuzzer in a container — the engine that clears magic-byte gates the
+// portable dumb-fuzzer can't (its coverage feedback walks the gate). Available when Docker
+// is up AND the clang+libFuzzer image is built (docker/fuzz/Dockerfile → `kuzushi-fuzz`).
+export const FUZZ_IMAGE = "kuzushi-fuzz:latest";
+let _dockerLF = null;
+export function hasDockerLibFuzzer(image = FUZZ_IMAGE) {
+  if (_dockerLF !== null) return _dockerLF;
+  try {
+    const up = spawnSync("docker", ["info"], { stdio: "ignore", timeout: 8000 });
+    if (up.error || up.status !== 0) { _dockerLF = false; return false; }
+    const img = spawnSync("docker", ["image", "inspect", image], { stdio: "ignore" });
+    _dockerLF = !img.error && img.status === 0;
+  } catch { _dockerLF = false; }
+  return _dockerLF;
+}

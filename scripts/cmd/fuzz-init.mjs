@@ -9,7 +9,7 @@ import { extname, join, resolve } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { oracleSummaryForFinding } from "../lib/oracles.mjs";
-import { SANITIZE_CFLAGS, SANITIZE_ENV, FUZZ_DRIVER, hasLibFuzzer, detectToolchain } from "../lib/sanitizers.mjs";
+import { SANITIZE_CFLAGS, SANITIZE_ENV, FUZZ_DRIVER, FUZZ_IMAGE, hasLibFuzzer, hasDockerLibFuzzer, detectToolchain } from "../lib/sanitizers.mjs";
 
 // For native targets the find-by-execution oracle is sanitizers: build the harness with
 // ASan/UBSan so a memory bug ABORTS during fuzzing (fuzz-triage reads the report → exact
@@ -25,6 +25,14 @@ function sanitizeFor(language) {
       env: SANITIZE_ENV,
       buildRunCommand: `${cc} ${SANITIZE_CFLAGS} -fsanitize=fuzzer harness.c -o fuzz && ./fuzz -max_total_time=60 corpus`,
       note: "coverage-guided libFuzzer; harness defines LLVMFuzzerTestOneInput. Memory bugs abort under ASan; fuzz-triage maps the report to a CWE."
+    };
+  }
+  if (hasDockerLibFuzzer()) {
+    return {
+      engine: "libfuzzer-docker", coverageGuided: true, experimental: true, image: FUZZ_IMAGE,
+      cflags: `${SANITIZE_CFLAGS} -fsanitize=fuzzer`, env: SANITIZE_ENV,
+      buildRunCommand: `clang ${SANITIZE_CFLAGS} -fsanitize=fuzzer harness.c -o fuzz && ./fuzz -max_total_time=60 corpus`,
+      note: `coverage-guided libFuzzer in the ${FUZZ_IMAGE} container (run via the docker sandbox backend). EXPERIMENTAL: coverage feedback depends on the image LLVM (the bundled ubuntu-clang-14 image linked + ran but showed cov:1/no-feedback on trivial harnesses in testing) — falls back to asan-dumbfuzz if coverage stays flat.`
     };
   }
   return {

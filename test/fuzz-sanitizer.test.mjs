@@ -59,9 +59,11 @@ test("fuzz-init instruments native libFuzzer targets with sanitizers", () => {
   assert.ok(c.sanitize.buildRunCommand, "carries a build+run command");
   // Engine is environment-dependent: libFuzzer when its runtime links, else the
   // portable ASan dumb-fuzz driver. Both are valid; assert the right shape per engine.
-  assert.ok(["libfuzzer", "asan-dumbfuzz"].includes(c.sanitize.engine), `engine ${c.sanitize.engine}`);
-  if (c.sanitize.engine === "libfuzzer") assert.match(c.sanitize.buildRunCommand, /-fsanitize=fuzzer/);
-  else assert.match(c.sanitize.buildRunCommand, /fuzz-driver\.c/, "dumb-fuzz links the portable driver");
+  // Engine ladder (environment-dependent): local libFuzzer → docker libFuzzer → portable
+  // ASan dumb-fuzz driver. Assert the right shape per engine.
+  assert.ok(["libfuzzer", "libfuzzer-docker", "asan-dumbfuzz"].includes(c.sanitize.engine), `engine ${c.sanitize.engine}`);
+  if (c.sanitize.engine === "asan-dumbfuzz") assert.match(c.sanitize.buildRunCommand, /fuzz-driver\.c/, "dumb-fuzz links the portable driver");
+  else assert.match(c.sanitize.buildRunCommand, /-fsanitize=fuzzer/, "libfuzzer engines build with -fsanitize=fuzzer");
 });
 
 test("fuzz-init harvests gate-clearing seeds (path-solve + verify) into the corpus", () => {

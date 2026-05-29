@@ -171,3 +171,15 @@ test("hunt integrity: applicable hunters are planned; inapplicable are skipped w
   const off = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
   assert.ok(off.skipped.some((s) => s.producer === "supply-chain"), "offline skips supply-chain");
 });
+
+test("interproc: deep mode reports 'ready' when a Joern CPG is present", () => {
+  const t = repo();
+  seedRepo(t);
+  // simulate a prebuilt CPG
+  mkdirSync(join(t, ".kuzushi", "joern"), { recursive: true });
+  writeFileSync(join(t, ".kuzushi", "joern", "cpg.bin.zip"), "x");
+  prepareSweep(t, { deep: true });
+  const plan = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  assert.equal(plan.interproc.status, "ready", "CPG present → cross-file flow tracing ready");
+  assert.equal(plan.interproc.joernCpg, true);
+});
