@@ -28,6 +28,22 @@
 
 extern int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
 
+/* Self-contained PRNG (xorshift32) — deliberately NOT libc rng_rand(). glibc (Linux CI)
+ * and BSD (macOS) produce DIFFERENT streams for the same seed, so a fixed-seed run
+ * would reproduce differently across platforms. The dumb-fuzz tests pin a seed and
+ * assert "unseeded misses the gate / seeded finds it" — that contract is only stable
+ * if the stream is identical everywhere, which this embedded generator guarantees.
+ * All math is uint32_t (defined wraparound); rng_rng_rand() returns a non-negative int so
+ * the existing `% N`, `>> 8`, `& 0xff` call sites behave exactly as they did with rng_rand(). */
+static uint32_t g_rng = 0x9e3779b9u;
+static void rng_seed(uint32_t s) { g_rng = s ? s : 0x9e3779b9u; }
+static int rng_rand(void) {
+  uint32_t x = g_rng;
+  x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+  g_rng = x;
+  return (int)(x & 0x7fffffffu);
+}
+
 #define MAX_SEEDS 256
 
 static unsigned char *g_seeds[MAX_SEEDS];
@@ -58,34 +74,34 @@ static void load_corpus(const char *dir, size_t maxlen) {
 /* Mutate a seed into buf: copy it, then apply a few random edits that perturb content
  * and length WITHOUT necessarily disturbing the leading gate bytes. Returns new length. */
 static size_t mutate_from_seed(unsigned char *buf, size_t maxlen) {
-  int s = rand() % g_nseeds;
+  int s = rng_rand() % g_nseeds;
   size_t n = g_seed_len[s];
   if (n > maxlen) n = maxlen;
   memcpy(buf, g_seeds[s], n);
-  int edits = 1 + rand() % 6;
+  int edits = 1 + rng_rand() % 6;
   for (int k = 0; k < edits; k++) {
-    int op = rand() % 4;
+    int op = rng_rand() % 4;
     if (op == 0 && n > 0) {                         /* flip a bit (skip byte 0 often: keep gate) */
-      size_t p = (n > 1) ? 1 + (size_t)rand() % (n - 1) : 0;
-      buf[p] ^= (unsigned char)(1 << (rand() % 8));
+      size_t p = (n > 1) ? 1 + (size_t)rng_rand() % (n - 1) : 0;
+      buf[p] ^= (unsigned char)(1 << (rng_rand() % 8));
     } else if (op == 1 && n > 1) {                  /* set a non-leading byte */
-      size_t p = 1 + (size_t)rand() % (n - 1);
-      buf[p] = (unsigned char)(rand() & 0xff);
+      size_t p = 1 + (size_t)rng_rand() % (n - 1);
+      buf[p] = (unsigned char)(rng_rand() & 0xff);
     } else if (op == 2 && n < maxlen) {             /* grow (drives length-based overflows) */
-      size_t add = 1 + (size_t)rand() % (maxlen - n);
-      for (size_t i = 0; i < add; i++) buf[n + i] = (unsigned char)(rand() & 0xff);
+      size_t add = 1 + (size_t)rng_rand() % (maxlen - n);
+      for (size_t i = 0; i < add; i++) buf[n + i] = (unsigned char)(rng_rand() & 0xff);
       n += add;
     } else if (op == 3 && n > 1) {                  /* shrink */
-      n = 1 + (size_t)rand() % n;
+      n = 1 + (size_t)rng_rand() % n;
     }
   }
   return n;
 }
 
 static size_t gen_random(unsigned char *buf, size_t maxlen) {
-  size_t n = (size_t)(rand() % (int)(maxlen + 1));
+  size_t n = (size_t)(rng_rand() % (int)(maxlen + 1));
   for (size_t j = 0; j < n; j++) {
-    int r = rand();
+    int r = rng_rand();
     buf[j] = (r & 7) == 0 ? (unsigned char)(r >> 8)
            : (r & 1) ? (unsigned char)(0x20 + (r >> 8) % 95)
            : (unsigned char)((r >> 8) & 0xff);
@@ -98,7 +114,7 @@ int main(int argc, char **argv) {
   unsigned int seed  = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : (unsigned)time(0);
   size_t maxlen      = argc > 3 ? (size_t)strtoul(argv[3], 0, 10) : 4096;
   const char *corpus = argc > 4 ? argv[4] : 0;
-  srand(seed);
+  rng_seed(seed);
   if (corpus) load_corpus(corpus, maxlen);
 
   unsigned char *buf = (unsigned char *)malloc(maxlen ? maxlen : 1);
@@ -108,7 +124,7 @@ int main(int argc, char **argv) {
 
   for (unsigned long i = 0; i < iters; i++) {
     /* 80% mutate-from-seed when seeds exist (explore past gates), else pure random. */
-    size_t n = (g_nseeds > 0 && (rand() % 5) != 0) ? mutate_from_seed(buf, maxlen) : gen_random(buf, maxlen);
+    size_t n = (g_nseeds > 0 && (rng_rand() % 5) != 0) ? mutate_from_seed(buf, maxlen) : gen_random(buf, maxlen);
     LLVMFuzzerTestOneInput(buf, n);
   }
   free(buf);
