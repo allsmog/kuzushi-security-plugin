@@ -65,19 +65,52 @@ fingerprinting) lives in scripts that can't be reasoned around.
      verifiers (distinct lenses, majority vote, trigger required to confirm), so the
      extra recall isn't buried in false positives.
 
+## What the real LLM-in-the-loop eval actually showed (the honest scoreboard)
+
+We built `eval/` — a harness that runs the **real agents** (`deep-scanner`, `verifier`)
+in fresh `claude -p` sessions and scores them **blind** against fix-derived CVE ground
+truth (`npm run eval:cve`). This is itself a differentiator: kuzushi *measures* its own
+find-rate instead of asserting "low false positives." It is also brutally clarifying.
+
+Blind, real agents, 3 real CVEs (minimist proto-pollution, Redis Lua-RCE, Redis XACKDEL):
+
+| Lever tried | routed | found | confirmed |
+|---|---|---|---|
+| Sonnet, 30-file pass | 67% | **33%** | 33% |
+| Opus, 30-file pass | 100% | **33%** | 33% |
+| Sonnet, focused single file | 100% | XACKDEL **found 2/2**; Lua-UAF **0** | — |
+
+What this taught us, and where it leaves the Xint comparison:
+- **Routing is solved** (reachability + entry-point + input-processor ranking → 100%).
+- **Model tier is not the lever** — Opus didn't beat Sonnet on find-rate.
+- **Depth/focus is the lever** — one file read deeply finds a bug 30-files-shallow
+  misses. But focus costs ~$2/file, so whole-repo depth = the AIxCC cost tradeoff.
+- **The subtle class is still beyond us blind** — the Redis Lua **GC use-after-free**
+  was missed even focused on the right file *with* a `gc-rooting` obligation pointing at
+  it. That is exactly the bug class Xint/Theori catch — and the reason is instructive
+  (next point).
+
 ## Where Xint is still ahead (no spin)
 
-- **Raw throughput** on millions of LOC in a single run — a cloud cluster beats a
-  local session on wall-clock for very large targets.
-- **Proven raw recall on real targets.** Xint has published 0days and competition
-  wins. kuzushi's file-routing recall is measured (`npm run bench`: baseline 67% →
-  pattern /sweep 83% → deep /sweep 100% on the synthetic suite), and a real-CVE lane
-  exists (`npm run bench:cve`) — but **reasoning-level** recall on real CVEs still
-  needs the LLM-in-the-loop run. Until that lane is exercised end-to-end, this is
-  *closing* the gap, not closed.
-- **Deep binary analysis** — Xint analyzes binaries as first-class targets;
-  `/binary-recon` is triage, and `/mem-exploitability` is assessment, not full
-  decompilation.
+- **The empirical engine we don't have.** Xint is Theori — the team that placed at
+  **DARPA AIxCC**, whose CRS finds bugs by **fuzzing under sanitizers**, not by reading.
+  ASan would have caught both the XACKDEL overflow and the Lua GC-UAF at *runtime* — the
+  subtle memory class that defeats static LLM reading. kuzushi's `/poc` + `/fuzz` are the
+  seed of this but are per-finding and harness-gated, not a coverage-guided campaign. This
+  is the real gap: **find-by-execution beats find-by-reading on memory bugs**, and it's
+  the honest reason our blind find-rate on the Redis CVEs is low.
+- **Raw throughput** on millions of LOC — a cluster beats a laptop session on wall-clock,
+  and depth-at-breadth (focus every file) costs real money locally.
+- **Deep binary analysis** — Xint treats binaries as first-class; `/binary-recon` is
+  triage and `/mem-exploitability` is assessment, not decompilation.
+
+**Honest bottom line:** kuzushi's measured blind find-rate is ~33% on this small CVE set
+(routing solved, reasoning the wall on subtle memory bugs). It is **not** at Xint parity
+on raw discovery, and we can now say that with a reproducible number instead of a vibe.
+The credible path to closing it is *not* "bigger model" — it's borrowing AIxCC's
+empirical core: drive the bundled MCP/concolic/sanitizer/fuzz tooling to **prove bugs by
+running them**, and reserve the LLM for triage and the human-readable writeup. Until that
+lands, the docs say *closing*, not *closed*.
 
 ## When to pick which
 
