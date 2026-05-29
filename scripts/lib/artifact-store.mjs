@@ -148,6 +148,9 @@ export function storeFor(target) {
     // Read-only static binary triage (/binary-recon): dangerous imports, RWX
     // segments, suspicious strings on ELF/PE/Mach-O. Assessment only.
     binaryReconPath: join(root, "binary-recon.json"),
+    // Sanitizer proof-of-vulnerability (/sanitize-pov): compile a memory finding's
+    // harness with ASan/UBSan and RUN it — a sanitizer abort is ground-truth proof.
+    sanitizePovPath: join(root, "sanitize-pov.json"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),

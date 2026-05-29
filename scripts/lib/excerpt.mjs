@@ -28,16 +28,29 @@ function extOf(filePath) {
 const BRACE_HEADER = /\b(function|func|def|fn|sub)\b|\)\s*\{?\s*$|=>\s*\{?\s*$|\b(class|interface|impl|trait|struct|enum)\b|\b(if|for|while|switch|try|catch|else)\b/;
 const PY_DEF = /^\s*(async\s+)?(def|class)\s/;
 
-// Walk upward from `anchor` to the nearest plausible block header, then forward to
-// the matching close brace. Returns 1-based inclusive [start,end] or null.
+// Leading control-flow keyword (an `if`/`for`/`while`/… block) — a header we want to
+// walk PAST to reach the enclosing function, not stop at. `} else {` / `} catch` too.
+const CONTROL_HEADER = /^\s*(?:\}\s*)?(if|for|while|switch|try|catch|else|do)\b/;
+
+// Walk upward from `anchor` to the enclosing block header, then forward to the matching
+// close brace. Prefers a FUNCTION header over an inner control block: a control-flow
+// header (`if (...) {`) is remembered only as a fallback while we keep climbing for the
+// real function, so an anchor nested inside an `if` returns the whole function (with the
+// guards above the sink), not just the `if` body. 1-based inclusive [start,end] or null.
 function braceSpan(lines, anchor) {
   let headerIdx = -1;
+  let controlFallback = -1;
   for (let i = anchor; i >= 0 && anchor - i <= MAX_SPAN_LINES; i -= 1) {
     if (BRACE_HEADER.test(lines[i]) && lines.slice(i, anchor + 1).join("\n").includes("{")) {
+      if (CONTROL_HEADER.test(lines[i])) {
+        if (controlFallback === -1) controlFallback = i;
+        continue; // keep climbing for the enclosing function
+      }
       headerIdx = i;
       break;
     }
   }
+  if (headerIdx === -1) headerIdx = controlFallback;
   if (headerIdx === -1) return null;
   // Find the first '{' at or after the header, then balance braces to its match.
   let depth = 0;
