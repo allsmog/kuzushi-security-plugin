@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
@@ -62,4 +62,25 @@ test("fuzz-init instruments native libFuzzer targets with sanitizers", () => {
   assert.ok(["libfuzzer", "asan-dumbfuzz"].includes(c.sanitize.engine), `engine ${c.sanitize.engine}`);
   if (c.sanitize.engine === "libfuzzer") assert.match(c.sanitize.buildRunCommand, /-fsanitize=fuzzer/);
   else assert.match(c.sanitize.buildRunCommand, /fuzz-driver\.c/, "dumb-fuzz links the portable driver");
+});
+
+test("fuzz-init harvests gate-clearing seeds (path-solve + verify) into the corpus", () => {
+  const t = repo();
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/parse.c"), "void p(char*s){}\n");
+  // a finding carrying concrete inputs from path-solve and verify
+  upsertFindings(t, [{ source: "systems-hunt", refId: "n1", title: "oob", severity: "high",
+    cwe: "CWE-787", verdict: "exploitable", status: "confirmed",
+    evidence: [{ filePath: "src/parse.c", startLine: 1 }], rationale: "x",
+    pathSolution: { solvedInput: { payload: "RXAAAA" } },
+    verification: { verdict: "confirmed-exploitable", confidence: 0.9, verifiedAt: "2026-01-01T00:00:00Z", pocSketch: { payload: "RX-BBBBBBBBBBBBBBBBBBBB" } } }]);
+  const res = fuzzInit(t, {});
+  const plan = JSON.parse(readFileSync(storeFor(t).fuzzPlanPath, "utf8"));
+  const c = plan.candidates.find((x) => x.language === "c");
+  assert.ok(c, "C candidate planned");
+  assert.equal(c.seedCorpusCount, 2, "both path-solve and verify payloads seeded");
+  const files = readdirSync(c.corpusDir);
+  assert.equal(files.length, 2, "two seed files written to corpus/");
+  // the dumb-fuzz buildRunCommand passes the corpus dir to the driver
+  assert.match(c.sanitize.buildRunCommand, /corpus/);
 });
