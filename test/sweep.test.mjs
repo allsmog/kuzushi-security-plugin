@@ -148,3 +148,26 @@ test("findings lock: rapid sequential upserts never lose-update", () => {
   const doc = JSON.parse(readFileSync(storeFor(t).findingsPath, "utf8"));
   assert.equal(doc.findings.length, 12, "all 12 distinct findings retained");
 });
+
+test("hunt integrity: applicable hunters are planned; inapplicable are skipped with reasons", () => {
+  const t = repo();
+  // polyglot + threat model so threat-hunt applies; native so systems-hunt applies
+  write(t, "api/orders.py", "@app.route('/o')\ndef o():\n    return Order.objects.get(id=request.args['id'])\n");
+  write(t, "core/parse.c", "#include <string.h>\nvoid f(char*s){char b[8];strcpy(b,s);}\n");
+  writeFileSync(storeFor(t).threatModelPath, JSON.stringify({ threats: [] }) + "\n");
+  prepareSweep(t, {});
+  const plan = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  const producers = new Set(plan.jobs.map((j) => j.producer));
+  // Every classic hunter that applies must be planned (the only HUNT path now that
+  // they're all user-invocable:false).
+  for (const p of ["threat-hunt", "taint-analysis", "authz", "logic-hunt", "crypto-review", "sharp-edges", "systems-hunt", "iac", "supply-chain"]) {
+    assert.ok(producers.has(p), `hunt phase must run ${p}`);
+  }
+  // Inapplicable ones are skipped WITH a reason (applicability decided by the plan).
+  const skipped = Object.fromEntries(plan.skipped.map((s) => [s.producer, s.reason]));
+  assert.ok(skipped["binary-recon"], "binary-recon skipped (no binaries) with a reason");
+  // offline drops the network producer with a reason
+  prepareSweep(t, { offline: true });
+  const off = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  assert.ok(off.skipped.some((s) => s.producer === "supply-chain"), "offline skips supply-chain");
+});

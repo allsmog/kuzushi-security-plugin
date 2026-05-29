@@ -56,6 +56,14 @@ export function prepareDeepScan(target, input = {}) {
     }
   }
 
+  // Cost control is the FILE budget (maxFiles) + function-scoped discharge (the agent
+  // pulls each obligation's enclosing function via tree_sitter:node_at, not the whole
+  // file). The per-file `obligations` list is the checklist the agent works for each
+  // file it reads — it is even-sampled so a dangerous site deep in a long file (e.g.
+  // redis t_stream.c's xackdel buffer at L3538) survives. We deliberately do NOT
+  // collapse to a global top-K: a file with many sites (t_stream.c) would lose its one
+  // vulnerable site to higher-ranked files' noise.
+
   const run = openRun(resolvedTarget, "deep-scan");
   run.writeJson("prep.json", {
     runId: run.runId,
@@ -67,7 +75,7 @@ export function prepareDeepScan(target, input = {}) {
     totalCandidates,
     unreadCount: unread,          // honest: how many in-scope files were NOT read
     fileCount: ranked.length,
-    obligationCount,              // memory-sink sites the agent must discharge
+    obligationCount,              // memory-sink sites the agent must discharge (per file)
     files: ranked,                // [{ filePath, language, score, reasons[], obligations[] }]
     input
   });

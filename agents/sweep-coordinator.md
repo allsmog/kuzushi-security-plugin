@@ -24,9 +24,20 @@ records the truth. If you scope down, you say so out loud.
 
 1. Read `.kuzushi/sweep-plan.json` (the path is in the prepare result). Note
    `shardCount`, `jobCount`, the `jobs[]`, and any `skipped[]` (e.g. threat-hunt
-   skipped for want of a threat model, binary-recon skipped for want of binaries).
+   skipped for want of a threat model, binary-recon skipped for want of binaries,
+   systems-hunt skipped for no native code). The plan has **already decided which
+   producers apply** to this repo — `jobs[]` is the applicable set, `skipped[]` is the
+   rest with reasons.
 
-2. Dispatch `jobs` in parallel batches (cap ~8–12 concurrent). For each job:
+1a. **Ask the user's permission before dispatching — mandatory gate.** A sweep spawns
+   many parallel agents and spends real tokens. Show the user: the applicable producers
+   it will run and the job count; the `skipped[]` producers and why; whether deep mode
+   is on; and a rough scale/cost. Get a clear yes (or let them narrow the set / toggle
+   deep). Never start the fan-out unprompted.
+
+2. On approval, dispatch **every** job in `jobs[]` in parallel batches (cap ~8–12
+   concurrent) — do not silently drop a producer; if you must scope down, it's because
+   the user asked, and say so. For each job:
    - Run the job's `prepareCommand` (it scopes the producer to the shard via
      `scopeDir` and sets a budget-scaled `maxCandidates`).
    - Spawn the job's named `agent` against the prep's `prepPath`, telling it to do

@@ -40,7 +40,7 @@ const PRODUCERS = {
   "systems-hunt": { agent: "systems-hunter", scope: "shard", langs: NATIVE_LANGS, default: true },
   "binary-recon": { agent: "binary-recon", scope: "repo", langs: "any", requires: "binaries", default: true },
   iac: { agent: "iac-reviewer", scope: "repo", langs: "any", default: true },
-  sast: { agent: "sast-triager", scope: "shard", langs: "any", requires: "semgrep", default: false },
+  sast: { agent: "sast-triager", scope: "shard", langs: "any", requires: "semgrep", default: true },
   "supply-chain": { agent: "supply-chain-auditor", scope: "repo", langs: "any", network: true, default: true }
 };
 

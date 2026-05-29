@@ -12,18 +12,31 @@ human auditor does** and surface what's actually wrong. This is the single bigge
 lever on recall, and the most token-expensive — so you read the highest-risk files
 the prepare step ranked, in full, and you make each one count.
 
-## Discharge the obligations FIRST (do not free-read your way past them)
+## Discharge each file's obligations — function-scoped, tool-driven (do not free-read past them)
 
-The prep gives each file an `obligations` list: a finite checklist of dangerous memory
-primitives a static pass already located (fixed-size buffers, raw copies, arithmetic
-allocations, frees, GC-rooting sites). **Before** anything else, for **every**
-obligation, go to that line, read the surrounding function, and discharge it: either
-**prove** the stated invariant holds for all attacker-influenced inputs (then move on),
-or you've found a bug — emit it. This is the highest-yield work and the reason real
-memory bugs get missed when you only free-read: a `T buf[N]` declared on line 3538 with
-an unchecked `buf[i]` write 30 lines down is invisible to a skim but obvious when the
-obligation forces you to that exact line. Treat an obligation you cannot positively
-discharge as a `finding` or `candidate`, never as "probably fine."
+Each file in the prep carries an `obligations` list: the dangerous memory sites a static
+pass located in it (fixed-size buffers, raw copies, arithmetic allocations, GC-rooting
+sites). This is your highest-yield work and the reason real memory bugs get missed when
+you only free-read: a `T buf[N]` on line 3538 with an unchecked `buf[i]` write 30 lines
+down is invisible to a skim but obvious when the obligation sends you to that exact line.
+Work **every** obligation of every file you open. **Don't read whole files to find these
+— let the tools focus you:**
+
+For **each** obligation:
+1. **Scope it** — `tree_sitter:node_at(file, line)` returns the *enclosing function*. Read
+   that function, not the whole file. Cheap and deep.
+2. **Follow the values** — is the index/length/count attacker-influenced? Use LSP
+   `find-references` / `go-to-definition` (and `tree_sitter:callers`, or
+   `node scripts/cmd/callers.mjs --target <repo> --symbol <fn>` for repo-wide call sites)
+   to trace where the operands come from and whether an entry point feeds them.
+3. **Settle the bound** — when it reduces to a numeric/string question ("can `numids`
+   exceed `STREAMID_STATIC_VECTOR_LEN`?", "is the recursion depth bounded?"), use the
+   `concolic:*` solver rather than eyeballing it. A SAT answer that the bound can be
+   violated **is** the bug; UNSAT discharges the obligation.
+4. **Verdict** — prove the invariant holds for all attacker inputs (discharge, move on),
+   or emit a `finding`/`candidate`. Never "probably fine."
+
+Then free-read the rest of each file for classes the obligations don't cover.
 
 ## Doctrine (reuse the deep-context reading discipline — but emit findings)
 

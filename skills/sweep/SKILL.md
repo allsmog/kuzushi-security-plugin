@@ -15,19 +15,26 @@ nothing leaves the machine.
 
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/sweep-prepare.mjs" --target "<repo root>"`.
    For an air-gapped run that skips any producer that may touch the network, add
-   `--input '{"offline":true}'`. To restrict the producer set, pass
-   `--input '{"producers":["authz","logic-hunt","taint-analysis"]}'`.
-2. Read the `planPath` (`.kuzushi/sweep-plan.json`). It contains `shards` (the repo
-   split by top-level module, budget-sized) and `jobs` (one per shard×producer, or
-   one per repo-wide producer). Each job carries its exact `prepareCommand`, the
-   `agent` to run it, and a budget-scaled `maxCandidates`.
-3. **Fan the jobs out in parallel batches** (respect a sane concurrency cap, e.g.
-   8–12 at once). For each job: run its `prepareCommand`, then spawn the named
-   producer `agent` pointed at the prep's `prepPath` to do that producer's normal
-   reasoning and write its draft, then run the prep's `assembleCommand` (finalize).
-   The finalizes promote into `.kuzushi/findings.json` — that index is guarded by a
-   lock, so concurrent finalizes are safe and dedupe by fingerprint.
-4. **Pipeline, don't barrier.** A job's finding should flow to `/verify` as soon as
+   `--input '{"offline":true}'`; for the whole-file deep reader add `'{"deep":true}'`;
+   to restrict the set, `'{"producers":["authz","logic-hunt","taint-analysis"]}'`.
+2. Read the `planPath` (`.kuzushi/sweep-plan.json`). The plan has **already decided
+   applicability**: `producerSet`/`jobs` are the producers that apply to THIS repo, and
+   `skipped[]` lists the rest with reasons (e.g. `systems-hunt: no native code`,
+   `threat-hunt: no threat model`, `binary-recon: no binaries`, `supply-chain: offline`,
+   `sast: semgrep not installed`). Each job carries its `prepareCommand`, `agent`, and a
+   budget-scaled cap.
+3. **Get the user's permission before fanning out — this is the gate, never skip it.**
+   A sweep spawns many parallel agents and costs real tokens, so present the plan and
+   ask: the **applicable** producers it will run (with the per-shard job count), the
+   ones it's **skipping and why**, whether **deep** mode is on, and a rough sense of
+   scale/cost. Let the user approve, narrow the set, or toggle deep. Only proceed on a
+   clear yes. (Surface this as a native Yes/No / AskUserQuestion — don't just start.)
+4. **On approval, fan the jobs out in parallel batches** (concurrency cap ~8–12). For
+   each job: run its `prepareCommand`, spawn the named producer `agent` on the prep's
+   `prepPath` to write its draft, then run the prep's `assembleCommand` (finalize).
+   **Run every job in the approved plan — do not silently drop a producer**; the
+   finalizes promote into the lock-guarded `.kuzushi/findings.json` (dedup by fingerprint).
+5. **Pipeline, don't barrier.** A job's finding should flow to `/verify` as soon as
    that producer finalizes — don't wait for the whole fan-out to finish before
    verifying. Each finding is independently verified before you present it. For
    `deep-scan` leads specifically — they were not gated by a deterministic pattern, so
@@ -35,13 +42,13 @@ nothing leaves the machine.
    (`--input '{"panel":3}'`): three independent verifiers, majority vote, a concrete
    trigger required to confirm. A wrong deep-read hypothesis gets refuted here instead
    of reaching the user.
-5. Optionally write a per-job run report to the run dir as `draft.sweep.json`
+6. Optionally write a per-job run report to the run dir as `draft.sweep.json`
    (`{ jobs: [{ jobId, producer, status, candidateCount }] }`) so the summary
    records what actually ran.
-6. Run the `finalizeCommand` (`sweep-finalize`). It writes `.kuzushi/sweep.json`
+7. Run the `finalizeCommand` (`sweep-finalize`). It writes `.kuzushi/sweep.json`
    and `.kuzushi/coverage-map.json` (which shards were covered, and the **uncovered
    set** — the recall backstop).
-7. Report: coverage %, the uncovered shards (if any), the new `exploitable`/`open`
+8. Report: coverage %, the uncovered shards (if any), the new `exploitable`/`open`
    findings by source, and which survived `/verify`.
 
 ## When NOT to use
