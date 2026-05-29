@@ -175,6 +175,23 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   doesn't scale (25 files ⇒ 25 separate agent passes), and the single-file success is
   n=1 and may be partly variance.
 
+- **Bigger corpus + a measurement-validity bug it exposed (no headline number yet).**
+  The CVE corpus was expanded from 3 to **9 real cases** (minimist + 8 fix-derived Redis
+  CVEs: lbaselib int-overflow, llex OOB, config authz, blocked UAF, replication UAF, rdb
+  overflow, plus the existing Lua-RCE and XACKDEL). The first big run (`eval:cve`, Sonnet,
+  maxFiles 10) was **aborted as invalid**: real Redis cases hit the per-agent **15-min
+  `spawnSync` timeout BEFORE writing a draft** — scored as `found=false, $0.00` (a killed
+  `claude -p` emits no cost JSON, but the tokens were spent). Root cause: the deep-scanner
+  methodology has since expanded (per-obligation tree-sitter + concolic + LSP on *every*
+  file), so a 10-file real repo no longer finishes in 15 min — the old run that did was a
+  lighter agent. This is a harness-validity bug, not a find-rate: a timeout ≠ a miss.
+  **Fix (landed):** `--timeoutMs` is now configurable (default raised to 30 min) and the
+  scoreboard header records it; for big repos, lower `--maxFiles` so each agent finishes
+  (fewer files read deeply is also the proven recall lever). The valid 9-CVE number is a
+  **pending billed re-run** (recommended: `--maxFiles 6 --timeoutMs 1800000`) — deliberately
+  not run automatically, since it's heavy spend. Until it lands, the honest headline below
+  remains the **3-CVE** number, not a 9-CVE claim.
+
 ### Bottom line (honest, after ~$49 of real runs)
 
 The plugin's **blind find-rate on this 3-CVE set is ~33%** (only minimist; both Redis

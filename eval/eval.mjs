@@ -37,6 +37,13 @@ const MODEL = opt("--model", "sonnet");
 const REPS = Number(opt("--reps", "1"));
 const MAX_FILES = Number(opt("--maxFiles", "12"));
 const MAX_ANCHORS = Number(opt("--maxAnchors", "24"));
+// Per-agent kill ceiling. runAgent uses spawnSync, so this is a HARD cap on one forked
+// agent's wall-clock — not an early-exit. The deep-scanner's per-obligation discharge
+// (tree-sitter + concolic + LSP on every file) makes a real ~10-file repo run minutes;
+// the old hardcoded 15-min default truncated large CVE cases BEFORE they wrote a draft
+// (scored as a false "miss"). Default raised to 30 min; lower --maxFiles for big repos so
+// each agent finishes (fewer files read deeply is also the proven recall lever).
+const TIMEOUT_MS = Number(opt("--timeoutMs", "1800000"));
 const MODE = opt("--mode", "deep-scan");     // deep-scan (whole-file reader) | deep-hunt (interprocedural)
 const ONLY = opt("--case", null);
 const FOCUS_FILES = (opt("--files", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -116,7 +123,7 @@ function oneRun(caseDir, expected) {
     const dr = runAgent({
       agentMdPath: join(PLUGIN, "agents", "deep-scanner.md"),
       task: deepScanTask({ prepPath: bp.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: bp.draftPath }),
-      repoDir: work, pluginDir: PLUGIN, draftPath: bp.draftPath, model: MODEL
+      repoDir: work, pluginDir: PLUGIN, draftPath: bp.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
     });
     cost += dr.cost;
     if (dr.draftWritten) { anyDraft = true; safe(() => finalizeDeepScan(work, bp.runDir)); }
@@ -135,7 +142,7 @@ function oneRun(caseDir, expected) {
     const vr = runAgent({
       agentMdPath: join(PLUGIN, "agents", "verifier.md"),
       task: verifyTask({ prepPath: vprep.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath }),
-      repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath, model: MODEL
+      repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
     });
     cost += vr.cost; trace.verifyAgent = { ok: vr.ok, cost: vr.cost, secs: Math.round(vr.elapsedMs / 1000) };
     if (vr.draftWritten) {
@@ -176,7 +183,7 @@ function oneRunDeepHunt(caseDir, expected) {
   const dr = runAgent({
     agentMdPath: join(PLUGIN, "agents", "deep-hunter.md"),
     task: deepHuntTask({ prepPath: hprep.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: hprep.draftPath }),
-    repoDir: work, pluginDir: PLUGIN, draftPath: hprep.draftPath, model: MODEL
+    repoDir: work, pluginDir: PLUGIN, draftPath: hprep.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
   });
   cost += dr.cost;
   trace.huntAgent = { ok: dr.ok, cost: dr.cost, secs: Math.round(dr.elapsedMs / 1000) };
@@ -197,7 +204,7 @@ function oneRunDeepHunt(caseDir, expected) {
     const vr = runAgent({
       agentMdPath: join(PLUGIN, "agents", "verifier.md"),
       task: verifyTask({ prepPath: vprep.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath }),
-      repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath, model: MODEL
+      repoDir: work, pluginDir: PLUGIN, draftPath: vprep.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
     });
     cost += vr.cost; trace.verifyAgent = { ok: vr.ok, cost: vr.cost, secs: Math.round(vr.elapsedMs / 1000) };
     if (vr.draftWritten) { safe(() => assembleVerify(work, vprep.runDir)); findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? []; }
@@ -242,7 +249,7 @@ function main() {
   const L = [];
   L.push(`# kuzushi LLM-in-the-loop eval — ${MODE} lane — ${CVE_MODE ? "real CVEs" : "synthetic"}`);
   L.push("");
-  L.push(`Model: **${MODEL}** · lane: **${MODE}** · reps/case: **${REPS}** · cases: **${rows.length}** · ${dh ? `maxAnchors: ${MAX_ANCHORS}` : `maxFiles: ${MAX_FILES}`} · total cost: **$${totalCost.toFixed(2)}**`);
+  L.push(`Model: **${MODEL}** · lane: **${MODE}** · reps/case: **${REPS}** · cases: **${rows.length}** · ${dh ? `maxAnchors: ${MAX_ANCHORS}` : `maxFiles: ${MAX_FILES}`} · timeout: **${Math.round(TIMEOUT_MS / 60000)}m/agent** · total cost: **$${totalCost.toFixed(2)}**`);
   L.push("");
   L.push(`These numbers are the REAL agents (${dh ? "deep-hunter" : "deep-scanner"} + verifier) run blind via \`claude -p\`,`);
   L.push("not human-authored drafts. Small-N and nondeterministic — directional, not a leaderboard.");
