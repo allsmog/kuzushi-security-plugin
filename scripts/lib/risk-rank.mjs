@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { readJsonIfPresent, storeFor } from "./artifact-store.mjs";
 import { inventory, languageOf } from "./sharding.mjs";
 import { runRg, parseJsonMatches, buildGlobs } from "./ripgrep.mjs";
+import { routeFiles } from "./routes.mjs";
 
 // Files that DEFINE request/command entry points — the attacker-reachable surface.
 // This is the reachability signal that call-count misses: a command handler or HTTP
@@ -113,6 +114,10 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
   const callers = callerWeight(store);
   const changed = recentlyChanged(target);
   const entryDefs = entryPointDefFiles(target, scopeDir);
+  // Files that declare framework routes / OpenAPI endpoints — attacker-reachable
+  // surface that the generic entry-def regex misses (L4). Best-effort; empty if rg
+  // is unavailable.
+  const routes = (() => { try { return routeFiles(target, { scopeDir }); } catch { return new Set(); } })();
 
   const scored = files.map((file) => {
     const reasons = [];
@@ -127,6 +132,7 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
     const rs = reachScore(cw);
     if (rs > 0) { score += rs; reasons.push(`reach=${cw}`); }
     if (entries.has(file)) { score += 4; reasons.push("entry-point"); }
+    if (routes.has(file)) { score += 4; reasons.push("framework-route"); }
     if (boundaries.has(file)) { score += 3; reasons.push("trust-boundary"); }
     if (changed.has(file)) { score += 2; reasons.push("recently-changed"); }
     // Input-processing surface (parser/decoder/deserializer/VM): real weight — these

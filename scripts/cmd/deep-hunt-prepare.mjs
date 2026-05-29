@@ -18,6 +18,7 @@ import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } fr
 import { runRg, parseJsonMatches, buildGlobs } from "../lib/ripgrep.mjs";
 import { rankFiles } from "../lib/risk-rank.mjs";
 import { enclosingFunction } from "../lib/callgraph.mjs";
+import { extractRoutes } from "../lib/routes.mjs";
 import { buildCodeGraph } from "./code-graph-build.mjs";
 
 const norm = (p) => String(p ?? "").replace(/^\.\//, "");
@@ -78,8 +79,17 @@ export function prepareDeepHunt(target, input = {}) {
   const { ranked } = rankFiles(resolvedTarget, { maxFiles, scopeDir });
   const fileScore = new Map(ranked.map((f) => [f.filePath, f.score]));
 
+  // Framework routes are first-class source anchors — the handlers a generic
+  // entry-def regex misses (Express/Flask/FastAPI/Django/Spring/Go + OpenAPI). Each
+  // carries its METHOD routePath so the agent knows the exact attacker surface.
+  const routeAnchors = extractRoutes(resolvedTarget, { scopeDir }).map((r) => ({
+    kind: "source", filePath: r.filePath, line: r.line,
+    signal: `route ${r.method} ${r.routePath} (${r.framework})`
+  }));
+
   // Collect candidate anchors, prioritize those in risk-ranked files, then cap.
   const all = [
+    ...routeAnchors,
     ...rgAnchors(resolvedTarget, scopeDir, SOURCE_RE, "source"),
     ...graphSources(store),
     ...rgAnchors(resolvedTarget, scopeDir, SINK_RE, "sink")
