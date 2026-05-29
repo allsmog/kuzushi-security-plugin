@@ -14,6 +14,7 @@ import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
 import { rankFiles } from "../lib/risk-rank.mjs";
 import { languageOf } from "../lib/sharding.mjs";
+import { extractObligations } from "../lib/sink-obligations.mjs";
 import { buildCodeGraph } from "./code-graph-build.mjs";
 
 export function prepareDeepScan(target, input = {}) {
@@ -44,6 +45,17 @@ export function prepareDeepScan(target, input = {}) {
     ({ ranked, totalCandidates, unread } = rankFiles(resolvedTarget, { maxFiles, scopeDir }));
   }
 
+  // Attach memory-sink obligations per file (AIxCC-style): a finite checklist of
+  // dangerous primitives the agent must discharge, instead of hoping it spots them
+  // while free-reading. Only native files yield obligations; others get [].
+  let obligationCount = 0;
+  if (input.obligations !== false) {
+    for (const f of ranked) {
+      f.obligations = extractObligations(resolvedTarget, f.filePath);
+      obligationCount += f.obligations.length;
+    }
+  }
+
   const run = openRun(resolvedTarget, "deep-scan");
   run.writeJson("prep.json", {
     runId: run.runId,
@@ -55,7 +67,8 @@ export function prepareDeepScan(target, input = {}) {
     totalCandidates,
     unreadCount: unread,          // honest: how many in-scope files were NOT read
     fileCount: ranked.length,
-    files: ranked,                // [{ filePath, language, score, reasons[] }]
+    obligationCount,              // memory-sink sites the agent must discharge
+    files: ranked,                // [{ filePath, language, score, reasons[], obligations[] }]
     input
   });
 

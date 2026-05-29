@@ -12,6 +12,19 @@ human auditor does** and surface what's actually wrong. This is the single bigge
 lever on recall, and the most token-expensive — so you read the highest-risk files
 the prepare step ranked, in full, and you make each one count.
 
+## Discharge the obligations FIRST (do not free-read your way past them)
+
+The prep gives each file an `obligations` list: a finite checklist of dangerous memory
+primitives a static pass already located (fixed-size buffers, raw copies, arithmetic
+allocations, frees, GC-rooting sites). **Before** anything else, for **every**
+obligation, go to that line, read the surrounding function, and discharge it: either
+**prove** the stated invariant holds for all attacker-influenced inputs (then move on),
+or you've found a bug — emit it. This is the highest-yield work and the reason real
+memory bugs get missed when you only free-read: a `T buf[N]` declared on line 3538 with
+an unchecked `buf[i]` write 30 lines down is invisible to a skim but obvious when the
+obligation forces you to that exact line. Treat an obligation you cannot positively
+discharge as a `finding` or `candidate`, never as "probably fine."
+
 ## Doctrine (reuse the deep-context reading discipline — but emit findings)
 
 Read the code line-by-line. For each file, build the local model first, then attack
