@@ -105,6 +105,13 @@ CONFIRM routing for native/memory findings (consented, since it executes).
 This directly attacks the class that beat the reader: ASan catches a use-after-free or a
 buffer overflow at *runtime* regardless of how subtle it looks in source.
 
+**Why this is the right answer to the routing wall.** The eval showed (with numbers) that
+blind *static* routing can't reliably reach a bug site that has no cheap signal — e.g.
+`deps/lua/src/lbaselib.c` scores **0** in the risk ranker (no entry-defs, no code-graph
+reach, no keyword), so it's never read. Execution doesn't care about ranking: you run the
+trigger and the sanitizer reports the bug wherever it lives. That is the routing-independent
+property a local tool needs to compensate for not having cloud read-everything throughput.
+
 **Validated end-to-end on a real CVE.** Built real Redis at the vulnerable commit with its
 own `make SANITIZER=address`, started the ASan server, and sent `XACKDEL … IDS 9 …` (>the
 8-slot static buffer). AddressSanitizer aborted with `stack-buffer-overflow`, backtrace
@@ -114,6 +121,24 @@ own `make SANITIZER=address`, started the ASan server, and sent `XACKDEL … IDS
 breadth* is **proven by execution** — build-to-proof in one consented run, ~10 min /
 ~½ GB transient. This is the gap-closer working on a real 0day-class memory bug, not a
 fixture.
+
+**Second real CVE, a harder class — and an oracle gap it exposed (now fixed).**
+`bench/cves/redis-cve-2025-46817/repro.sh` builds Redis at the vulnerable SHA with UBSan and
+fires the real trigger `EVAL "return {unpack({1,2,3}, -2, 2147483647)}"`. `luaB_unpack`
+computes `n = e - i + 1` in signed `int`; the range overflows it, and at `-O2` the compiler
+treats the signed overflow as UB and **elides the dependent `n <= 0` guard**, so the push
+loop writes far past a corrupted-size Lua stack — a wild OOB write. Because the bad write
+lands in unmapped memory *past every redzone*, the sanitizer can't print a tidy
+`heap-buffer-overflow`; it traps the signal and prints `DEADLYSIGNAL` + `BUS on unknown
+address` + `caused by a WRITE memory access`. kuzushi's oracle **used to parse that to
+`null`** — i.e. `/sanitize-pov` would have silently missed a real CVE. Fixed: the oracle now
+classifies a sanitizer-caught deadly signal, using the access-type hint to land
+`oob-write → CWE-787` (the symptom of the `CWE-190` root cause), with the crash frame
+(`lua_rawgeti`) recovered from the symbol when the optimized binary carries no source line
+(`scripts/lib/sanitizers.mjs`; regression-tested against the captured report in
+`test/sanitizers.test.mjs`). This is the empirical engine generalizing past the first case —
+a *dependency*, an *integer-overflow* class, a *script-driven* trigger — and the harness
+catching its own blind spot before it shipped.
 
 ## Where Xint is still ahead (no spin)
 

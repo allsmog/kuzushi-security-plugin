@@ -32,9 +32,46 @@ test("parse: UBSan out-of-bounds → CWE-125", () => {
   assert.equal(r.cwe, "CWE-125");
 });
 
+// Real captured report from Redis CVE-2025-46817 (luaB_unpack integer overflow → wild OOB
+// write). The int-overflow corrupts the stack-alloc SIZE, so the write lands in UNMAPPED
+// memory past every redzone — the sanitizer can only trap the signal, printing a DEADLYSIGNAL
+// + "BUS on unknown address" + SUMMARY (no "heap-buffer-overflow" redzone line, no UBSan
+// "runtime error:" line). This exact report used to parse to NULL → /sanitize-pov would have
+// silently missed a real CVE. The oracle must classify it.
+const CVE_2025_46817_REPORT = [
+  "UndefinedBehaviorSanitizer:DEADLYSIGNAL",
+  "==94544==ERROR: UndefinedBehaviorSanitizer: BUS on unknown address (pc 0x000100d39774 bp 0x00016f0cdec0 sp 0x00016f0cdeb0 T67022030)",
+  "==94544==The signal is caused by a WRITE memory access.",
+  "==94544==Hint: this fault was caused by a dereference of a high value address (see register values below).",
+  "    #0 0x000100d39774 in lua_rawgeti+0x60 (redis-server:arm64+0x100009774)",
+  "    #1 0x000100d4f1f4 in luaB_unpack+0xb4 (redis-server:arm64+0x10001f1f4)",
+  "SUMMARY: UndefinedBehaviorSanitizer: BUS (redis-server:arm64+0x100009774) in lua_rawgeti+0x60"
+].join("\n");
+
+test("parse: sanitizer DEADLYSIGNAL with a WRITE hint → OOB-write CWE-787 (real CVE-2025-46817)", () => {
+  const r = parseSanitizerReport(CVE_2025_46817_REPORT);
+  assert.ok(r, "a sanitizer-caught deadly signal must NOT parse to null");
+  assert.equal(r.tool, "UndefinedBehaviorSanitizer");
+  assert.equal(r.errorClass, "oob-write");
+  assert.equal(r.cwe, "CWE-787");
+  assert.equal(r.frame0?.symbol, "lua_rawgeti", "frame falls back to the symbol when the binary has no source line");
+});
+
+test("parse: deadly-signal READ access → OOB-read CWE-125", () => {
+  const r = parseSanitizerReport("UndefinedBehaviorSanitizer:DEADLYSIGNAL\n==1==ERROR: UndefinedBehaviorSanitizer: SEGV on unknown address 0x7fffffff\n==1==The signal is caused by a READ memory access.\n    #0 0x1 in reader+0x4 (a.out+0x1)\nSUMMARY: UndefinedBehaviorSanitizer: SEGV in reader");
+  assert.equal(r.errorClass, "oob-read");
+  assert.equal(r.cwe, "CWE-125");
+});
+
+test("parse: deadly-signal NULL-page deref stays SEGV/CWE-476 (not mislabeled OOB)", () => {
+  const r = parseSanitizerReport("UndefinedBehaviorSanitizer:DEADLYSIGNAL\n==1==ERROR: UndefinedBehaviorSanitizer: SEGV on unknown address 0x000000000000\n==1==The signal is caused by a WRITE memory access.\n    #0 0x1 in f+0x4 (a.out+0x1)\nSUMMARY: UndefinedBehaviorSanitizer: SEGV in f");
+  assert.equal(r.cwe, "CWE-476", "a write to the null page is a null-deref, not an OOB write");
+});
+
 test("parse: clean output → null (no false proof)", () => {
   assert.equal(parseSanitizerReport("all tests passed\nexit 0"), null);
   assert.equal(parseSanitizerReport(""), null);
+  assert.equal(parseSanitizerReport("dumbfuzz: 500000 iterations, 0 seeds, no crash"), null);
 });
 
 const tc = detectToolchain();

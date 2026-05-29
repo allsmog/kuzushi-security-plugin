@@ -30,6 +30,19 @@ const ASAN_CWE = [
   [/memory leak|LeakSanitizer/, "memory-leak", "CWE-401"],
   [/alloc-dealloc-mismatch/, "alloc-dealloc-mismatch", "CWE-762"]
 ];
+// A sanitizer-caught DEADLY SIGNAL → CWE. When a bug corrupts an allocation SIZE (classic
+// integer-overflow → undersized alloc) the bad write lands far past any ASan redzone in
+// UNMAPPED memory, so neither a "heap-buffer-overflow" redzone report nor a UBSan "runtime
+// error:" line is printed — the sanitizer runtime just traps the SIGSEGV/SIGBUS and prints
+// `<San>:DEADLYSIGNAL` + a backtrace + `SUMMARY: <San>: SEGV|BUS ... in <frame>`. Real bugs
+// crash this way (e.g. Redis CVE-2025-46817, luaB_unpack), so the oracle must classify them.
+const SIGNAL_CWE = {
+  SEGV: ["segv", "CWE-476"],
+  BUS: ["bus-error", "CWE-119"],
+  ABRT: ["abort", "CWE-617"],
+  ILL: ["illegal-instruction", "CWE-119"],
+  FPE: ["fp-exception", "CWE-369"]
+};
 // UBSan "runtime error:" sub-messages → CWE.
 const UBSAN_CWE = [
   [/out of bounds|index .* out of bounds/, "out-of-bounds", "CWE-125"],
@@ -63,6 +76,26 @@ export function parseSanitizerReport(text) {
     }
     return { tool: "UndefinedBehaviorSanitizer", errorClass: "undefined-behavior", cwe: "CWE-758", summary: ub[1].slice(0, 200).trim(), frame0: firstFrame(s) };
   }
+  // Sanitizer-caught deadly signal (no redzone / no "runtime error:" line). Prefer the
+  // SUMMARY line (names the signal), else the `<San>:DEADLYSIGNAL` marker + the first frame.
+  const summ = /SUMMARY:\s*(\w*Sanitizer):\s*(SEGV|BUS|ABRT|ILL|FPE)\b/i.exec(s);
+  const deadly = summ || /(\w*Sanitizer):\s*DEADLYSIGNAL/i.exec(s);
+  if (deadly) {
+    const toolRaw = deadly[1] ?? "";
+    const tool = /Address/i.test(toolRaw) ? "AddressSanitizer"
+      : /Undefined/i.test(toolRaw) ? "UndefinedBehaviorSanitizer"
+      : (toolRaw || "Sanitizer");
+    // Signal from the SUMMARY if present, else scan the body (DEADLYSIGNAL has no signal token).
+    const sigName = (summ?.[2] ?? (/\b(SEGV|BUS|ABRT|ILL|FPE)\b/.exec(s)?.[1]) ?? "SEGV").toUpperCase();
+    let [errorClass, cwe] = SIGNAL_CWE[sigName] ?? ["deadly-signal", "CWE-119"];
+    // Sharpen with the faulting access-type the sanitizer prints ("caused by a WRITE/READ
+    // memory access" / "WRITE|READ of size N") — a wild WRITE is an OOB write, a wild READ an
+    // OOB read — UNLESS it's a null-page deref (that stays the bare signal → CWE-476).
+    const nullDeref = /unknown address 0x0{6,}|address 0x0{6,}\b/i.test(s);
+    if (!nullDeref && /caused by a WRITE memory access|\bWRITE of size\b/i.test(s)) { errorClass = "oob-write"; cwe = "CWE-787"; }
+    else if (!nullDeref && /caused by a READ memory access|\bREAD of size\b/i.test(s)) { errorClass = "oob-read"; cwe = "CWE-125"; }
+    return { tool, errorClass, cwe, summary: (firstLine(s, /SUMMARY:/i) || `${tool}: ${sigName}`).slice(0, 240), frame0: firstFrame(s) };
+  }
   return null;
 }
 
@@ -70,10 +103,15 @@ function firstLine(s, re) {
   const line = s.split(/\r?\n/).find((l) => re.test(l));
   return (line ?? "").trim().slice(0, 240);
 }
-// First `#0 ... file:line` frame from the sanitizer backtrace, if any.
+// First frame from the sanitizer backtrace. Prefer a source `file:line`; if the binary is
+// optimized/stripped (frames are `#0 0x.. in <symbol>+0x.. (binary+0x..)` with no source
+// location — the common case for a deadly-signal report), fall back to the symbol name so
+// the finding still points at the crashing function (e.g. lua_rawgeti for CVE-2025-46817).
 function firstFrame(s) {
   const m = /#0[^\n]*?(\/[^\s:]+|\b[\w./-]+\.(?:c|cc|cpp|h|hpp|rs|m)):(\d+)/.exec(s);
-  return m ? { file: m[1], line: Number(m[2]) } : null;
+  if (m) return { file: m[1], line: Number(m[2]) };
+  const sym = /#0\s+0x[0-9a-fA-F]+\s+in\s+([A-Za-z_][\w:]*)/.exec(s);
+  return sym ? { symbol: sym[1] } : null;
 }
 
 // Toolchain detection. Returns { cc, kind, asan, ubsan, rust } — best-effort; we trust
