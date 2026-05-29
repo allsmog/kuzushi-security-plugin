@@ -14,9 +14,12 @@ hypothesis at an anchor and following the data hop by hop. This is how the multi
 input in one file, sink in a third — get caught without a 2 GB CPG.
 
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/deep-hunt-prepare.mjs" --target "<repo root>"`
-   (add `--input '{"scopeDir":"<dir>","maxAnchors":24}'` to scope/bound it). It risk-ranks
-   **trace anchors** (entry points + dangerous sinks), attaches each one's enclosing function,
-   and surfaces the `callees`/`callers` walk CLIs. If it reports `no-anchors`, say so and stop.
+   (add `--input '{"scopeDir":"<dir>","maxAnchors":24}'` to scope/bound it). It ranks **trace
+   anchors** from four sources so a bug isn't missed just because it sits on no source/sink token:
+   existing **findings** (walk from a real lead), the risk-ranked **files** (the routing backbone —
+   covers tokenless classes like prototype-pollution / logic / broken-tenant), and precise
+   **source** / **sink** sites. It attaches each anchor's enclosing function and surfaces the
+   `callees`/`callers` walk CLIs. If it reports `no-anchors`, say so and stop.
 2. Read `prepPath`. For each anchor, run the **hypothesis loop** (see the deep-hunter agent):
    read the enclosing function → hypothesize a source→sink flow → walk it across files with
    `callees` (forward) / `callers` (backward), **reading each hop** to confirm the tainted value

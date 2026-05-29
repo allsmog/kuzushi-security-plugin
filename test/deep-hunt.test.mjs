@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
 import { ripgrepPath } from "../scripts/lib/ripgrep.mjs";
+import { upsertFindings } from "../scripts/lib/findings.mjs";
 import { prepareDeepHunt } from "../scripts/cmd/deep-hunt-prepare.mjs";
 import { finalizeDeepHunt } from "../scripts/cmd/deep-hunt-finalize.mjs";
 
@@ -63,6 +64,30 @@ test("deep-hunt prepare: caps anchors and reports the unanchored remainder hones
   const prep = prepareDeepHunt(t, { maxAnchors: 4 });
   assert.ok(prep.anchorCount <= 4, "anchor budget respected");
   assert.ok(prep.unanchoredCount >= 1, "the rest are reported as unanchored, not dropped silently");
+});
+
+// ---- seeded anchoring (the principled fix: don't pattern-gate the anchor) ----
+
+test("deep-hunt prepare: seeds a 'file' anchor for a risk-ranked file with NO source/sink token", { skip: !rgOk }, () => {
+  const t = repo();
+  // a tokenless bug surface (prototype-pollution shape): no entry-point / sink keyword the
+  // regexes match — it must still be anchored, or deep-hunt re-creates pattern-gating.
+  write(t, "src/merge.js", "function setKey(obj, key, val){\n  obj[key] = val;\n  return obj;\n}\nmodule.exports = setKey;\n");
+  const prep = prepareDeepHunt(t, {});
+  const doc = JSON.parse(readFileSync(prep.prepPath, "utf8"));
+  assert.ok(doc.anchors.some((a) => a.kind === "file" && a.filePath === "src/merge.js"),
+    "the tokenless file is anchored (routed) via the file-seed, not dropped");
+});
+
+test("deep-hunt prepare: seeds a 'finding' anchor from the existing findings index (walk from a real lead)", { skip: !rgOk }, () => {
+  const t = repo();
+  write(t, "src/a.js", "function f(){ return 1; }\n");
+  upsertFindings(t, [{ source: "deep-scan", refId: "lead1", title: "proto pollution lead", severity: "high",
+    cwe: "CWE-1321", verdict: "finding", status: "open", evidence: [{ filePath: "src/a.js", startLine: 1 }], rationale: "x" }]);
+  const prep = prepareDeepHunt(t, {});
+  const doc = JSON.parse(readFileSync(prep.prepPath, "utf8"));
+  assert.ok(doc.anchors.some((a) => a.kind === "finding" && a.filePath === "src/a.js"),
+    "an existing finding becomes a deep-hunt anchor to walk cross-file from");
 });
 
 // ---- finalize: the interprocedural-path gate --------------------------------

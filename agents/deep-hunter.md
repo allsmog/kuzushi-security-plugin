@@ -19,8 +19,17 @@ Your launch prompt gives the **target directory** and the **prep path** (else ru
 `node "<plugin>/scripts/cmd/deep-hunt-prepare.mjs" --target "<target>"`). Read `prepPath` →
 `prep.json`:
 
-- `anchors[]` — `{ kind: "source"|"sink", filePath, line, signal, enclosingFunction:{name,startLine,endLine} }`.
-  Sources are where untrusted input enters; sinks are dangerous operations.
+- `anchors[]` — `{ kind, filePath, line, signal, enclosingFunction:{name,startLine,endLine} }`.
+  Four kinds, each a different starting move:
+  - **`finding`** — an existing lead another producer already wrote (deep-scan, taint, authz, …).
+    *Highest value:* start at it and walk cross-file to find the **full** flow and its real impact
+    (does the tainted value reach further / a worse sink than the original finding noted?).
+  - **`file`** — a risk-ranked file with **no** source/sink token match (the tokenless bug classes:
+    prototype pollution, logic/authz, broken-tenant). `enclosingFunction` is null — **read the whole
+    file** (deep-scan style), locate where untrusted data enters and where it's dangerously used,
+    *then* walk from there. This is the anchor that catches bugs a sink regex never names.
+  - **`source`** — where untrusted input enters (entry point / framework route / request access).
+  - **`sink`** — a dangerous operation (injection / exec / deser / file / native).
 - `budget` — `{ maxAnchors, maxHops, rounds }`. Respect it; report what you didn't reach.
 - `reachability` — the two call-graph CLIs you walk with (paths to `calleesCli` / `callersCli`)
   and `cpgPresent`.
@@ -28,8 +37,10 @@ Your launch prompt gives the **target directory** and the **prep path** (else ru
 
 ## The loop (per anchor, up to `rounds`)
 
-1. **Read the anchor's enclosing function.** Build the local model: what's trusted, what
-   value is interesting (the request field at a source; the dangerous argument at a sink).
+1. **Read the anchor.** For a `source`/`sink`/`finding` anchor, read its enclosing function; for
+   a `file` anchor, read the whole file and pick the interesting site yourself. Build the local
+   model: what's trusted, and what value is interesting (the request field at a source; the
+   dangerous argument at a sink; the tainted value at a finding).
 2. **Hypothesize.** State a concrete claim: *"the `id` from `req.query` at handler.js:12 could
    reach the `db.query` sink at db.js:42 if it isn't parameterized along the way."*
 3. **Walk the flow** with the call-graph CLIs — meet in the middle, ≤ `maxHops` hops:

@@ -59,12 +59,32 @@ function graphSources(store) {
   return out;
 }
 
+// Existing findings (any producer) are the highest-value anchors — deep-hunt walks
+// cross-file FROM a real lead, extending what /deep-scan, /taint, /authz, … already
+// found. This is the generalizing seed: it rides the whole pipeline's recall instead of
+// re-deriving entry/sink tokens. reviewed/noise/remediated are skipped.
+function findingSeedAnchors(store) {
+  const doc = readJsonIfPresent(store.findingsPath);
+  if (!doc?.findings?.length) return [];
+  const skip = new Set(["reviewed", "noise", "remediated"]);
+  const out = [];
+  for (const f of doc.findings) {
+    if (skip.has(f.status)) continue;
+    const ev = f.evidence?.[0];
+    if (ev?.filePath) out.push({ kind: "finding", filePath: norm(ev.filePath), line: ev.startLine ?? 1, signal: `existing ${f.source ?? "?"} finding: ${String(f.title ?? "").slice(0, 80)}` });
+  }
+  return out;
+}
+
 export function prepareDeepHunt(target, input = {}) {
   const resolvedTarget = resolve(target);
   const store = storeFor(resolvedTarget);
   const scopeDir = input.scopeDir ?? ".";
   const maxFiles = Number(input.maxFiles ?? 30);
-  const maxAnchors = Number(input.maxAnchors ?? Math.min(40, Math.max(12, maxFiles)));
+  // The anchor budget must cover the risk-ranked files (the routing backbone) plus
+  // headroom for finding/pattern anchors — otherwise file-seeded routing is squeezed
+  // out by token-dense sink sites (the exact failure the eval caught on redis).
+  const maxAnchors = Number(input.maxAnchors ?? (maxFiles + 16));
   const maxHops = Number(input.maxHops ?? 4);
   const rounds = Number(input.rounds ?? 2);
 
@@ -87,35 +107,64 @@ export function prepareDeepHunt(target, input = {}) {
     signal: `route ${r.method} ${r.routePath} (${r.framework})`
   }));
 
-  // Collect candidate anchors, prioritize those in risk-ranked files, then cap.
-  const all = [
+  // Anchor sources, in PRIORITY order (the principled, generalizing fix):
+  //   (1) existing findings — walk cross-file from real leads (any producer);
+  //   (2) the risk-ranked FILES as a routing backbone — so a bug on NO source/sink
+  //       token (proto-pollution, logic, broken-tenant) still gets walked, and so
+  //       deep-hunt inherits the file ranker's routing instead of re-introducing
+  //       pattern-gating at the anchor level;
+  //   (3) precise route/source/sink pattern anchors (specific start points + files
+  //       beyond the ranked top-N).
+  const findingAnchors = findingSeedAnchors(store);
+  const fileAnchors = ranked.map((f) => ({
+    kind: "file", filePath: f.filePath, line: 1,
+    signal: `risk-ranked file: ${(f.reasons ?? []).slice(0, 3).join(", ") || "ranked"}`
+  }));
+  const patternAll = [
     ...routeAnchors,
     ...rgAnchors(resolvedTarget, scopeDir, SOURCE_RE, "source"),
     ...graphSources(store),
     ...rgAnchors(resolvedTarget, scopeDir, SINK_RE, "sink")
-  ];
-  // Dedupe across the two source streams by file:line:kind.
-  const dedup = new Map();
-  for (const a of all) dedup.set(`${a.kind}:${a.filePath}:${a.line}`, a);
-  const candidates = [...dedup.values()].map((a) => ({ ...a, rank: fileScore.get(a.filePath) ?? 0 }));
-  // Highest-risk file first; keep sources and sinks both represented by sorting
-  // within kind and interleaving so a sink-heavy repo still surfaces its entries.
-  candidates.sort((a, b) => b.rank - a.rank || a.filePath.localeCompare(b.filePath) || a.line - b.line);
-  const sources = candidates.filter((a) => a.kind === "source");
-  const sinks = candidates.filter((a) => a.kind === "sink");
-  const half = Math.ceil(maxAnchors / 2);
-  const chosen = [...sources.slice(0, half), ...sinks.slice(0, maxAnchors - Math.min(half, sources.length))]
-    .slice(0, maxAnchors);
+  ].map((a) => ({ ...a, rank: fileScore.get(a.filePath) ?? 0 }));
+  // Keep sources and sinks both represented (interleave by file risk) so a sink-heavy
+  // repo still surfaces its entries.
+  const byRank = (a, b) => b.rank - a.rank || a.filePath.localeCompare(b.filePath) || a.line - b.line;
+  const pSources = patternAll.filter((a) => a.kind === "source").sort(byRank);
+  const pSinks = patternAll.filter((a) => a.kind === "sink").sort(byRank);
+  const interleaved = [];
+  for (let i = 0; i < Math.max(pSources.length, pSinks.length); i += 1) {
+    if (i < pSources.length) interleaved.push(pSources[i]);
+    if (i < pSinks.length) interleaved.push(pSinks[i]);
+  }
 
-  // Attach the enclosing function (name + range) to each chosen anchor — the agent's
-  // starting context and the unit it walks out of. Uses the new forward primitive.
+  // Priority-ordered pool → dedup by file:line → cap at the budget. Findings and the
+  // ranked-file backbone come first so routing is guaranteed; patterns fill the rest.
+  const ordered = [...findingAnchors, ...fileAnchors, ...interleaved];
+  // Dedup by file:line, keeping the first slot (so the findings/file-backbone keep
+  // their early, routing-guaranteed positions) but UPGRADING a generic "file" slot to
+  // a specific source/sink/finding anchor when one lands on the same line.
+  const slot = new Map();
+  const order = [];
+  for (const a of ordered) {
+    const k = `${a.filePath}:${a.line}`;
+    const cur = slot.get(k);
+    if (!cur) { slot.set(k, a); order.push(k); }
+    else if (cur.kind === "file" && a.kind !== "file") slot.set(k, a);
+  }
+  const deduped = order.map((k) => slot.get(k));
+  const chosen = deduped.slice(0, maxAnchors);
+
+  // Attach the enclosing function to source/sink/finding anchors — the agent's starting
+  // context. A "file" anchor has no specific line, so the agent reads the whole file
+  // (deep-scan style) to locate the source/sink, then walks from there.
   const anchors = chosen.map((a) => {
-    const fn = enclosingFunction(resolvedTarget, a.filePath, a.line);
+    const fn = a.kind === "file" ? null : enclosingFunction(resolvedTarget, a.filePath, a.line);
     return {
       kind: a.kind, filePath: a.filePath, line: a.line, signal: a.signal,
       enclosingFunction: fn ? { name: fn.name, startLine: fn.startLine, endLine: fn.endLine } : null
     };
   });
+  const unanchoredCount = Math.max(0, deduped.length - anchors.length);
 
   const cg = readJsonIfPresent(store.codeGraphPath);
   const cmdDir = import.meta.dirname ?? resolve(".");
@@ -123,12 +172,11 @@ export function prepareDeepHunt(target, input = {}) {
   run.writeJson("prep.json", {
     runId: run.runId, runDir: run.runDir, target: resolvedTarget, scopeDir,
     references: artifactSnapshot(resolvedTarget),
-    budget: { maxAnchors, maxHops, rounds },
+    budget: { maxAnchors, maxHops, rounds, maxFiles },
     anchorCount: anchors.length,
-    sourceCount: anchors.filter((a) => a.kind === "source").length,
-    sinkCount: anchors.filter((a) => a.kind === "sink").length,
+    byKind: anchors.reduce((acc, a) => { acc[a.kind] = (acc[a.kind] ?? 0) + 1; return acc; }, {}),
     // honest: candidate anchors found but not handed to the agent this run
-    unanchoredCount: Math.max(0, candidates.length - anchors.length),
+    unanchoredCount,
     anchors,
     reachability: {
       calleesCli: join(cmdDir, "callees.mjs"),
@@ -144,7 +192,7 @@ export function prepareDeepHunt(target, input = {}) {
     target: resolvedTarget, runId: run.runId, runDir: run.runDir,
     prepPath: join(run.runDir, "prep.json"),
     draftPath: join(run.runDir, "draft.deep-hunt.json"),
-    anchorCount: anchors.length, unanchoredCount: Math.max(0, candidates.length - anchors.length),
+    anchorCount: anchors.length, unanchoredCount,
     assembleCommand: `node "${join(cmdDir, "deep-hunt-finalize.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };
 }

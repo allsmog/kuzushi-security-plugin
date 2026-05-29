@@ -105,9 +105,13 @@ export function deepScanTask({ prepPath, repoDir, pluginDir, draftPath }) {
 export function deepHuntTask({ prepPath, repoDir, pluginDir, draftPath }) {
   return [
     `You are running as the deep-hunter (your system prompt has your full instructions).`,
-    `Prep file (JSON): ${prepPath} — it lists ranked \`anchors\` ({kind:"source"|"sink",`,
-    `filePath, line, signal, enclosingFunction}), a \`budget\` (maxAnchors/maxHops/rounds),`,
-    `and \`reachability\` (the walk CLIs).`,
+    `Prep file (JSON): ${prepPath} — it lists ranked \`anchors\` ({kind, filePath, line,`,
+    `signal, enclosingFunction}), a \`budget\` (maxAnchors/maxHops/rounds), and`,
+    `\`reachability\` (the walk CLIs). Anchor kinds: "finding" = an existing lead (walk`,
+    `from it to find the full flow), "file" = a risk-ranked file with no token match`,
+    `(READ THE WHOLE FILE to locate the source/sink — this catches tokenless bugs like`,
+    `prototype pollution / logic / broken-tenant — then walk), "source"/"sink" = entry`,
+    `/dangerous-op start points.`,
     `Repo root to analyze: ${repoDir}. Plugin scripts at: ${pluginDir}.`,
     `For each anchor run the hypothesis loop: read the enclosing function, hypothesize a`,
     `source→sink flow, and WALK it across files — reading each hop to confirm the tainted`,
