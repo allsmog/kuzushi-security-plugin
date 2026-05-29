@@ -54,7 +54,12 @@ test("fuzz-init instruments native libFuzzer targets with sanitizers", () => {
   const plan = JSON.parse(readFileSync(storeFor(t).fuzzPlanPath, "utf8"));
   const c = plan.candidates.find((x) => x.language === "c");
   assert.ok(c, "a C candidate was planned");
-  assert.ok(c.sanitize, "C libFuzzer candidate carries sanitizer build instrumentation");
-  assert.match(c.sanitize.cflags, /-fsanitize=address/);
-  assert.match(c.sanitize.cflags, /-fsanitize=fuzzer/);
+  assert.ok(c.sanitize, "C candidate carries sanitizer build instrumentation");
+  assert.match(c.sanitize.cflags, /-fsanitize=address/, "always ASan-instrumented");
+  assert.ok(c.sanitize.buildRunCommand, "carries a build+run command");
+  // Engine is environment-dependent: libFuzzer when its runtime links, else the
+  // portable ASan dumb-fuzz driver. Both are valid; assert the right shape per engine.
+  assert.ok(["libfuzzer", "asan-dumbfuzz"].includes(c.sanitize.engine), `engine ${c.sanitize.engine}`);
+  if (c.sanitize.engine === "libfuzzer") assert.match(c.sanitize.buildRunCommand, /-fsanitize=fuzzer/);
+  else assert.match(c.sanitize.buildRunCommand, /fuzz-driver\.c/, "dumb-fuzz links the portable driver");
 });

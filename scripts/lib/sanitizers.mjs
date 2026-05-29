@@ -9,6 +9,10 @@
 // (`--network none`); the verdict is decided here from the report, never by an LLM.
 
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // AddressSanitizer / UBSan error class → CWE. The sanitizer says exactly what went
 // wrong; this maps it to the canonical weakness so the promoted finding is precise.
@@ -98,3 +102,23 @@ export const SANITIZE_ENV = {
   ASAN_OPTIONS: `halt_on_error=1:abort_on_error=0:exitcode=${SANITIZE_EXITCODE}:detect_leaks=0`,
   UBSAN_OPTIONS: `halt_on_error=1:abort_on_error=0:print_stacktrace=1:exitcode=${SANITIZE_EXITCODE}`
 };
+
+// The portable dumb-fuzz driver (used when libFuzzer is unavailable). Same harness API.
+export const FUZZ_DRIVER = join(dirname(fileURLToPath(import.meta.url)), "fuzz-driver.c");
+
+// Is coverage-guided libFuzzer linkable here? (`-fsanitize=fuzzer` needs the runtime,
+// which Apple clang and some others don't ship.) Probed once by trying a trivial link;
+// determines whether /fuzz uses the libFuzzer engine or the portable ASan driver.
+let _libfuzzer = null;
+export function hasLibFuzzer(cc) {
+  if (_libfuzzer !== null) return _libfuzzer;
+  const c = cc || detectToolchain().cc;
+  if (!c) { _libfuzzer = false; return false; }
+  try {
+    const d = mkdtempSync(join(tmpdir(), "kz-lf-"));
+    writeFileSync(join(d, "p.c"), "#include <stdint.h>\n#include <stddef.h>\nint LLVMFuzzerTestOneInput(const uint8_t*x,size_t n){return (int)(n&&x[0]);}\n");
+    const r = spawnSync(c, ["-fsanitize=address,fuzzer", "-g", join(d, "p.c"), "-o", join(d, "p")], { encoding: "utf8" });
+    _libfuzzer = !r.error && r.status === 0;
+  } catch { _libfuzzer = false; }
+  return _libfuzzer;
+}

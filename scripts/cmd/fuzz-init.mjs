@@ -9,18 +9,31 @@ import { extname, join, resolve } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { oracleSummaryForFinding } from "../lib/oracles.mjs";
-import { SANITIZE_CFLAGS, SANITIZE_ENV } from "../lib/sanitizers.mjs";
+import { SANITIZE_CFLAGS, SANITIZE_ENV, FUZZ_DRIVER, hasLibFuzzer, detectToolchain } from "../lib/sanitizers.mjs";
 
-// For native libFuzzer targets, the find-by-execution oracle is sanitizers: build the
-// harness with ASan/UBSan so a memory bug ABORTS during fuzzing (and fuzz-triage reads
-// the report → exact CWE). Without this a C fuzzer can run for ages over a real
-// corruption and never flag it.
+// For native targets the find-by-execution oracle is sanitizers: build the harness with
+// ASan/UBSan so a memory bug ABORTS during fuzzing (fuzz-triage reads the report → exact
+// CWE). Two engines from one libFuzzer-API harness: coverage-guided libFuzzer when the
+// runtime links here, else the portable ASan dumb-fuzz driver (works on Apple clang etc.).
 function sanitizeFor(language) {
   if (language !== "c" && language !== "cpp") return null;
+  const cc = detectToolchain().cc ?? "cc";
+  if (hasLibFuzzer(cc)) {
+    return {
+      engine: "libfuzzer",
+      cflags: `${SANITIZE_CFLAGS} -fsanitize=fuzzer`,
+      env: SANITIZE_ENV,
+      buildRunCommand: `${cc} ${SANITIZE_CFLAGS} -fsanitize=fuzzer harness.c -o fuzz && ./fuzz -max_total_time=60 corpus`,
+      note: "coverage-guided libFuzzer; harness defines LLVMFuzzerTestOneInput. Memory bugs abort under ASan; fuzz-triage maps the report to a CWE."
+    };
+  }
   return {
-    cflags: `${SANITIZE_CFLAGS} -fsanitize=fuzzer`,
+    engine: "asan-dumbfuzz",
+    cflags: SANITIZE_CFLAGS,
     env: SANITIZE_ENV,
-    note: "compile the libFuzzer target with these cflags so memory bugs abort under the sanitizer; fuzz-triage maps the report to a CWE"
+    driver: FUZZ_DRIVER,
+    buildRunCommand: `${cc} ${SANITIZE_CFLAGS} harness.c "${FUZZ_DRIVER}" -o fuzz && ./fuzz 500000`,
+    note: "libFuzzer runtime unavailable → portable ASan dumb-fuzz driver (same LLVMFuzzerTestOneInput harness). Random/mutation loop under ASan; weaker than coverage-guided but dependency-free."
   };
 }
 
