@@ -288,14 +288,16 @@ kuzushi does **not** claim a headline find-rate. It ships a blind, LLM-in-the-lo
 fix-derived CVE ground truth — and reports low numbers honestly. What the measurement has taught
 us, stated plainly:
 
-- **Routing is largely solved.** The risk ranker (plus `/deep-hunt`'s file-seeded anchoring) puts
-  the vulnerable file in scope on the CVE corpus — routing reached ~100% in the measured runs.
-  *Whether the right file gets read* is no longer the bottleneck.
-- **Finding subtle bugs is the open problem — and it's a reasoning gap, not a model gap.** On real
-  Redis memory-corruption CVEs, the strongest model, reading the *right* file, still missed the bug
-  blind. Blind static find-rate on the hard cases plateaus (~33% on a small real-CVE corpus).
-  Bigger read budgets, a stronger model, and better anchoring each got **refuted** by the eval as a
-  "win" — recall didn't move. This is exactly why the eval exists.
+- **Routing is much improved, but not universal.** The risk ranker (plus `/deep-hunt`'s
+  file-seeded anchoring) puts the vulnerable file in scope most of the time — on the blind 9-CVE
+  run it was **67%** (the 3 misses were vulnerable files that don't rank into the top-30 budget).
+  Whether the right file gets *read* is no longer the dominant bottleneck; ranking the long tail is.
+- **Finding subtle bugs is the open problem — and it's a reasoning gap, not a model gap.** On the
+  blind 9-CVE run (deep-scan lane, single-rep, $42): **found = 22%** (2/9 — minimist proto-pollution
+  and the XACKDEL overflow). **Four cases routed but weren't found** — the agent read the *right*
+  file and missed the bug — and there's a **non-trivial false-positive proxy** (the verifier
+  confirmed an *other* finding in 6/9 cases). Bigger read budgets, a stronger model, and better
+  anchoring each got **refuted** by the eval as a "win." This is exactly why the eval exists.
 - **For the hard memory class, empirical execution is the lever that works.** `/sanitize-pov`
   (ASan/UBSan) and `/fuzz` *prove* a memory bug by triggering it — that is what cracked a real Redis
   CVE (XACKDEL) which static reading missed. **Reading finds the broad / logic / web / cross-file
