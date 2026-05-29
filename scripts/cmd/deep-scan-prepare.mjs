@@ -13,6 +13,7 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
 import { rankFiles } from "../lib/risk-rank.mjs";
+import { languageOf } from "../lib/sharding.mjs";
 import { buildCodeGraph } from "./code-graph-build.mjs";
 
 export function prepareDeepScan(target, input = {}) {
@@ -29,7 +30,19 @@ export function prepareDeepScan(target, input = {}) {
     try { buildCodeGraph(resolvedTarget, {}); } catch { /* ranking degrades to keyword/churn */ }
   }
 
-  const { ranked, totalCandidates, unread } = rankFiles(resolvedTarget, { maxFiles, scopeDir });
+  // Explicit focus: when the caller names specific files, deep-read exactly those
+  // (skip ranking). Useful to drill into a subsystem — and to isolate the
+  // breadth-vs-depth variable in eval (read one file deeply, not 30 shallowly).
+  let ranked;
+  let totalCandidates;
+  let unread;
+  if (Array.isArray(input.files) && input.files.length) {
+    ranked = input.files.map((f) => ({ filePath: String(f).replace(/^\.\//, ""), language: languageOf(String(f)), score: null, reasons: ["explicit-focus"] }));
+    totalCandidates = ranked.length;
+    unread = 0;
+  } else {
+    ({ ranked, totalCandidates, unread } = rankFiles(resolvedTarget, { maxFiles, scopeDir }));
+  }
 
   const run = openRun(resolvedTarget, "deep-scan");
   run.writeJson("prep.json", {

@@ -135,3 +135,13 @@ authenticated session; each run is billed (the scoreboard reports total cost).
 
   Spend so far across all eval runs: ~$35 (Sonnet baseline $3.48 + lever re-run $9.24 +
   Opus $22.31, plus a synthetic validation $0.42).
+
+- **DEPTH is the lever (focused experiment, Sonnet, $1.79):** deep-reading **only**
+  `src/t_stream.c` (via the new `--files` focus), the *same Sonnet* that missed the
+  XACKDEL overflow among 30 files **found it and the verifier confirmed it** — found
+  100%, FP 0. The bottleneck was attention dilution, not model strength or routing.
+  Caveat: that run *named* the file (ground-truth file selection), so it proves
+  "depth-given-routing," not blind end-to-end. The fix is to read the *routed* files in
+  small deep batches (multi-pass) — implemented as `eval --batch N` and the basis for a
+  product change to `/deep-scan` (small per-pass budget × iterate, which `/sweep`'s
+  sharding already pushes toward). Blind batched re-run results recorded next.

@@ -35,6 +35,8 @@ const MODEL = opt("--model", "sonnet");
 const REPS = Number(opt("--reps", "1"));
 const MAX_FILES = Number(opt("--maxFiles", "12"));
 const ONLY = opt("--case", null);
+const FOCUS_FILES = (opt("--files", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
+const BATCH = Number(opt("--batch", "0"));  // >0: deep-read the routed files in small batches (depth), multi-pass
 const CVE_MODE = args.includes("--cve");
 
 const norm = (p) => String(p ?? "").replace(/^\.\//, "");
@@ -75,23 +77,32 @@ function oneRun(caseDir, expected) {
   let cost = 0;
   const trace = {};
 
-  // 1. deep-scan prepare (deterministic)
-  const dprep = prepareDeepScan(work, { maxFiles: MAX_FILES });
+  // 1. deep-scan prepare (deterministic). --files forces a focused deep read of
+  // specific files; otherwise rank the repo. The ranked list is also the routing check.
+  const dprep = prepareDeepScan(work, FOCUS_FILES.length ? { files: FOCUS_FILES } : { maxFiles: MAX_FILES });
   const prepFiles = (JSON.parse(readFileSync(dprep.prepPath, "utf8")).files ?? []).map((f) => norm(f.filePath));
   trace.routed = expected.some((e) => prepFiles.includes(norm(e.filePath)));
 
-  // 2. deep-scanner agent (LLM)
-  const dr = runAgent({
-    agentMdPath: join(PLUGIN, "agents", "deep-scanner.md"),
-    task: deepScanTask({ prepPath: dprep.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: dprep.draftPath }),
-    repoDir: work, pluginDir: PLUGIN, draftPath: dprep.draftPath, model: MODEL
-  });
-  cost += dr.cost; trace.deepAgent = { ok: dr.ok, cost: dr.cost, secs: Math.round(dr.elapsedMs / 1000), timedOut: dr.timedOut };
-  if (!dr.draftWritten) return { ...trace, cost, found: false, confirmed: false, note: dr.timedOut ? "deep-agent timeout" : "deep-agent wrote no draft", work };
-
-  // 3. deep-scan finalize (deterministic)
-  const dfin = safe(() => finalizeDeepScan(work, dprep.runDir));
-  if (!dfin.ok) return { ...trace, cost, found: false, confirmed: false, note: "deep draft rejected: " + dfin.error, work };
+  // 2. deep-scanner agent(s). Default = one pass over all routed files. --batch N =
+  // read them in small DEPTH batches across multiple agent passes (the proven lever:
+  // few files read deeply beats many read shallowly), each batch finalized into the
+  // lock-guarded index.
+  const batches = (!FOCUS_FILES.length && BATCH > 0)
+    ? Array.from({ length: Math.ceil(prepFiles.length / BATCH) }, (_, i) => prepFiles.slice(i * BATCH, i * BATCH + BATCH))
+    : [null]; // null = use the single prep as-is
+  trace.deepPasses = batches.length;
+  let anyDraft = false;
+  for (const batch of batches) {
+    const bp = batch ? prepareDeepScan(work, { files: batch, buildCodeGraph: false }) : dprep;
+    const dr = runAgent({
+      agentMdPath: join(PLUGIN, "agents", "deep-scanner.md"),
+      task: deepScanTask({ prepPath: bp.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: bp.draftPath }),
+      repoDir: work, pluginDir: PLUGIN, draftPath: bp.draftPath, model: MODEL
+    });
+    cost += dr.cost;
+    if (dr.draftWritten) { anyDraft = true; safe(() => finalizeDeepScan(work, bp.runDir)); }
+  }
+  if (!anyDraft) return { ...trace, cost, found: false, confirmed: false, note: "deep-agent wrote no draft", work };
 
   // score: did a deep-scan finding land on an expected anchor?
   let findings = JSON.parse(readFileSync(storeFor(work).findingsPath, "utf8")).findings ?? [];
