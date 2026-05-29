@@ -186,17 +186,45 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   file), so a 10-file real repo no longer finishes in 15 min — the old run that did was a
   lighter agent. This is a harness-validity bug, not a find-rate: a timeout ≠ a miss.
   **Fix (landed):** `--timeoutMs` is now configurable (default raised to 30 min) and the
-  scoreboard header records it; for big repos, lower `--maxFiles` so each agent finishes
-  (fewer files read deeply is also the proven recall lever). The valid 9-CVE number is a
-  **pending billed re-run** (recommended: `--maxFiles 6 --timeoutMs 1800000`) — deliberately
-  not run automatically, since it's heavy spend. Until it lands, the honest headline below
-  remains the **3-CVE** number, not a 9-CVE claim.
+  scoreboard header records it. **Validated** with a single-case smoke (`redis-cve-2026-23479`,
+  Sonnet, maxFiles 6, 30-min cap, **$3.62**): the case ran end-to-end — draft written, verifier
+  ran and confirmed a finding — instead of an empty timeout. The harness-validity bug is fixed.
+
+- **What the smoke then exposed: routing, not reasoning or timeout, is the limiter on this
+  harder corpus.** The smoke scored `routed=0` because the bug file ranked outside maxFiles 6.
+  A free deterministic rank survey (no LLM — `deep-scan-prepare` only) of where each bug file
+  lands in the risk ranking:
+
+  | case | bug file | rank | routed@6 | @10 | @30 |
+  |---|---|---|---|---|---|
+  | 46817 | `deps/lua/src/lbaselib.c` | **not in top 80** | n | n | n |
+  | 46818 | `src/config.c` | 8 | n | ✅ | ✅ |
+  | 46819 | `deps/lua/src/llex.c` | 29 | n | n | ✅ |
+  | 49844 | `deps/lua/src/lparser.c` | 25 | n | n | ✅ |
+  | 62507 | `src/t_stream.c` | 21 | n | n | ✅ |
+  | 23479 | `src/blocked.c` | 31 | n | n | n |
+  | 23631 | `src/replication.c` | 16 | n | n | ✅ |
+  | 25243 | `src/rdb.c` | 34 | n | n | n |
+
+  Routing rate: **0/8 @6, 1/8 @10, 5/8 @30.** So `maxFiles 6` was the *wrong* re-run
+  recommendation (0% routing); and the only budget that routes a majority (30) brings back the
+  timeout, craters per-file depth (the breadth-kills-depth result above), and costs ~$15+/case
+  (~$120 for the corpus). One file (`lbaselib.c`) doesn't rank at all. **Conclusion:** the
+  earlier "routing solved (100%)" was overfit to the original 3 cases; on this harder 8-CVE set
+  the deterministic ranking surfaces bug files at ranks 16–34 (or not at all), so a *blind*
+  9-CVE find-rate would mostly measure ranking quality at a budget where depth is already lost.
+  The honest headline below stays the **3-CVE** number; the real lever this surfaces is
+  **risk-ranking recall** (why core sinks like `blocked.c`/`rdb.c` and the vendored
+  `lbaselib.c` rank low), measurable for free before any further billed run.
 
 ### Bottom line (honest, after ~$49 of real runs)
 
 The plugin's **blind find-rate on this 3-CVE set is ~33%** (only minimist; both Redis
 bugs unfound blind across Sonnet-30, Opus-30, and Sonnet-batch-5). What moved:
-- **Routing: solved** (100%, reachability + input-processor ranking, confirmed live).
+- **Routing: solved *on the original 3 cases* (100% at maxFiles 30), but NOT general.**
+  The 8-CVE rank survey above shows bug files landing at ranks 16–34 (one unranked), i.e.
+  routing was overfit to those 3 — risk-ranking recall is the next real lever, not a
+  closed item.
 - **Reasoning: not solved.** Not by a bigger model (Opus = no change), not by simple
   depth-batching (batch-5 = no change). Only a single-file read found the tractable bug,
   and that's both unscalable and statistically thin (n=1).
