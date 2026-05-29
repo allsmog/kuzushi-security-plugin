@@ -141,7 +141,28 @@ authenticated session; each run is billed (the scoreboard reports total cost).
   XACKDEL overflow among 30 files **found it and the verifier confirmed it** — found
   100%, FP 0. The bottleneck was attention dilution, not model strength or routing.
   Caveat: that run *named* the file (ground-truth file selection), so it proves
-  "depth-given-routing," not blind end-to-end. The fix is to read the *routed* files in
-  small deep batches (multi-pass) — implemented as `eval --batch N` and the basis for a
-  product change to `/deep-scan` (small per-pass budget × iterate, which `/sweep`'s
-  sharding already pushes toward). Blind batched re-run results recorded next.
+  "depth-given-routing," not blind end-to-end.
+
+- **Blind batched re-run (Sonnet, maxFiles 25, batch 5, $8.44): routed 100%, found 0%.**
+  Reading the routed files in 5-file deep batches — blind, no file named — did **not**
+  recover the XACKDEL find, even though reading `t_stream.c` *alone* did. So the depth
+  effect is real but **steep**: the effective batch size for this bug is ~1 file, which
+  doesn't scale (25 files ⇒ 25 separate agent passes), and the single-file success is
+  n=1 and may be partly variance.
+
+### Bottom line (honest, after ~$49 of real runs)
+
+The plugin's **blind find-rate on this 3-CVE set is ~33%** (only minimist; both Redis
+bugs unfound blind across Sonnet-30, Opus-30, and Sonnet-batch-5). What moved:
+- **Routing: solved** (100%, reachability + input-processor ranking, confirmed live).
+- **Reasoning: not solved.** Not by a bigger model (Opus = no change), not by simple
+  depth-batching (batch-5 = no change). Only a single-file read found the tractable bug,
+  and that's both unscalable and statistically thin (n=1).
+
+This is **not parity with Xint**, and the harness is what lets us say so with evidence
+instead of vibes. The remaining gap is genuine reasoning-at-scale on subtle memory bugs;
+plausible next directions (each a measurable `npm run eval:cve` experiment, none yet
+proven): a **structured per-function pass** that forces enumerate-every-fixed-buffer-and-
+check-bounds rather than free reading; **repeated sampling** (k runs/file, union) to beat
+variance; and a **larger CVE corpus** scored for find-rate *and* FP-rate. The deliverable
+that endures is the measurement loop, not a parity claim.
