@@ -175,7 +175,7 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   doesn't scale (25 files ⇒ 25 separate agent passes), and the single-file success is
   n=1 and may be partly variance.
 
-- **Bigger corpus + a measurement-validity bug it exposed (no headline number yet).**
+- **Bigger corpus + a measurement-validity bug it exposed (the run that produced the headline is below).**
   The CVE corpus was expanded from 3 to **9 real cases** (minimist + 8 fix-derived Redis
   CVEs: lbaselib int-overflow, llex OOB, config authz, blocked UAF, replication UAF, rdb
   overflow, plus the existing Lua-RCE and XACKDEL). The first big run (`eval:cve`, Sonnet,
@@ -211,11 +211,11 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   timeout, craters per-file depth (the breadth-kills-depth result above), and costs ~$15+/case
   (~$120 for the corpus). One file (`lbaselib.c`) doesn't rank at all. **Conclusion:** the
   earlier "routing solved (100%)" was overfit to the original 3 cases; on this harder 8-CVE set
-  the deterministic ranking surfaces bug files at ranks 16–34 (or not at all), so a *blind*
-  9-CVE find-rate would mostly measure ranking quality at a budget where depth is already lost.
-  The honest headline below stays the **3-CVE** number; the real lever this surfaces is
-  **risk-ranking recall** (why core sinks like `blocked.c`/`rdb.c` and the vendored
-  `lbaselib.c` rank low), measurable for free before any further billed run.
+  the deterministic ranking surfaces bug files at ranks 16–34 (or not at all). This predicted a
+  routing-limited blind run — **but the full run below partly refuted that**: at maxFiles 30 the
+  *live* ranking routed 7/9 (78%), `blocked.c` included, so routing was already decent and
+  **reasoning, not routing, proved the real wall**. The survey's value was catching the bad
+  `maxFiles 6` recommendation before spending — not the (too-pessimistic) routing forecast.
 
 - **Ranking root-cause dug out (free) — and a content signal MEASURED then REJECTED.** Per-file
   score+reasons (no LLM): `lbaselib.c` scores **0** (no `*Command`, reach=0 because the code-graph
@@ -245,21 +245,60 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   wherever it lives, so it does not depend on a reader having ranked the file. That is the honest
   path forward for this bug class, not a better keyword list.
 
-### Bottom line (honest, after ~$49 of real runs)
+- **THE FULL 9-CVE BLIND RUN (Sonnet, maxFiles 30, 45-min/agent, $43.51).** The valid run finally
+  landed — the timeout fix held (all agents finished; no empty timeouts) and a `findings.json`-
+  absent fix let every case score (a draft that promotes nothing is "no findings", not a crash):
 
-The plugin's **blind find-rate on this 3-CVE set is ~33%** (only minimist; both Redis
-bugs unfound blind across Sonnet-30, Opus-30, and Sonnet-batch-5). What moved:
-- **Routing: solved *on the original 3 cases* (100% at maxFiles 30), but NOT general.**
-  The 8-CVE rank survey above shows bug files landing at ranks 16–34 (one unranked), i.e.
-  routing was overfit to those 3 — risk-ranking recall is the next real lever, not a
-  closed item.
-- **Reasoning: not solved.** Not by a bigger model (Opus = no change), not by simple
-  depth-batching (batch-5 = no change). Only a single-file read found the tractable bug,
-  and that's both unscalable and statistically thin (n=1).
+  | Case | expected file | routed | found | confirmed | FP-proxy |
+  |---|---|---|---|---|---|
+  | minimist-CVE-2020-7598 | `index.js` | ✅ | ✅ | ✅ | 0 |
+  | redis-cve-2025-46817 (lua int-overflow) | `deps/lua/src/lbaselib.c` | ❌ | ❌ | ❌ | 1 |
+  | redis-cve-2025-46818 (config authz) | `src/config.c` | ✅ | ❌ | ❌ | 1 |
+  | redis-cve-2025-46819 (llex OOB) | `deps/lua/src/llex.c` | ✅ | ❌ | ❌ | 1 |
+  | redis-CVE-2025-49844 (lua GC-UAF/RCE) | `deps/lua/src/lparser.c` | ✅ | ❌ | ❌ | 1 |
+  | redis-CVE-2025-62507 (xackdel overflow) | `src/t_stream.c` | ✅ | ✅ | ✅ | 0 |
+  | redis-cve-2026-23479 (blocked UAF) | `src/blocked.c` | ✅ | ❌ | ❌ | 1 |
+  | redis-cve-2026-23631 (replication UAF) | `src/replication.c` | ✅ | ❌ | ❌ | 1 |
+  | redis-cve-2026-25243 (rdb OOB write) | `src/rdb.c` | ❌ | ❌ | ❌ | 0 |
+  | **overall** | | **78%** | **22%** | **22%** | 6 |
 
-This is **not parity with Xint** on blind *static* discovery, and the harness is what lets
-us say so with evidence instead of vibes. The remaining gap is reasoning-at-scale on subtle
-memory bugs by *reading*.
+  Honest reads:
+  - **Routing = 78% (7/9), better than the free survey predicted.** The live ranking routed
+    `blocked.c` (the survey had it #31, just over the line); only `lbaselib.c` (unranked) and
+    `rdb.c` (#34) missed the top-30. So at a real budget the input-processor/reachability ranking
+    reaches *most* bug files — the wall is narrower than "ranks 16–34" made it look.
+  - **Found = 22% (2/9): minimist + `xackdel`.** `xackdel` is a **genuine new blind win** — earlier
+    runs found it *only* with ground-truth file-focus (n=1, "depth-given-routing"); here the
+    per-obligation discharge methodology surfaced `t_stream.c:3537` among **30** blind files and the
+    verifier confirmed it. The methodology upgrade moved a previously-unscalable win into a blind run.
+  - **The 5 routed-but-unfound are the real wall:** config authz, llex OOB, lparser **GC-UAF**,
+    blocked **UAF**, replication **UAF** — the agent *read the right file* and still didn't find the
+    bug. Subtle lifetime/logic bugs survive a blind read; this is exactly the class the execution
+    engine (and a fuzzing fleet) exists to catch instead.
+  - **Precision: 6/9 carry an extra-confirmed finding (FP-proxy).** Real concern, but caveated — a
+    single-CVE repo legitimately contains other bugs, so some "FPs" may be true positives off the
+    planted line. Not auditable from this metric alone.
+  - **Cost $43.51, not ~$120** — maxFiles 30 ran far cheaper than estimated (~$5/Redis case).
+
+### Bottom line (honest, after ~$92 of real runs)
+
+The plugin's **blind find-rate on the full 9-CVE set is 22%** (2/9: minimist + Redis xackdel),
+with **routing 78%** and **confirm 22%** — the real measured number (Sonnet, maxFiles 30, $43.51),
+not the 3-CVE teaser (which was 33% = 1/3). More bugs found in absolute terms (2 vs 1) on a
+**harder, larger** set. What the bigger run clarified:
+- **Routing: ~78%, much better than the rank survey feared.** At a real budget (top-30) the
+  reachability + input-processor ranking reaches 7/9 bug files; only an unranked vendored Lua file
+  and one #34 core file miss. Routing is *not* the headline blocker it looked like at maxFiles 6–10.
+- **Reasoning: still the wall, but it moved once.** 5 bugs were *read and missed* (Lua GC-UAF, two
+  lifecycle UAFs, an OOB, an authz) — subtle lifetime/logic bugs survive a blind read. The one that
+  flipped is `xackdel`: previously findable only with file-focus, now found blind among 30 files by
+  the per-obligation discharge methodology. So reading-at-scale isn't static — methodology lifts it —
+  but the subtle-memory class is still beyond a one-pass blind read.
+
+This is **not parity with Xint** on blind *static* discovery (22% found, 6/9 with an FP-proxy), and
+the harness is what lets us say so with a reproducible number instead of vibes. The remaining gap is
+reasoning-at-scale on subtle lifetime bugs by *reading* — the exact class the execution engine
+sidesteps by *running*.
 
 **But the empirical path closes it for the proof half.** Rather than out-read the bug, we
 borrowed the AIxCC core — prove it by *running* under sanitizers (`/sanitize-pov`,

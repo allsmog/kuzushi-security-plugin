@@ -72,23 +72,27 @@ in fresh `claude -p` sessions and scores them **blind** against fix-derived CVE 
 truth (`npm run eval:cve`). This is itself a differentiator: kuzushi *measures* its own
 find-rate instead of asserting "low false positives." It is also brutally clarifying.
 
-Blind, real agents, 3 real CVEs (minimist proto-pollution, Redis Lua-RCE, Redis XACKDEL):
+**The headline number — blind, real agents, 9 real CVEs** (minimist + 8 fix-derived Redis:
+lua int-overflow, config authz, llex OOB, lua GC-UAF/RCE, xackdel overflow, blocked UAF,
+replication UAF, rdb OOB). Sonnet, maxFiles 30, 45-min/agent, **$43.51**:
 
-| Lever tried | routed | found | confirmed |
-|---|---|---|---|
-| Sonnet, 30-file pass | 67% | **33%** | 33% |
-| Opus, 30-file pass | 100% | **33%** | 33% |
-| Sonnet, focused single file | 100% | XACKDEL **found 2/2**; Lua-UAF **0** | — |
+| signal | rate | notes |
+|---|---|---|
+| **routed** | **78%** (7/9) | reachability + input-processor ranking reaches most bug files at top-30; only an unranked vendored Lua file + one #34 core file miss |
+| **found** | **22%** (2/9) | minimist + **xackdel** (xackdel a new *blind* win — previously findable only with file-focus) |
+| **confirmed** | **22%** (2/9) | both found bugs verified exploitable by the panel |
+| FP-proxy | 6/9 | verifier confirmed a non-ground-truth finding (caveat: single-CVE repos hold other real bugs) |
 
 What this taught us, and where it leaves the Xint comparison:
-- **Routing is solved** (reachability + entry-point + input-processor ranking → 100%).
-- **Model tier is not the lever** — Opus didn't beat Sonnet on find-rate.
-- **Depth/focus is the lever** — one file read deeply finds a bug 30-files-shallow
-  misses. But focus costs ~$2/file, so whole-repo depth = the AIxCC cost tradeoff.
-- **The subtle class is still beyond us blind** — the Redis Lua **GC use-after-free**
-  was missed even focused on the right file *with* a `gc-rooting` obligation pointing at
-  it. That is exactly the bug class Xint/Theori catch — and the reason is instructive
-  (next point).
+- **Routing is decent (~78%), not the headline blocker** — earlier "100%" was overfit to 3
+  cases, but at a real budget the ranker still reaches 7/9. Reasoning, not routing, is the wall.
+- **Model tier is not the lever** — Opus didn't beat Sonnet on find-rate in the 3-CVE runs.
+- **Methodology moved reading once** — the per-obligation discharge found `xackdel` among 30
+  blind files, a bug previously findable only with ground-truth file-focus. But whole-repo
+  depth is the AIxCC cost tradeoff, and 5 routed bugs were still **read and missed**.
+- **The subtle class is still beyond us blind** — the Redis Lua **GC use-after-free** and the
+  two lifecycle **UAFs** were read and missed. That is exactly the bug class Xint/Theori catch —
+  and the reason is instructive (next point: prove it by *running*, not reading).
 
 ## The empirical engine — now built (`/sanitize-pov`)
 
@@ -163,13 +167,16 @@ catching its own blind spot before it shipped.
 - **Deep binary analysis** — Xint treats binaries as first-class; `/binary-recon` is
   triage and `/mem-exploitability` is assessment, not decompilation.
 
-**Honest bottom line:** kuzushi's measured blind find-rate is ~33% on this small CVE set
-(routing solved, reasoning the wall on subtle memory bugs). It is **not** at Xint parity
-on raw discovery, and we can now say that with a reproducible number instead of a vibe.
-The credible path to closing it is *not* "bigger model" — it's borrowing AIxCC's
-empirical core: drive the bundled MCP/concolic/sanitizer/fuzz tooling to **prove bugs by
-running them**, and reserve the LLM for triage and the human-readable writeup. Until that
-lands, the docs say *closing*, not *closed*.
+**Honest bottom line:** kuzushi's measured blind find-rate is **22% (2/9) on the full real-CVE
+set**, with **78% routing** and **6/9 carrying an FP-proxy** (Sonnet, maxFiles 30, $43.51). It
+is **not** at Xint parity on raw discovery — 5 of the 9 bugs were *read and missed* (the subtle
+lifetime/UAF class) — and we can now say exactly that with a reproducible number instead of a
+vibe. Routing turned out *not* to be the headline blocker (~78%); reasoning-at-scale on subtle
+memory bugs by reading is. The credible path to closing it is *not* "bigger model" — it's
+borrowing AIxCC's empirical core: drive the bundled MCP/concolic/sanitizer/fuzz tooling to
+**prove bugs by running them** (already shown on two real CVEs — CWE-121 and CWE-787), and
+reserve the LLM for triage and the human-readable writeup. Until that scales, the docs say
+*closing*, not *closed*.
 
 ## When to pick which
 
