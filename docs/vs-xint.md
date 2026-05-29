@@ -90,15 +90,31 @@ What this taught us, and where it leaves the Xint comparison:
   it. That is exactly the bug class Xint/Theori catch — and the reason is instructive
   (next point).
 
+## The empirical engine — now built (`/sanitize-pov`)
+
+The eval's clearest lesson was that static LLM reading misses subtle memory bugs, and the
+fix is the AIxCC core: **prove by execution under sanitizers, not by reading.** That is
+now in kuzushi as **`/sanitize-pov`**: for a memory-class finding it compiles a harness
+that drives the bug **with AddressSanitizer/UBSan** and runs it in the `--network none`
+sandbox; a sanitizer abort is ground-truth proof and `scripts/lib/sanitizers.mjs` maps the
+error class to the exact CWE (stack-buffer-overflow→CWE-121, heap-use-after-free→CWE-416,
+…). The verdict is the sanitizer report, not an LLM — a clean run is `not-reproduced`, a
+build failure is `harness-failed-build`, never a false proof. It's wired into the `/verify`
+CONFIRM routing for native/memory findings (consented, since it executes).
+
+This directly attacks the class that beat the reader: ASan catches a use-after-free or a
+buffer overflow at *runtime* regardless of how subtle it looks in source. Tested
+end-to-end on a real ASan compile (a planted overflow → recovered CWE-787 → `proven`).
+
 ## Where Xint is still ahead (no spin)
 
-- **The empirical engine we don't have.** Xint is Theori — the team that placed at
-  **DARPA AIxCC**, whose CRS finds bugs by **fuzzing under sanitizers**, not by reading.
-  ASan would have caught both the XACKDEL overflow and the Lua GC-UAF at *runtime* — the
-  subtle memory class that defeats static LLM reading. kuzushi's `/poc` + `/fuzz` are the
-  seed of this but are per-finding and harness-gated, not a coverage-guided campaign. This
-  is the real gap: **find-by-execution beats find-by-reading on memory bugs**, and it's
-  the honest reason our blind find-rate on the Redis CVEs is low.
+- **Empirical at scale.** `/sanitize-pov` proves *one finding* on consent; Xint/Theori run
+  **coverage-guided fuzzing campaigns** (many inputs, corpus/frontier management) as the
+  primary *discovery* engine. kuzushi's `/fuzz` is the seed of that but not a cluster
+  campaign. The honest gap now: we can *prove* a memory finding by execution, but
+  *discovering* the unknown ones still leans on the (weaker) static reader rather than a
+  fuzzing fleet. Validating `/sanitize-pov` end-to-end on a real CVE (it needs the target's
+  own build — e.g. `make CFLAGS=-fsanitize=address`) is the next concrete step.
 - **Raw throughput** on millions of LOC — a cluster beats a laptop session on wall-clock,
   and depth-at-breadth (focus every file) costs real money locally.
 - **Deep binary analysis** — Xint treats binaries as first-class; `/binary-recon` is
