@@ -12,6 +12,13 @@ paths. Recall and difficulty are gated by structural ceilings in today's pipelin
 by model quality (the eval showed model tier is *not* the find-rate lever; depth and
 reachability are). Each lever below removes one ceiling, ordered by leverage.
 
+**Shipped so far:** the forward call-graph primitive (`crossFileCallees` + `callees.mjs`
+— the missing half of interprocedural walking); **L1** (the taint flow-tracer now walks
+across files without a CPG); **L2** (`/deep-hunt`, the hypothesis loop); **L3** (`/chain`
+upgraded to a proactive attack-path search). Runtime recall of these still needs the
+LLM-in-the-loop eval lane exercised — the *capability* is in, the *measurement* is next.
+L4–L6 are the remaining levers.
+
 ### L1 — Interprocedural dataflow by default
 Cross-function source→sink only runs when a Joern CPG / CodeQL DB exists
 (`scripts/joern/taint-flows.sc`, forward + backward). Without one, taint degrades to

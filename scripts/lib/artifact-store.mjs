@@ -145,6 +145,11 @@ export function storeFor(target) {
     // Whole-file deep reader (/deep-scan): vulnerability hypotheses from reading
     // risk-ranked files in full (not pattern-gated). Promotes into findings index.
     deepScanPath: join(root, "deep-scan.json"),
+    // Interprocedural hypothesis-driven hunt (/deep-hunt): ranks trace anchors
+    // (entry points + dangerous sinks), then the deep-hunter walks source→sink
+    // across files (callees/callers) over rounds. Promotes into findings with the
+    // cross-file path stored as the finding's evidenceGraph.
+    deepHuntPath: join(root, "deep-hunt.json"),
     // Read-only static binary triage (/binary-recon): dangerous imports, RWX
     // segments, suspicious strings on ELF/PE/Mach-O. Assessment only.
     binaryReconPath: join(root, "binary-recon.json"),

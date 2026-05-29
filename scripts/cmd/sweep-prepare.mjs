@@ -32,6 +32,9 @@ const PRODUCERS = {
   // Whole-file deep reader — the un-pattern-gated recall lever. Off by default
   // (token-expensive); included when the sweep is run with { deep:true }.
   "deep-scan": { agent: "deep-scanner", scope: "shard", langs: "any", deepOnly: true, default: false },
+  // Interprocedural hypothesis hunt — walks source→sink across files. Also deepOnly
+  // (token-expensive); the cross-file recall lever beyond the whole-file reader.
+  "deep-hunt": { agent: "deep-hunter", scope: "shard", langs: "any", deepOnly: true, default: false },
   "taint-analysis": { agent: "taint-triager", scope: "shard", langs: "any", default: true },
   authz: { agent: "authz-reviewer", scope: "shard", langs: WEB_LANGS, default: true },
   "logic-hunt": { agent: "logic-hunter", scope: "shard", langs: WEB_LANGS, default: true },
