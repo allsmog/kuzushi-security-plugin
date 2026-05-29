@@ -9,6 +9,20 @@ import { extname, join, resolve } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { oracleSummaryForFinding } from "../lib/oracles.mjs";
+import { SANITIZE_CFLAGS, SANITIZE_ENV } from "../lib/sanitizers.mjs";
+
+// For native libFuzzer targets, the find-by-execution oracle is sanitizers: build the
+// harness with ASan/UBSan so a memory bug ABORTS during fuzzing (and fuzz-triage reads
+// the report → exact CWE). Without this a C fuzzer can run for ages over a real
+// corruption and never flag it.
+function sanitizeFor(language) {
+  if (language !== "c" && language !== "cpp") return null;
+  return {
+    cflags: `${SANITIZE_CFLAGS} -fsanitize=fuzzer`,
+    env: SANITIZE_ENV,
+    note: "compile the libFuzzer target with these cflags so memory bugs abort under the sanitizer; fuzz-triage maps the report to a CWE"
+  };
+}
 
 const MEMORY_CWES = new Set(["119","120","121","122","124","125","126","127","131","190","191","415","416","476","787","824"]);
 const EXT_LANGUAGE = {
@@ -90,6 +104,7 @@ export function fuzzInit(target, input = {}) {
       excerpt: excerptFor(resolvedTarget, anchor),
       language,
       engine,
+      sanitize: sanitizeFor(language),
       harnessDir,
       runCommand: input.runCommand ?? defaultCommand(engine),
       corpusDir: join(harnessDir, "corpus"),
