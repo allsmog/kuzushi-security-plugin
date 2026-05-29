@@ -289,15 +289,17 @@ fix-derived CVE ground truth — and reports low numbers honestly. What the meas
 us, stated plainly:
 
 - **Routing is much improved, but not universal.** The risk ranker (plus `/deep-hunt`'s
-  file-seeded anchoring) puts the vulnerable file in scope most of the time — on the blind 9-CVE
-  run it was **67%** (the 3 misses were vulnerable files that don't rank into the top-30 budget).
-  Whether the right file gets *read* is no longer the dominant bottleneck; ranking the long tail is.
-- **Finding subtle bugs is the open problem — and it's a reasoning gap, not a model gap.** On the
-  blind 9-CVE run (deep-scan lane, single-rep, $42): **found = 22%** (2/9 — minimist proto-pollution
-  and the XACKDEL overflow). **Four cases routed but weren't found** — the agent read the *right*
-  file and missed the bug — and there's a **non-trivial false-positive proxy** (the verifier
-  confirmed an *other* finding in 6/9 cases). Bigger read budgets, a stronger model, and better
-  anchoring each got **refuted** by the eval as a "win." This is exactly why the eval exists.
+  file-seeded anchoring) puts the vulnerable file in scope most of the time — **67–78%** across two
+  independent blind 9-CVE runs. The misses are vulnerable files that don't rank into the top-30
+  budget. Whether the right file gets *read* is no longer the dominant bottleneck; ranking the long
+  tail is.
+- **Finding subtle bugs is the open problem — and it's a reasoning gap, not a model gap.** Across
+  those two blind 9-CVE runs (deep-scan lane, single-rep, ~$42 each), **`found` held at 22%** (2/9 —
+  minimist proto-pollution and the XACKDEL overflow) — reproducible, which is the honest signal.
+  Several cases **routed but weren't found** — the agent read the *right* file and missed the bug —
+  and there's a **non-trivial false-positive proxy** (the verifier confirmed an *other* finding in
+  most cases). Bigger read budgets, a stronger model, and better anchoring each got **refuted** by
+  the eval as a "win." This is exactly why the eval exists.
 - **For the hard memory class, empirical execution is the lever that works.** `/sanitize-pov`
   (ASan/UBSan) and `/fuzz` *prove* a memory bug by triggering it — that is what cracked a real Redis
   CVE (XACKDEL) which static reading missed. **Reading finds the broad / logic / web / cross-file
