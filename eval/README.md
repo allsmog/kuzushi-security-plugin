@@ -217,6 +217,34 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   **risk-ranking recall** (why core sinks like `blocked.c`/`rdb.c` and the vendored
   `lbaselib.c` rank low), measurable for free before any further billed run.
 
+- **Ranking root-cause dug out (free) — and a content signal MEASURED then REJECTED.** Per-file
+  score+reasons (no LLM): `lbaselib.c` scores **0** (no `*Command`, reach=0 because the code-graph
+  can't see Lua's table-dispatch C-API edges, no keyword match) → rank #599. `rdb.c` has reach=222
+  (a heavily-called deserializer) but "rdb" isn't in the `INPUT_PROC` keyword list and reach is
+  capped at 8, so it ties into a saturated cluster at score 13. `blocked.c` = 13, just under a wall
+  of core files pinned at the 7+8 entry/reach cap. Root cause: the ranker has **no content-based
+  risk signal** — it never weighs a file's actual density of dangerous operations. The obvious fix
+  (rank by `memcpy`/fixed-buffer/`alloc`-arithmetic density) was **measured before shipping** and
+  does **not** work for these CVEs: sink-density is `blocked.c` **1.3**, `lbaselib.c` **0.0**,
+  `rdb.c` 6.5 — *below or equal to* ordinary core files (`db.c` 10.4, `debug.c` 10.7), because these
+  bugs are a lifecycle **use-after-free**, an **integer overflow**, and a deserialization overflow —
+  logic/arithmetic with no buffer-pattern fingerprint. The deep-**hunt** lane (sink-anchored, not
+  file-ranked) doesn't rescue them either: 0 anchors within ±6 of each bug line, `lbaselib.c` gets 0
+  anchors at all, and the repo yields **2115** anchors (an intractable walk). So no cheap static
+  signal — structural, keyword, content, or sink-anchor — distinguishes these bug files from
+  ordinary core files. **We deliberately did NOT add a content-density ranking signal**, because the
+  measurement shows it would be a false improvement (the exact failure mode this harness exists to
+  catch).
+
+- **What that means (the honest structural conclusion).** Blind, laptop-budget *static routing*
+  cannot reliably reach a bug site that carries no cheap signal — and a real UAF/overflow often
+  doesn't. Reading enough files to cover them anyway is precisely the read-everything **throughput**
+  advantage a cloud cluster (Xint) has and a local session does not. The mitigation kuzushi already
+  built is the right one and is **routing-independent**: the execution engine (`/sanitize-pov`
+  proves, `/fuzz` + `fuzz-triage` discover) finds a memory bug by *running* it under a sanitizer
+  wherever it lives, so it does not depend on a reader having ranked the file. That is the honest
+  path forward for this bug class, not a better keyword list.
+
 ### Bottom line (honest, after ~$49 of real runs)
 
 The plugin's **blind find-rate on this 3-CVE set is ~33%** (only minimist; both Redis
