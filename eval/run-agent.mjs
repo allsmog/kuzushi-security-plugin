@@ -128,6 +128,36 @@ export function deepHuntTask({ prepPath, repoDir, pluginDir, draftPath }) {
   ].join("\n");
 }
 
+// Task prompt for the fuzz-discoverer forked agent — the discovery-by-execution loop.
+// It gets the recon prep (native subsystems + toolchain), the repo, and the draft path,
+// and is told to BUILD an ASan/UBSan target, craft malformed inputs, RUN them, escalate a
+// weak crash, validate, and write discoveries[]. It stays blind. The eval finalize re-runs
+// the draft bytes locally (no docker in CI) and the sanitizer report decides truth.
+export function fuzzDiscoverTask({ prepPath, repoDir, pluginDir, draftPath }) {
+  return [
+    `You are running as the fuzz-discoverer (your system prompt has your full instructions).`,
+    `Recon prep (JSON): ${prepPath} — it lists native \`subsystems\` ({key, files[], languages}),`,
+    `the \`toolchain\` ({cc, kind, asanVerified}), the \`buildSystem\`, and \`sanitizeCflags\`/\`sanitizeEnv\`.`,
+    `Repo root to analyze + build in: ${repoDir}. Plugin scripts at: ${pluginDir}.`,
+    `For each subsystem: find the function that first takes untrusted bytes (parser/lexer/`,
+    `decoder/loader/unpack/command handler — NOT main), build a sanitizer-instrumented target`,
+    `(use the project's own sanitizer build if it has one, e.g. \`make SANITIZER=address\`, else`,
+    `compile the minimal translation units with the prep's sanitizeCflags + a tiny harness that`,
+    `feeds bytes to that function), then craft malformed inputs (over-long fields, huge/negative`,
+    `counts, off-by-one lengths, signed/unsigned boundaries, truncated/duplicated structures),`,
+    `RUN them, and read the abort. Escalate a clean abort / null-deref toward a controllable`,
+    `OOB-write or UAF on the same path. Validate a crash reproduces 3/3, then minimize it.`,
+    `You may run any build/run commands here (this is a sandboxed scratch copy).`,
+    `Write JSON { "discoveries": [ ... ] } to: ${draftPath}. Each discovery MUST include:`,
+    `title, language, evidence:[{filePath,startLine}] (the TARGET source location of the bug,`,
+    `not your harness), harnessFiles:[{name,content}] (baking in the crashing input), and a`,
+    `buildRunCommand that compiles WITH -fsanitize and runs that input (cwd = the harness dir,`,
+    `offline, time-boxed). Your CWE claim is advisory — the finalize re-runs the bytes and the`,
+    `sanitizer report sets the verdict + CWE. Then stop. Do not read any "expected"/"answer"/`,
+    `CVE-ground-truth files — find bugs by running the code only.`
+  ].join("\n");
+}
+
 export function verifyTask({ prepPath, repoDir, pluginDir, draftPath }) {
   return [
     `You are running as the verifier (your system prompt has your full instructions).`,

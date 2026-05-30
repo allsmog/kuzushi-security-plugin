@@ -45,7 +45,12 @@ const PRODUCERS = {
   "binary-recon": { agent: "binary-recon", scope: "repo", langs: "any", requires: "binaries", default: true },
   iac: { agent: "iac-reviewer", scope: "repo", langs: "any", default: true },
   sast: { agent: "sast-triager", scope: "shard", langs: "any", requires: "semgrep", default: true },
-  "supply-chain": { agent: "supply-chain-auditor", scope: "repo", langs: "any", network: true, default: true }
+  "supply-chain": { agent: "supply-chain-auditor", scope: "repo", langs: "any", network: true, default: true },
+  // Discovery-by-execution: crafts malformed inputs and RUNS them under sanitizers to
+  // find memory bugs with NO pre-existing finding (routing-independent). Off by default
+  // and never in an offline sweep — it compiles + executes target code, so it's opt-in
+  // and consent-gated via { producers:["fuzz-discover"] } (or /fuzz --stage discover).
+  "fuzz-discover": { agent: "fuzz-discoverer", scope: "repo", langs: NATIVE_LANGS, executes: true, default: false }
 };
 
 function shardLangs(shard) {
@@ -141,6 +146,10 @@ export function prepareSweep(target, input = {}) {
   for (const [producer, spec] of selected) {
     if (offline && spec.network) {
       skipped.push({ producer, reason: "offline: producer may make network calls" });
+      continue;
+    }
+    if (offline && spec.executes) {
+      skipped.push({ producer, reason: "offline: producer compiles and executes target code" });
       continue;
     }
     if (spec.requires && !meetsRequirement(spec.requires, resolvedTarget, store, binaries)) {

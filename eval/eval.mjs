@@ -23,7 +23,9 @@ import { prepareDeepHunt } from "../scripts/cmd/deep-hunt-prepare.mjs";
 import { finalizeDeepHunt } from "../scripts/cmd/deep-hunt-finalize.mjs";
 import { prepareVerify } from "../scripts/cmd/verify-prepare.mjs";
 import { assembleVerify } from "../scripts/cmd/verify-assemble.mjs";
-import { runAgent, deepScanTask, deepHuntTask, verifyTask } from "./run-agent.mjs";
+import { prepareFuzzDiscover } from "../scripts/cmd/fuzz-discover-prepare.mjs";
+import { finalizeFuzzDiscover } from "../scripts/cmd/fuzz-discover-finalize.mjs";
+import { runAgent, deepScanTask, deepHuntTask, verifyTask, fuzzDiscoverTask } from "./run-agent.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGIN = resolve(HERE, "..");
@@ -223,9 +225,55 @@ function oneRunDeepHunt(caseDir, expected) {
   return trace;
 }
 
+// The discover lane: deterministic recon → the fuzz-discoverer builds+runs crafted inputs
+// → finalize re-runs the draft bytes and the sanitizer report promotes proven findings →
+// score. This is the routing-INDEPENDENT lane, so its headline metric is `proven` (a real
+// sanitizer abort on the vulnerable file), not `found`/`confirmed` by reading. `routed` is
+// kept only as an info signal: did the recon even surface the vulnerable file as a seed.
+async function oneRunDiscover(caseDir, expected) {
+  const work = mkdtempSync(join(tmpdir(), "kz-eval-disc-"));
+  cpSync(join(caseDir, "repo"), work, { recursive: true });
+  mkdirSync(join(work, ".kuzushi"), { recursive: true });
+  let cost = 0;
+  const trace = { mode: "discover" };
+
+  // 1. recon prep (deterministic). Self-skips honestly on a non-buildable target.
+  const prep = prepareFuzzDiscover(work, {});
+  trace.discoverStatus = prep.status;
+  const subs = JSON.parse(readFileSync(prep.prepPath, "utf8")).subsystems ?? [];
+  const seedFiles = new Set(subs.flatMap((s) => (s.files ?? []).map(norm)));
+  trace.routed = expected.some((e) => seedFiles.has(norm(e.filePath)));
+  if (prep.status !== "prepared") {
+    return { ...trace, cost, found: false, confirmed: false, note: `discover skip: ${prep.status}`, work };
+  }
+
+  // 2. fuzz-discoverer agent — builds an ASan/UBSan target, crafts inputs, RUNS them.
+  const dr = runAgent({
+    agentMdPath: join(PLUGIN, "agents", "fuzz-discoverer.md"),
+    task: fuzzDiscoverTask({ prepPath: prep.prepPath, repoDir: work, pluginDir: PLUGIN, draftPath: prep.draftPath }),
+    repoDir: work, pluginDir: PLUGIN, draftPath: prep.draftPath, model: MODEL, timeoutMs: TIMEOUT_MS
+  });
+  cost += dr.cost; trace.discoverAgent = { ok: dr.ok, cost: dr.cost, secs: Math.round(dr.elapsedMs / 1000) };
+  if (!dr.draftWritten) return { ...trace, cost, found: false, confirmed: false, note: "discoverer wrote no draft", work };
+
+  // 3. finalize: re-run the draft bytes; the sanitizer report decides + promotes. Local
+  // backend (no docker in CI), consented for the eval scratch copy.
+  try { await finalizeFuzzDiscover(work, prep.runDir, { trustLocal: true, backend: "local" }); }
+  catch (e) { trace.finalizeError = String(e.message || e); }
+
+  const proven = readFindings(work).filter((f) => f.source === "fuzz-discover" && f.status === "proven");
+  const onExpected = proven.filter((f) => expected.some((e) => anchorMatch(e, f) || findingHitsExpected(e, f)));
+  trace.provenCount = proven.length;
+  trace.found = onExpected.length > 0;       // for the discover lane, "found" == proven-on-target
+  trace.confirmed = onExpected.length > 0;   // proven is strictly stronger than confirmed
+  trace.extraConfirmed = proven.length - onExpected.length; // proven-but-off-target (FP proxy)
+  trace.cost = cost; trace.work = work;
+  return trace;
+}
+
 function pct(n, d) { return d ? `${Math.round((n / d) * 100)}%` : "n/a"; }
 
-function main() {
+async function main() {
   if (spawnSync("claude", ["--version"], { encoding: "utf8" }).status !== 0) {
     console.error("eval: `claude` CLI not found on PATH — the harness needs it to run the real agents."); process.exit(1);
   }
@@ -242,7 +290,8 @@ function main() {
     const runs = [];
     for (let r = 0; r < REPS; r++) {
       process.stderr.write(`▶ ${c.name} (run ${r + 1}/${REPS}, model=${MODEL}, lane=${MODE})…\n`);
-      const res = (MODE === "deep-hunt" ? oneRunDeepHunt : oneRun)(c.dir, expected);
+      const runner = MODE === "deep-hunt" ? oneRunDeepHunt : MODE === "discover" ? oneRunDiscover : oneRun;
+      const res = await runner(c.dir, expected);
       totalCost += res.cost || 0;
       runs.push(res);
       process.stderr.write(`  routed=${res.routed} found=${res.found} confirmed=${res.confirmed} cost=$${(res.cost || 0).toFixed(2)}${res.note ? " — " + res.note : ""}\n`);
@@ -257,9 +306,15 @@ function main() {
   L.push("");
   L.push(`Model: **${MODEL}** · lane: **${MODE}** · reps/case: **${REPS}** · cases: **${rows.length}** · ${dh ? `maxAnchors: ${MAX_ANCHORS}` : `maxFiles: ${MAX_FILES}`} · timeout: **${Math.round(TIMEOUT_MS / 60000)}m/agent** · total cost: **$${totalCost.toFixed(2)}**`);
   L.push("");
-  L.push(`These numbers are the REAL agents (${dh ? "deep-hunter" : "deep-scanner"} + verifier) run blind via \`claude -p\`,`);
+  const disc = MODE === "discover";
+  L.push(`These numbers are the REAL agents (${disc ? "fuzz-discoverer" : dh ? "deep-hunter" : "deep-scanner"}${disc ? "" : " + verifier"}) run blind via \`claude -p\`,`);
   L.push("not human-authored drafts. Small-N and nondeterministic — directional, not a leaderboard.");
-  if (dh) {
+  if (disc) {
+    L.push("`routed` = the recon surfaced the vulnerable file as a seed (info only — this lane is");
+    L.push("routing-INDEPENDENT); `found`/`confirmed` = a fuzz-discover finding reached **proven** on");
+    L.push("the vulnerable file by a real sanitizer abort (the headline metric); `extra` = proven");
+    L.push("findings off the expected anchor (a false-positive proxy / bonus bug).");
+  } else if (dh) {
     L.push("`routed` = a trace anchor landed in the vulnerable file; `found` = a deep-hunt finding's");
     L.push("path touched it (±6 lines); `cross-file` = that flow spanned ≥2 files (the deep-hunt");
     L.push("value-add same-file taint can't produce); `confirmed` = the verifier called it exploitable.");
@@ -284,10 +339,10 @@ function main() {
   L.push(`| **overall** | | **${pct(agg.routed, agg.total)}** | **${pct(agg.found, agg.total)}** | **${pct(agg.confirmed, agg.total)}** |${dh ? ` **${pct(agg.crossFile, agg.total)}** |` : ""} |`);
   L.push("");
   const out = `${L.join("\n")}\n`;
-  const base = dh ? "scoreboard.deep-hunt" : "scoreboard";
+  const base = disc ? "scoreboard.discover" : dh ? "scoreboard.deep-hunt" : "scoreboard";
   writeFileSync(join(HERE, `${base}${CVE_MODE ? ".cve" : ""}.md`), out);
   process.stdout.write(out);
   process.stderr.write(`\nDONE — routed ${pct(agg.routed, agg.total)} · found ${pct(agg.found, agg.total)} · confirmed ${pct(agg.confirmed, agg.total)}${dh ? ` · cross-file ${pct(agg.crossFile, agg.total)}` : ""} · $${totalCost.toFixed(2)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e); process.exit(1); });

@@ -156,6 +156,12 @@ export function storeFor(target) {
     // Sanitizer proof-of-vulnerability (/sanitize-pov): compile a memory finding's
     // harness with ASan/UBSan and RUN it — a sanitizer abort is ground-truth proof.
     sanitizePovPath: join(root, "sanitize-pov.json"),
+    // Discovery-by-execution (/fuzz --stage discover, /sweep fuzz-discover producer):
+    // LLM-guided crafting of malformed inputs RUN under sanitizers, with no pre-existing
+    // finding required. The finalize promotes each sanitizer-confirmed crash as a NEW
+    // proven finding; crashLogPath is the append-only shared crash log (top-frame dedup).
+    fuzzDiscoverPath: join(root, "fuzz-discover.json"),
+    crashLogPath: join(root, "fuzz", "found-crashes.jsonl"),
     // Prebuilt semantic indexes for the heavy backends (built async on consent).
     codeqlDbDir: join(root, "codeql-db"),
     joernCpgPath: join(root, "joern", "cpg.bin.zip"),

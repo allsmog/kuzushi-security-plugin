@@ -12,7 +12,9 @@
     "eval": "node eval/eval.mjs",
     "eval:cve": "node eval/eval.mjs --cve",
     "eval:deep-hunt": "node eval/eval.mjs --mode deep-hunt",
-    "eval:deep-hunt:cve": "node eval/eval.mjs --mode deep-hunt --cve"
+    "eval:deep-hunt:cve": "node eval/eval.mjs --mode deep-hunt --cve",
+    "eval:discover": "node eval/eval.mjs --mode discover",
+    "eval:discover:cve": "node eval/eval.mjs --mode discover --cve"
   },
   "engines": {
     "node": ">=20"
