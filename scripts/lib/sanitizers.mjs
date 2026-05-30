@@ -114,17 +114,40 @@ function firstFrame(s) {
   return sym ? { symbol: sym[1] } : null;
 }
 
-// Toolchain detection. Returns { cc, kind, asan, ubsan, rust } — best-effort; we trust
-// clang/gcc to support -fsanitize=address,undefined on Linux/macOS (the common case).
+// Does this compiler actually LINK an -fsanitize=address binary? A cc can answer
+// --version yet fail to link ASan when its runtime (compiler-rt / libasan) isn't
+// installed — common for a clang without compiler-rt. Probed once per cc via a trivial
+// link; the result decides which toolchain detectToolchain prefers, so an execution
+// proof isn't silently lost to a build failure on a half-installed compiler.
+const _asanLink = new Map();
+function ccLinksAsan(cc) {
+  if (_asanLink.has(cc)) return _asanLink.get(cc);
+  let ok = false;
+  try {
+    const d = mkdtempSync(join(tmpdir(), "kz-asan-"));
+    writeFileSync(join(d, "p.c"), "int main(void){return 0;}\n");
+    const r = spawnSync(cc, ["-fsanitize=address", "-g", join(d, "p.c"), "-o", join(d, "p")], { encoding: "utf8" });
+    ok = !r.error && r.status === 0;
+  } catch { ok = false; }
+  _asanLink.set(cc, ok);
+  return ok;
+}
+
+// Toolchain detection. Returns { cc, kind, asan, ubsan, asanVerified, rust }. Prefers a
+// compiler whose AddressSanitizer runtime actually links over one that merely answers
+// --version; falls back to the first responding cc (the prior behavior) if none link,
+// so this never returns null where the old code found a compiler.
 export function detectToolchain() {
+  const responding = [];
   for (const cc of ["clang", "gcc", "cc"]) {
     const r = spawnSync(cc, ["--version"], { encoding: "utf8" });
-    if (!r.error && r.status === 0) {
-      return { cc, kind: /clang/i.test(r.stdout) ? "clang" : "gcc", asan: true, ubsan: true };
-    }
+    if (!r.error && r.status === 0) responding.push({ cc, kind: /clang/i.test(r.stdout) ? "clang" : "gcc" });
   }
+  const linkable = responding.find((c) => ccLinksAsan(c.cc));
+  const chosen = linkable ?? responding[0];
+  if (chosen) return { cc: chosen.cc, kind: chosen.kind, asan: true, ubsan: true, asanVerified: Boolean(linkable) };
   const cargo = spawnSync("cargo", ["--version"], { stdio: "ignore" });
-  return { cc: null, kind: null, asan: false, ubsan: false, rust: !cargo.error && cargo.status === 0 };
+  return { cc: null, kind: null, asan: false, ubsan: false, asanVerified: false, rust: !cargo.error && cargo.status === 0 };
 }
 
 // Recommended sanitizer build flags for a C/C++ compile. ODR-safe, frame pointers on

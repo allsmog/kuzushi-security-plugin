@@ -23,6 +23,11 @@ export function buildCoverageMap(plan, inventoryFiles, { maxFilesPerShard = 60 }
       repoProducers.push(job.producer);
       continue;
     }
+    // Only dir-shard jobs account for coverage. The attack-surface overlay emits
+    // scope:"subsystem" jobs (explicit file lists, no shardId) ON TOP of the dir-shards
+    // — they're extra divergent hunters, not the coverage backstop, so they're ignored
+    // here. The dir-shards still cover every file (100%).
+    if (!job.shardId) continue;
     coveredShardIds.add(job.shardId);
     if (!producersByShard.has(job.shardId)) producersByShard.set(job.shardId, new Set());
     producersByShard.get(job.shardId).add(job.producer);

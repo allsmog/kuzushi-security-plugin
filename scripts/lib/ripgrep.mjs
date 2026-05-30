@@ -54,6 +54,19 @@ export function scopePath(input) {
   return dir && dir !== "." ? dir : ".";
 }
 
+// Like scopePath, but returns an ARRAY of rg search paths. When /sweep's attack-surface
+// overlay (partition mode) scopes a producer to an explicit subsystem file list rather
+// than a single directory, the producer passes `{ files: [...] }` and rg searches exactly
+// those paths. Absent `files` falls back to the single dir scope, so this is a drop-in,
+// backward-compatible replacement everywhere a producer used a lone scopePath() arg.
+export function scopePaths(input) {
+  const files = input?.files;
+  if (Array.isArray(files) && files.length) {
+    return files.map((f) => String(f).replace(/^\.\//, "")).filter(Boolean);
+  }
+  return [scopePath(input)];
+}
+
 const DEFAULT_GLOBS = [
   "*.java",
   "*.kt",

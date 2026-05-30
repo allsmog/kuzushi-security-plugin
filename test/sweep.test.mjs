@@ -136,6 +136,43 @@ test("sweep: finalize writes sweep.json + coverage-map.json", () => {
   assert.equal(cov.coveragePct, 100, "all shards covered by the full plan");
 });
 
+// ---- 1.4 attack-surface partitioning overlay -------------------------------
+test("sweep partition: default plan is byte-identical (overlay is strictly additive)", () => {
+  const t = repo();
+  seedRepo(t);
+  prepareSweep(t, {});
+  const base = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  prepareSweep(t, { partition: true });
+  const part = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  // Every non-subsystem job in the partitioned plan equals the default plan's jobs,
+  // in the same order with the same jobIds — partition only APPENDS subsystem jobs.
+  const partNonSub = part.jobs.filter((j) => j.scope !== "subsystem");
+  assert.deepEqual(partNonSub, base.jobs, "dir/repo jobs are untouched by the overlay");
+  assert.ok(!base.jobs.some((j) => j.scope === "subsystem"), "no subsystem jobs without partition");
+  assert.equal(base.partition, undefined, "default plan carries no partition block");
+});
+
+test("sweep partition: groups attacker-reachable files into subsystem jobs, coverage still 100%", () => {
+  const t = repo();
+  // a parser file (input-processor signal) is the attacker-reachable surface
+  write(t, "core/parse.c", "#include <string.h>\nvoid decode(char*s){char b[8];strcpy(b,s);}\n");
+  write(t, "api/users.py", "@app.route('/u')\ndef u():\n    return User.objects.get(id=request.args['id'])\n");
+  emptyFindings(t);
+  const prep = prepareSweep(t, { partition: true });
+  const plan = JSON.parse(readFileSync(storeFor(t).sweepPlanPath, "utf8"));
+  const subJobs = plan.jobs.filter((j) => j.scope === "subsystem");
+  assert.ok(plan.partition, "plan carries a partition block");
+  assert.ok(subJobs.length >= 1, "at least one subsystem job for the reachable surface");
+  for (const j of subJobs) {
+    assert.ok(Array.isArray(j.scopeFiles) && j.scopeFiles.length, "subsystem jobs carry an explicit file list");
+    assert.ok(Array.isArray(j.prepInput.files), "prepInput scopes the producer by files");
+  }
+  // The dir-shards are untouched, so coverage is still complete.
+  const res = finalizeSweep(t, prep.runDir);
+  const cov = JSON.parse(readFileSync(storeFor(t).coverageMapPath, "utf8"));
+  assert.equal(cov.coveragePct, 100, "overlay does not reduce coverage");
+});
+
 test("findings lock: rapid sequential upserts never lose-update", () => {
   const t = repo();
   emptyFindings(t);

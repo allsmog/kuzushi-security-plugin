@@ -8,7 +8,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
-import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePath } from "../lib/ripgrep.mjs";
+import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePaths } from "../lib/ripgrep.mjs";
 import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Two candidate kinds: endpoint definitions (is there an authz gate?) and
@@ -20,12 +20,12 @@ const AUTHZ_PATTERNS = [
     query: "(findById|findOne|get_object_or_404|find_by_id|getById|\\.find\\(|objects\\.get\\(|Repository\\.findById)\\s*\\([^)]*(params|req\\.(params|query|body)|request\\.|\\bid\\b)" }
 ];
 
-function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern = 12) {
+function collectCandidates(target, maxCandidates, scopes = ["."], maxHitsPerPattern = 12) {
   const candidates = [];
   const globs = buildGlobs();
   for (const pattern of AUTHZ_PATTERNS) {
     if (candidates.length >= maxCandidates) break;
-    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "8", "-e", pattern.query, ...globs, scope]);
+    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "8", "-e", pattern.query, ...globs, ...scopes]);
     const remaining = maxCandidates - candidates.length;
     const hits = result.ok
       ? parseJsonMatches(result.stdout, 300)
@@ -47,7 +47,7 @@ function collectCandidates(target, maxCandidates, scope = ".", maxHitsPerPattern
 export function prepareAuthz(target, input = {}) {
   const resolvedTarget = resolve(target);
   const maxCandidates = Number(input.maxCandidates ?? 30);
-  const candidates = collectCandidates(resolvedTarget, maxCandidates, scopePath(input));
+  const candidates = collectCandidates(resolvedTarget, maxCandidates, scopePaths(input));
 
   const run = openRun(resolvedTarget, "authz");
   run.writeJson("prep.json", {

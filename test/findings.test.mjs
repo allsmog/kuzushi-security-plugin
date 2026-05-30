@@ -4,12 +4,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   verdictToStatus, verifyVerdictToStatus, pocVerdictToStatus, fixVerdictToStatus,
-  fingerprint, upsertFindings, patchFindings, proofStateFor
+  fingerprint, enclosingFnKey, upsertFindings, patchFindings, proofStateFor
 } from "../scripts/lib/findings.mjs";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
 
@@ -99,6 +99,59 @@ test("upsertFindings relativizes absolute evidence paths under the target", () =
   // already-relative paths pass through untouched
   upsertFindings(t, [baseFinding({ refId: "rel", evidence: [{ filePath: "lib/x.js", startLine: 2 }] })]);
   assert.equal(readDoc(t).findings.find((x) => x.refId === "rel").evidence[0].filePath, "lib/x.js");
+});
+
+// ---- 1.2 semantic dedup (enclosingFnKey collapse) ---------------------------
+// A real source file is needed on disk so enclosingFunction() can resolve a name.
+function repoWithFn() {
+  const t = tmp();
+  mkdirSync(join(t, "src"), { recursive: true });
+  writeFileSync(join(t, "src", "stream.c"),
+    // a function spanning lines 1-6 so anchors at 3 and 5 share an enclosing fn
+    "void xackdel(int n) {\n  char ids[8];\n  for (int j = 0; j < n; j++) {\n    ids[j] = j;\n  }\n}\n");
+  return t;
+}
+const memFinding = (over = {}) => ({
+  source: "systems-hunt", refId: "x", title: "overflow", severity: "high", cwe: "CWE-787",
+  verdict: "exploitable", status: "open", evidence: [{ filePath: "src/stream.c", startLine: 3 }],
+  rationale: "x", ...over
+});
+
+test("enclosingFnKey keys on the enclosing function, not the line", () => {
+  const t = repoWithFn();
+  const k3 = enclosingFnKey(t, memFinding({ evidence: [{ filePath: "src/stream.c", startLine: 3 }] }));
+  const k5 = enclosingFnKey(t, memFinding({ evidence: [{ filePath: "src/stream.c", startLine: 5 }] }));
+  assert.equal(k3, "src/stream.c#xackdel");
+  assert.equal(k3, k5, "two lines in the same fn share the key");
+  // no resolvable function (missing file / manifest / unsupported) ⇒ null, so distinct
+  // findings that merely share a file:line (e.g. two deps on package.json:1) never collapse
+  assert.equal(enclosingFnKey(t, memFinding({ evidence: [{ filePath: "nope.c", startLine: 9 }] })), null);
+});
+
+test("1.2 collapse: same source + same fn at different lines ⇒ 1 finding with both anchors", () => {
+  const t = repoWithFn();
+  upsertFindings(t, [memFinding({ refId: "a", evidence: [{ filePath: "src/stream.c", startLine: 3 }] })]);
+  upsertFindings(t, [memFinding({ refId: "b", evidence: [{ filePath: "src/stream.c", startLine: 5 }] })]);
+  const doc = readDoc(t);
+  assert.equal(doc.findings.length, 1, "two hunters on one fn collapse to one record");
+  const lines = doc.findings[0].evidence.map((e) => e.startLine).sort();
+  assert.deepEqual(lines, [3, 5], "both anchors are preserved as evidence");
+});
+
+test("1.2 collapse: a proven finding in the same fn is NEVER collapsed (proof ladder keeps identity)", () => {
+  const t = repoWithFn();
+  upsertFindings(t, [memFinding({ refId: "proven", status: "proven", evidence: [{ filePath: "src/stream.c", startLine: 3 }] })]);
+  upsertFindings(t, [memFinding({ refId: "open", status: "open", evidence: [{ filePath: "src/stream.c", startLine: 5 }] })]);
+  const doc = readDoc(t);
+  assert.equal(doc.findings.length, 2, "the proven record retains its own identity");
+  assert.ok(doc.findings.some((f) => f.status === "proven"));
+});
+
+test("1.2 collapse: different sources in the same fn are NOT collapsed (keep corroboration)", () => {
+  const t = repoWithFn();
+  upsertFindings(t, [memFinding({ source: "systems-hunt", refId: "a", evidence: [{ filePath: "src/stream.c", startLine: 3 }] })]);
+  upsertFindings(t, [memFinding({ source: "deep-scan", refId: "b", evidence: [{ filePath: "src/stream.c", startLine: 5 }] })]);
+  assert.equal(readDoc(t).findings.length, 2, "independent lanes are kept as separate corroboration");
 });
 
 test("proofStateFor reflects the lifecycle (open→confirmed→proven→patched→remediated)", () => {

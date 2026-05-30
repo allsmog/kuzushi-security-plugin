@@ -15,8 +15,9 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
-import { inventory, planShards } from "../lib/sharding.mjs";
+import { inventory, planShards, languageOf } from "../lib/sharding.mjs";
 import { findBinaries } from "../lib/binaries.mjs";
+import { partitionAttackSurface } from "../lib/attack-surface.mjs";
 
 const CMD_DIR = import.meta.dirname ?? resolve(".");
 
@@ -51,10 +52,13 @@ function shardLangs(shard) {
   return new Set(Object.keys(shard.byLanguage).filter((l) => l !== "Other"));
 }
 
-function appliesToShard(spec, shard) {
+function appliesToLangs(spec, langs) {
   if (spec.langs === "any") return true;
-  const langs = shardLangs(shard);
   return spec.langs.some((l) => langs.has(l));
+}
+
+function appliesToShard(spec, shard) {
+  return appliesToLangs(spec, shardLangs(shard));
 }
 
 // Per-shard candidate cap scales with shard size so a big shard isn't silently
@@ -182,6 +186,43 @@ export function prepareSweep(target, input = {}) {
     if (!emitted) skipped.push({ producer, reason: "no shard matched the producer's languages" });
   }
 
+  // Attack-surface overlay (opt-in via { partition:true }). Deterministically clusters
+  // the attacker-reachable files into subsystems and fans the shard producers out over
+  // them IN ADDITION to the dir-shards — so diverse hunters hit diverse attack paths
+  // (dedup is the findings index's job, not the planner's). The dir-shards are untouched
+  // and remain the coverage backstop, so the default (no-partition) plan is byte-identical
+  // and coverage stays 100%. Subsystem jobs carry an explicit file list (scopePaths).
+  let partition = null;
+  if (input.partition) {
+    const part = partitionAttackSurface(resolvedTarget, { maxFilesPerShard });
+    partition = { subsystemCount: part.subsystemCount, reachableFileCount: part.reachableFileCount, tailGroupCount: part.tailGroupCount, subsystems: part.subsystems.map((s) => ({ id: s.id, key: s.key, fileCount: s.files.length, languages: s.languages })) };
+    for (const sub of part.subsystems) {
+      const subLangs = new Set(sub.languages);
+      for (const [producer, spec] of selected) {
+        if (spec.scope !== "shard") continue;             // repo producers already span the whole repo
+        if (offline && spec.network) continue;
+        if (spec.requires && !meetsRequirement(spec.requires, resolvedTarget, store, binaries)) continue;
+        if (!appliesToLangs(spec, subLangs)) continue;
+        const cap = capFor(sub.files.length);
+        const prepInput = spec.deepOnly
+          ? { sweep: true, files: sub.files, maxFiles: cap }
+          : { sweep: true, files: sub.files, maxCandidates: cap };
+        jobs.push({
+          jobId: `j${++jobId}`,
+          producer,
+          agent: spec.agent,
+          scope: "subsystem",
+          subsystemId: sub.id,
+          subsystemKey: sub.key,
+          scopeFiles: sub.files,
+          requires: spec.requires ?? null,
+          prepInput,
+          prepareCommand: prepareCommand(producer, resolvedTarget, prepInput)
+        });
+      }
+    }
+  }
+
   const run = openRun(resolvedTarget, "sweep");
   const plan = {
     runId: run.runId,
@@ -194,6 +235,7 @@ export function prepareSweep(target, input = {}) {
     shards: shards.map((s) => ({ id: s.id, name: s.name, scopeDir: s.scopeDir, fileCount: s.fileCount, byLanguage: s.byLanguage })),
     producerSet: selected.map(([name]) => name),
     interproc: interprocPlan({ deep, offline, store }),
+    ...(partition ? { partition } : {}),
     jobCount: jobs.length,
     jobs,
     skipped,

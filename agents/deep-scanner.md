@@ -128,3 +128,7 @@ because they came from reading rather than a deterministic rule.
   every path to the sink? Custom validators with a bypass are a classic finding.
 - *"I found one bug here, moving on."* → Files often have more than one. Finish the
   read.
+- *"It's just a null-deref / clean abort — benign."* → Treat it as a signpost, not a
+  conclusion. A fixed-offset null-deref is often the shallow face of a controllable
+  overflow on a neighboring path; reason about whether the same length/index, varied,
+  reaches an out-of-bounds write before you call it low-impact.

@@ -27,10 +27,12 @@ the apply step.
    `harnessLinkage` honestly. Write the `{ candidates: [...] }` bundle to the prep's `draftPath`.
    Write only under the run dir — never edit application code here.
 3. Run the `assembleCommand` (finalize). It applies each diff to a sandbox copy, re-runs the PoC
-   (expecting NO crash), runs the functional check, runs the semantic check for supported CWEs,
-   and assigns the patch verdict. Add
-   `--trust-local` only if the user consents to a local (non-Docker) run. Report the verdict per
-   finding.
+   (expecting NO crash), **re-attacks the patch** (re-runs the fuzz harness with the variant corpus
+   you seeded, and replays every other finding's PoC that lives in the same function — any
+   reproduced crash ⇒ `exploit-still-fires`, no status advance), runs the functional check, runs the
+   semantic check for supported CWEs, and assigns the patch verdict. The re-attack **executes code in
+   the sandbox**; add `--trust-local` only if the user consents to a local (non-Docker) run. Report
+   the verdict per finding.
 4. **Apply step (explicit approval, one finding at a time).** For each `validated` finding, ask
    the user with AskUserQuestion whether to apply it to the working tree ("Apply patch" / "Skip").
    On approval, run exactly
@@ -44,3 +46,13 @@ the apply step.
 - Before findings are confirmed/proven — run `/verify` and `/poc` first.
 - When you can't accept code execution — validation builds/runs harnesses in a sandbox.
 - To auto-fix en masse — each apply is individually approved.
+
+## Rationalizations to Reject
+
+- *"The original PoC stops, so the patch is good."* → That is one shape through one caller. Seed the
+  variant corpus and let the re-attack (variants + same-function sibling replay) try to break it
+  before you trust the `validated` verdict.
+- *"A non-`validated` verdict is close enough to apply."* → Only `validated` advances to `patched`,
+  and `fix-apply` refuses anything else. Re-root-cause instead of forcing the apply.
+- *"Skip the sandbox, the diff obviously holds."* → The sanitizer/exit-signal in the sandbox is the
+  verdict, not your reading of the diff. No run ⇒ no `validated`.

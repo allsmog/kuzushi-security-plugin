@@ -15,6 +15,7 @@ import { mkdirSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
 import { assertFindingsDocument } from "./schemas.mjs";
+import { enclosingFunction } from "./callgraph.mjs";
 
 // Cross-process mutex around the read-modify-write of findings.json. /sweep fans
 // producers out in parallel; without this, two finalizes racing on the same index
@@ -178,6 +179,90 @@ export function fingerprint(finding) {
   return createHash("sha256").update(key).digest("hex").slice(0, 16);
 }
 
+// Semantic locus of a finding: "<filePath>#<enclosing function name>". Two parallel
+// hunters that land on the same bug at slightly different lines (3537 vs 3540) share
+// this key even though their line-based fingerprint() differs — so it's the lever for
+// collapsing duplicate reports. Returns NULL when no enclosing function name can be
+// resolved (unsupported language, a manifest, a headerless file): without a named
+// function we cannot tell "same bug at two lines" apart from "two distinct findings at
+// the same line" (e.g. two deps on package.json:1), so such findings are never
+// collapsed. enclosingFunction() is reused from the call-graph lib; fingerprint()
+// itself is deliberately NOT touched (it's the stable cross-run id verify/poc/fix/chain
+// depend on).
+export function enclosingFnKey(target, finding) {
+  const anchor = finding.evidence?.[0];
+  const filePath = anchor?.filePath;
+  if (!filePath || !target) return null;
+  const fn = enclosingFunction(target, filePath, anchor.startLine ?? 1);
+  return fn?.name ? `${filePath}#${fn.name}` : null;
+}
+
+const SEVERITY_RANK = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+const PROOF_STATE_RANK = {
+  lead: 0, candidate: 1, reviewed: 1, noise: 0, open: 2, reachable: 3,
+  "trigger-built": 4, "patch-planned": 5, confirmed: 5, proven: 6,
+  "patch-validated": 7, remediated: 8
+};
+// A finding on the proof ladder has load-bearing identity (verify/poc/fix/chain key on
+// its fingerprint) — it is NEVER collapsed, neither folded away nor folded into.
+const PROTECTED_STATUS = new Set(["confirmed", "proven", "patched", "remediated"]);
+
+// Total order for survivor selection: higher severity, then more-advanced proofState,
+// then EARLIER updatedAt (the original report wins the anchor), then fingerprint asc.
+// Fully deterministic so a collapse reproduces across runs (resumability).
+function collapseWins(a, b) {
+  const sa = SEVERITY_RANK[a.severity] ?? 0;
+  const sb = SEVERITY_RANK[b.severity] ?? 0;
+  if (sa !== sb) return sa > sb;
+  const pa = PROOF_STATE_RANK[a.proofState] ?? 0;
+  const pb = PROOF_STATE_RANK[b.proofState] ?? 0;
+  if (pa !== pb) return pa > pb;
+  if (a.updatedAt !== b.updatedAt) return String(a.updatedAt) < String(b.updatedAt);
+  return String(a.fingerprint) < String(b.fingerprint);
+}
+
+function unionEvidence(...findings) {
+  const seen = new Set();
+  const out = [];
+  for (const f of findings) {
+    for (const e of f.evidence ?? []) {
+      const k = `${e.filePath}:${e.startLine ?? ""}`;
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(e);
+    }
+  }
+  return out;
+}
+
+// Second-pass semantic collapse over the final finding list. Same `source` + same
+// enclosingFnKey ⇒ the same bug seen twice; fold into one record (union evidence, keep
+// the higher-ranked one). GUARDS: only within one source (cross-lane corroboration is
+// kept as independent evidence), and proof-ladder findings are passed through untouched.
+// Preserves the original order and only prunes — the surviving fingerprint is unchanged.
+function collapseByEnclosingFn(target, findings) {
+  const keyOf = (f) => {
+    if (PROTECTED_STATUS.has(f.status)) return null;
+    const fnKey = enclosingFnKey(target, f);
+    return fnKey ? `${f.source ?? ""} ${fnKey}` : null;
+  };
+  const groups = new Map();
+  for (const f of findings) {
+    const key = keyOf(f);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+  const dropped = new Set();
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    let winner = members[0];
+    for (const m of members.slice(1)) if (collapseWins(m, winner)) winner = m;
+    winner.evidence = unionEvidence(...members);
+    for (const m of members) if (m !== winner) dropped.add(m.fingerprint);
+  }
+  return findings.filter((f) => !dropped.has(f.fingerprint));
+}
+
 function buildSummary(findings) {
   const byStatus = {};
   const byVerdict = {};
@@ -207,7 +292,11 @@ export function upsertFindings(target, newFindings) {
       const fp = withRel.fingerprint ?? fingerprint(withRel);
       byFp.set(fp, normalizeFinding({ ...withRel, fingerprint: fp }, now, target));
     }
-    const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
+    const deduped = [...byFp.values()].map((f) => normalizeFinding(f, now, target));
+    // Second pass: collapse same-source findings that share an enclosing function (two
+    // parallel hunters on one bug at different lines). Fingerprint dedup above is exact;
+    // this is the semantic dedup on top of it.
+    const findings = collapseByEnclosingFn(target, deduped);
     const document = { version: "1.0", schemaVersion: "findings.v1", generatedAt: now, target, findings, summary: buildSummary(findings) };
     assertFindingsDocument(document);
     atomicWrite(store.findingsPath, `${JSON.stringify(document, null, 2)}\n`);

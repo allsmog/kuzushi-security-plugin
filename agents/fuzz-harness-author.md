@@ -73,6 +73,25 @@ If the engine's toolchain (clang/cargo-fuzz/atheris/jazzer/go) isn't installed o
 available, still write the harness + a correct `runCommand`, and note in `notes` that it's untested —
 `/fuzz --stage replay` will record `not-runnable` / `harness-failed-build` rather than a false `exploited`.
 
+## Seed for escalation, not the first crash
+
+Not every crash is worth the same. A clean `assert`, an early `abort()`, or a null-deref at a fixed
+offset is a **signpost**: it proves the fuzzer reached interesting territory, but it is a low-value
+primitive (often non-corrupting, or a denial-of-service at best). A heap/stack overflow with a
+controllable **WRITE**, or a use-after-free, is the high-value primitive worth promoting. Build the
+corpus to *push past the signpost toward the stronger primitive* rather than settling for the first
+red light:
+
+- When the bug sits behind a size/length/index guard, add seeds that walk the guard's boundary — one
+  just under, one exactly at, one just over — and seeds that flip signedness (a negative or very large
+  value that wraps). The shallow crash often guards a controllable overflow one mutation away.
+- If the first crash is a clean abort/assert, keep mutating around the same offset (vary the field the
+  guard compares, the count, the length prefix) to see whether the same path also yields an
+  out-of-bounds write — the corpus entry that *escalates* is the one to keep.
+- Record in `notes` the strongest primitive you reached (e.g. "OOB-write, WRITE of size N" vs "clean
+  abort") so triage can rank it. The sanitizer report is still the verdict — this only steers the
+  inputs you feed it.
+
 ## Report
 
 Per candidate: the engine, the function the harness drives, the oracle (sanitizer vs asserted
@@ -101,3 +120,9 @@ build + execute these in the sandbox (Docker `--network none`, or a gated local 
   build that actually links the project.
 - *"Empty corpus is fine, the fuzzer will figure it out."* → Without seeds that satisfy the guard, the
   campaign burns its time budget on inputs the precondition rejects. Seed at the frontier.
+- *"It crashed — done."* → The first crash is often the weakest one on that path (a clean abort or a
+  fixed-offset null-deref). Vary the input around it for a controllable overflow/UAF before you stop;
+  a stronger primitive on the same path is the more valuable finding.
+- *"A null-deref is the bug."* → A null-deref at a fixed offset is frequently the shallow face of a
+  guard that, varied slightly, becomes an out-of-bounds write. Seed the boundary/signedness variants
+  before concluding the crash class is the whole story.

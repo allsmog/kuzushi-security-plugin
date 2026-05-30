@@ -45,6 +45,12 @@ records the truth. If you scope down, you say so out loud.
    - Run the prep's `assembleCommand` (finalize). It promotes verdicts into
      `.kuzushi/findings.json` under the producer's `source`. The index is
      lock-guarded — concurrent finalizes are safe.
+   - **Order:** when the plan carries a `partition` (attack-surface overlay), dispatch
+     the `scope:"subsystem"` jobs FIRST, then the dir-shards. The subsystem jobs aim
+     diverse hunters at the highest-signal attack paths early; the dir-shards then
+     guarantee the rest of the repo is still covered. The two overlap on purpose —
+     collapsing the duplicates is the findings index's job (semantic dedup), NOT yours.
+     Never suppress a dir-shard job because a subsystem job already touched those files.
 
 3. **Pipeline to verification.** As soon as a producer finalizes new `open`
    findings, run `/verify` on them (don't wait for the whole fan-out). Present a
@@ -80,3 +86,7 @@ records the truth. If you scope down, you say so out loud.
 - *"Verifying every finding is slow; I'll just list them."* → Unverified findings
   are exactly the false-positive noise that makes scanners worthless. Pipeline the
   verification; present verdicts, not raw hits.
+- *"A subsystem job already covered those files, so I'll skip the dir-shard."* →
+  Partitions exist so hunters DIVERGE across attack paths, not to suppress coverage.
+  The overlap is intentional; the findings index dedups it. Skipping the dir-shard
+  punches a hole in the coverage map.

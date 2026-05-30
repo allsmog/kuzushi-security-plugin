@@ -36,7 +36,13 @@ For **every** candidate, before writing a verdict:
    - **process-exec** → attacker-influenced argv/command → OS command injection (CWE-78).
 3. **Guards** — name any bounds check, length validation, allowlist, or safe API in the path,
    and try to bypass it (off-by-one, signedness, pre/post-decode length, TOCTOU).
-4. **Verdict** from the closed set; cite `evidenceAnchors` (the sink, the source, the missing
+4. **Escalate before you settle.** Before writing `reviewed-no-impact` (or settling for a weak
+   class), ask what the *strongest* primitive on this path could be. A null-deref/clean-abort at a
+   fixed offset is often the shallow face of a controllable overflow on a sibling path — the same
+   length/index field, varied (signedness, off-by-one, pre- vs post-decode), can turn a benign trap
+   into an out-of-bounds WRITE or a UAF. Chase the stronger primitive first; only then record the
+   weaker verdict, and **name the stronger primitive you ruled out** in the rationale.
+5. **Verdict** from the closed set; cite `evidenceAnchors` (the sink, the source, the missing
    or bypassed guard).
 
 ## Verdicts (validated by finalize)
@@ -75,3 +81,6 @@ source→sink + the missing/bypassed bounds check). Be precise; cite file:line. 
   TOCTOU and name the bound that actually holds.
 - *"Unfamiliar code, probably library noise."* → `likely-library-noise` only after confirming it's
   vendored/generated **and** unreachable from app input.
+- *"It's only a null-deref / clean abort — low impact."* → That is a signpost, not a verdict. The
+  same path with a varied length/index field is frequently a controllable overflow. Rule out the
+  stronger primitive (name it) before downgrading to `reviewed-no-impact`.

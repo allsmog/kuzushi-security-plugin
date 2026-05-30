@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
-import { patchFindings, fixVerdictToStatus } from "../lib/findings.mjs";
+import { patchFindings, fixVerdictToStatus, enclosingFnKey } from "../lib/findings.mjs";
 import { detectBackend, runInSandbox, classifyResult } from "../lib/sandbox.mjs";
 import { oracleSummaryForFinding } from "../lib/oracles.mjs";
 
@@ -72,6 +72,22 @@ function functionalPassed(run) {
 
 function runnableCheck(check) {
   return check && check.kind !== "none" && check.runCommand;
+}
+
+// Sibling findings for the adversarial re-attack (1.3): a patch that stops the
+// original PoC can still leave a *different* bug in the same function reachable from a
+// sibling caller/path. Find every OTHER finding whose primary anchor sits in the same
+// enclosing function as the one being fixed (shared enclosingFnKey) and that ships a
+// runnable PoC harness — those get replayed against the PATCHED copy, and any crash
+// keeps the verdict at exploit-still-fires. Pure + deterministic (reads findings.json),
+// so the sanitizer/classifier stays the only oracle and no LLM enters fix-finalize.
+export function siblingFindingsForPatch(target, allFindings, fixFinding) {
+  const key = enclosingFnKey(target, fixFinding);
+  if (!key) return [];
+  return (allFindings ?? []).filter((s) =>
+    s.fingerprint !== fixFinding.fingerprint &&
+    s.poc?.harnessDir && s.poc?.runCommand &&
+    enclosingFnKey(target, s) === key);
 }
 
 export async function finalizeFix(target, runDir, options = {}) {
@@ -204,7 +220,10 @@ export async function finalizeFix(target, runDir, options = {}) {
     let fuzzReprove = null;
     if (c.fuzz?.harnessDir && existsSync(c.fuzz.harnessDir)) {
       cpSync(c.fuzz.harnessDir, repoDir, { recursive: true });
-      const fuzzTimeoutMs = Math.max(timeoutMs, 180000);
+      // A re-attack deserves a longer budget than the original single-PoC run — the
+      // point is to explore a CLASS of inputs (the variant corpus the fixer seeds),
+      // not just replay the one payload, so give the fuzzer real time to diverge.
+      const fuzzTimeoutMs = Math.max(timeoutMs, 240000);
       const fuzzRun = await runInSandbox({
         backend, language: c.fuzz.language ?? c.language, harnessDir: repoDir,
         runCommand: c.fuzz.runCommand, timeoutMs: fuzzTimeoutMs, trustLocal
@@ -223,6 +242,45 @@ export async function finalizeFix(target, runDir, options = {}) {
           stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, fuzzReprove,
           functional: null, applied: false,
           note: "fuzzer still crashes the patched code — a class of inputs the single PoC missed; the patch is incomplete"
+        });
+        continue;
+      }
+    }
+
+    // Phase A3 — sibling re-attack: replay every OTHER finding's PoC that lives in the
+    // SAME enclosing function as this one against the patched copy. The original PoC
+    // stopping proves nothing about a sibling bug on a different caller/path through the
+    // same function; an incomplete fix is caught here. Only an actual reproduced crash
+    // blocks validation (a sibling harness build/timeout issue is inconclusive).
+    let siblingReplay = null;
+    const siblings = siblingFindingsForPatch(resolvedTarget, findingsDoc.findings, finding);
+    if (siblings.length) {
+      const replays = [];
+      let firedFp = null;
+      for (const sib of siblings) {
+        if (!existsSync(sib.poc.harnessDir)) continue; // stale/cleaned harness — skip, don't throw
+        cpSync(sib.poc.harnessDir, repoDir, { recursive: true });
+        const sibRun = await runInSandbox({
+          backend, language: sib.poc.language ?? poc.language ?? c.language, harnessDir: repoDir,
+          runCommand: sib.poc.runCommand, timeoutMs, trustLocal
+        });
+        const sibClass = classifyResult(sibRun, sib.poc.expectedSignal ?? "crash");
+        logsRun.writeText(`fix-${fp}-sibling-${sib.fingerprint}.log`, [
+          `# fix sibling re-attack ${fp} via ${sib.fingerprint}`, `runCommand: ${sib.poc.runCommand}`,
+          `proofVerdict: ${sibClass.proofVerdict} (sibling ${sibClass.proofVerdict === "exploited" ? "STILL FIRES" : "did not reproduce"})`,
+          "## stdout", sibRun.stdout ?? "", "## stderr", sibRun.stderr ?? ""
+        ].join("\n"));
+        replays.push({ fingerprint: sib.fingerprint, proofVerdict: sibClass.proofVerdict, backend: sibRun.backend });
+        if (sibClass.proofVerdict === "exploited") { firedFp = sib.fingerprint; break; }
+      }
+      siblingReplay = { count: siblings.length, replays, passed: firedFp === null };
+      if (firedFp) {
+        results.push({
+          findingFingerprint: fp, verdict: "exploit-still-fires", language: c.language ?? null, patchPath,
+          harnessLinkage,
+          stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend }, fuzzReprove, siblingReplay,
+          functional: null, applied: false,
+          note: `a sibling finding (${firedFp}) in the same function still fires after the patch — the fix is scoped too narrowly (one caller/path)`
         });
         continue;
       }
@@ -275,6 +333,7 @@ export async function finalizeFix(target, runDir, options = {}) {
       functionalRegressionPassed: Boolean(functional.passed),
       semanticRegressionPassed: Boolean(semantic.passed),
       fuzzReprovePassed: fuzzReprove === null ? null : Boolean(fuzzReprove.passed),
+      siblingReattackPassed: siblingReplay === null ? null : Boolean(siblingReplay.passed),
       pocPlusPassed: Boolean(functional.passed && semantic.passed && fuzzReproveOk),
       semanticOracle: semantic.oracle
     };
@@ -282,7 +341,7 @@ export async function finalizeFix(target, runDir, options = {}) {
       findingFingerprint: fp, verdict, language: c.language ?? null, patchPath,
       harnessLinkage,
       stops: { proofVerdict: stopClass.proofVerdict, backend: stopRun.backend },
-      fuzzReprove, functional, semantic, validation, applied: false,
+      fuzzReprove, siblingReplay, functional, semantic, validation, applied: false,
       note: verdict === "validated"
         ? `PoC⁺: exploit stopped, functional + semantic checks passed${fuzzReprove ? ", and the fuzzer found no crash on the patched code" : ""}`
         : "exploit stopped but functional or semantic regression did not pass"
@@ -318,7 +377,7 @@ export async function finalizeFix(target, runDir, options = {}) {
           pocPlusPassed: r.verdict === "validated",
           semanticOracle: null
         },
-        stops: r.stops, fuzzReprove: r.fuzzReprove ?? null, functional: r.functional, applied: false, validatedAt, note: r.note
+        stops: r.stops, fuzzReprove: r.fuzzReprove ?? null, siblingReplay: r.siblingReplay ?? null, functional: r.functional, applied: false, validatedAt, note: r.note
       }
     };
     if (status) patch.status = status;

@@ -29,6 +29,14 @@ marked `exploit-still-fires`.
   full `fileContents` in the prep to get the line numbers and context right.
 - **You never write to the working tree.** Write only your draft (and, for a behavioral harness,
   files under the `functionalDir` you allocate in the run dir).
+- **Survive the re-attack, not just the original PoC.** A patch that merely stops the one captured
+  PoC payload can still fall to a variant or to a sibling caller of the same function. When the
+  finding carries a fuzz harness (`candidate.fuzz`), seed it with a **variant corpus** — mutations of
+  the proving payload + boundary/signedness shapes — so the re-prove explores a *class* of inputs.
+  Finalize will additionally replay every other finding's PoC that lives in the same function against
+  your patched copy. **This executes code in the sandbox** (Docker `--network none`, or a consented
+  local run); a reproduced crash from any variant or sibling keeps the verdict at
+  `exploit-still-fires` and your status does not advance.
 
 ## How you are invoked
 
@@ -89,3 +97,7 @@ unvalidated patch as a fix.
 - *"Patch the whole file to be safe."* → Must be minimal and scoped to the root cause.
 - *"Skip the functional check, the fix is obviously safe."* → Then it can't be `validated`; PoC⁺
   requires proving behavior is preserved.
+- *"The original PoC no longer fires, so it's fixed."* → That tests one input shape through one
+  caller. A variant payload or a sibling path through the same function can still reach the bug —
+  seed the variant corpus and let the re-attack (variants + same-function sibling replay) try to
+  break the patch before you trust it.
