@@ -144,7 +144,28 @@ async function runOne(discovery, runDir, backendInfo, trustLocal, idx, resolvedT
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, String(f.content ?? ""));
   }
-  const runCommand = `${envPrefix} ${discovery.buildRunCommand}`;
+
+  // Daemon-protocol path: the agent declared the server + the command sequence; the
+  // FRAMEWORK driver owns the build/start/wait/drive/CAPTURE-the-abort-to-stdout plumbing the
+  // hand-rolled run.sh kept botching. Output is a normal sanitizer report, so it falls through
+  // to parseSanitizerReport + the first-party/weak-tier gates below (unchanged).
+  let runCommand;
+  if (discovery.driver === "daemon-protocol") {
+    cpSync(join(ORACLE_DIR, "daemon-driver.mjs"), join(harnessDir, "daemon-driver.mjs"));
+    writeFileSync(join(harnessDir, "driver-config.json"), JSON.stringify({
+      repo: resolvedTarget,
+      buildCommand: discovery.buildCommand ?? null,
+      serverCommand: discovery.serverCommand,
+      protocol: discovery.protocol ?? "resp",
+      readyProbe: discovery.readyProbe ?? null,
+      sequence: discovery.sequence ?? [],
+      sanitizeEnv: SANITIZE_ENV,
+      settleMs: discovery.settleMs ?? 1500
+    }));
+    runCommand = "node daemon-driver.mjs driver-config.json";
+  } else {
+    runCommand = `${envPrefix} ${discovery.buildRunCommand}`;
+  }
   const result = await runInSandbox({
     backend: backendInfo.backend, language: discovery.language ?? "c",
     harnessDir, runCommand, timeoutMs: Number(discovery.timeoutMs ?? 180000), trustLocal
@@ -184,6 +205,7 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
     // An invariant-oracle discovery (non-crash class) declares a target, not a build command —
     // the framework oracle supplies the run. A memory-class discovery needs its buildRunCommand.
     if (d.oracle && ORACLE_HARNESS[d.oracle]) { if (!d.targetModule) fail("an oracle discovery needs a targetModule"); continue; }
+    if (d.driver === "daemon-protocol") { if (!d.serverCommand) fail("a daemon-protocol discovery needs a serverCommand"); continue; }
     if (!d.buildRunCommand) fail("each discovery needs a buildRunCommand that compiles WITH -fsanitize and runs the crafted input");
   }
 

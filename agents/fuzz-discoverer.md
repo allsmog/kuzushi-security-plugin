@@ -39,11 +39,13 @@ Everything runs in a sandbox (Docker `--network none`, or a consented local run)
    reach the real bugs. Only if the project genuinely cannot be built under sanitizers do you fall
    back to a per-subsystem harness — and say so in the draft.
 2. **Drive the REAL entry point** (per `programKind`):
-   - **daemon** — run the instrumented binary; connect to its protocol socket; send **sequences**
-     of commands drawn from `vocabulary`. Reaching a stateful bug needs setup: create the object,
-     then operate on it (e.g. an "add to a collection" command, then a "consume the collection"
-     command with a crafted count). Seed 1–3 setup ops, then the crafted one. Capture the server's
-     stderr — that's where the sanitizer abort prints.
+   - **daemon** — do NOT hand-roll the server plumbing (starting it, waiting for ready, and
+     capturing the async sanitizer abort is error-prone and *lost the crash* last time). Declare a
+     **daemon-protocol driver** discovery (schema below): the build, the server command, and the
+     command `sequence` to send. The FRAMEWORK driver builds, starts the ASan server, waits, drives
+     the sequence, and captures the abort to exactly where the finalize reads it. Your only job is
+     the sequence: 1–3 setup ops from `vocabulary` to reach the vulnerable state (create the
+     object/group), then the crafted command with a boundary / over-limit **COUNT**.
    - **cli** — run the binary with malformed argv flags, stdin, and any input-file argument.
    - **library** — link a thin harness against the built objects that calls the exported API /
      `vocabulary` handler symbols directly with malformed inputs.
@@ -73,6 +75,21 @@ Write `{ "discoveries": [{ "title", "language", "subsystem"?, "evidence": [{"fil
 driver/script that starts the target and sends the crafted sequence, and the captured-output plumbing;
 `buildRunCommand` runs it offline, time-boxed, cwd = the harness dir, and ends by emitting the
 sanitizer report on stdout/stderr.
+
+**For a daemon, emit a driver discovery instead of `harnessFiles`/`buildRunCommand`** — declare the
+server + the sequence and let the framework own the plumbing:
+
+    { "driver": "daemon-protocol", "protocol": "resp" | "inline" | "raw",
+      "buildCommand": "<sanitizerBuild.command>",
+      "serverCommand": "./src/redis-server --port {PORT} --save '' --protected-mode no --loglevel warning",
+      "readyProbe": ["PING"],
+      "sequence": [ ["XADD","k","*","f","v"], ["XGROUP","CREATE","k","g","0"],
+                    ["XACKDEL","k","g","KEEPREF","IDS","9","1","2","3","4","5","6","7","8","9"] ],
+      "evidence": [{"filePath":"src/t_stream.c","startLine":3538}], "preconditions":[...], "accessLevel":"..." }
+
+`{PORT}` is substituted by the framework. `protocol` is how the daemon frames a command (`resp` for
+Redis-style length-prefixed arrays, `inline` for space-separated + newline, `raw` for bytes verbatim).
+The driver captures the sanitizer abort to stdout for you — you never touch the server lifecycle.
 
 **Your CWE/class claims are advisory only.** `fuzz-discover-finalize` re-runs your `buildRunCommand`
 in a fresh sandbox, forces the sanitizer env, and lets `parseSanitizerReport` decide — with two gates
@@ -158,11 +175,10 @@ and a `vocabulary` including `{name:"thing.add", handlerSymbol:"thingAddCommand"
 2. **Reasoned classification** — `thingConsumeCommand` takes a caller-supplied **count** of IDs into a
    fixed buffer. Hypothesis: a count past the buffer size is an OOB write. It only runs once the
    object exists (a `!object` guard returns early otherwise) → **stateful-shallow, 1 setup op**.
-3. **Drive the real protocol** — seed state, then cross the boundary:
-   `client -p 7777 thing.add k field val` ; `client -p 7777 thing.consume k COUNT 9 id1 id2 id3 id4 id5 id6 id7 id8 id9`
-   (9 > the fixed buffer of 8). ASan aborts in `asan.log` with a stack-buffer-overflow whose
-   backtrace includes `t_thing.c` (first-party — passes the gate).
-4. **Validate 3/3, minimize** (drop to the minimal id count that still overflows), **emit the draft**:
+3. **Decide the sequence** (the framework drives it): 1 setup op to reach the vulnerable state,
+   then the crafted command crossing the boundary — `thing.add k field val`, then
+   `thing.consume k COUNT 9 id1 … id9` (9 > the fixed buffer of 8).
+4. **Emit a driver discovery** — no shell script, no lifecycle, no log plumbing:
 
 ```json
 { "discoveries": [{
@@ -171,10 +187,14 @@ and a `vocabulary` including `{name:"thing.add", handlerSymbol:"thingAddCommand"
   "evidence": [{ "filePath": "src/t_thing.c", "startLine": 3538 }],
   "preconditions": ["the target object must already exist (1 setup command)"],
   "accessLevel": "authenticated",
-  "harnessFiles": [{ "name": "run.sh", "content": "#!/bin/sh\nmake SANITIZER=address -j >/dev/null 2>&1\n./bin/server --port 7777 2>asan.log &\nP=$!; sleep 1\n./bin/client -p 7777 thing.add k f v\n./bin/client -p 7777 thing.consume k COUNT 9 1 2 3 4 5 6 7 8 9\nsleep 1; kill $P 2>/dev/null; cat asan.log" }],
-  "buildRunCommand": "sh run.sh"
+  "driver": "daemon-protocol", "protocol": "inline",
+  "buildCommand": "make SANITIZER=address -j",
+  "serverCommand": "./bin/server --port {PORT}",
+  "sequence": [ ["thing.add","k","field","val"],
+                ["thing.consume","k","COUNT","9","1","2","3","4","5","6","7","8","9"] ]
 }] }
 ```
 
-The finalize re-runs `sh run.sh`, sees the stack-buffer-overflow with a `t_thing.c` frame, derives
+The framework driver builds, starts the ASan server, drives the sequence, and captures the
+stack-buffer-overflow (with its `t_thing.c` frame) to stdout; the finalize parses it, derives
 severity from `accessLevel`+`preconditions`+class, and promotes a `proven` CWE-121 finding.

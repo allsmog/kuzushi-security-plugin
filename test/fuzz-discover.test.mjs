@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseSanitizerReport, detectToolchain } from "../scripts/lib/sanitizers.mjs";
 import { buildDiscoveryFinding, finalizeFuzzDiscover, crashOffTargetOnly, WEAK_TIER } from "../scripts/cmd/fuzz-discover-finalize.mjs";
+import { frameCommand } from "../scripts/lib/oracle-harness/daemon-driver.mjs";
 import { upsertFindings } from "../scripts/lib/findings.mjs";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
 
@@ -119,6 +120,44 @@ test("gate: a bare signed-integer-overflow is weak-tier (candidate, not proven)"
   // A real memory class is NOT weak-tier.
   assert.equal(WEAK_TIER.has(parseSanitizerReport(OVERFLOW_REPORT).errorClass), false);
   assert.equal(WEAK_TIER.has(parseSanitizerReport(UAF_REPORT).errorClass), false);
+});
+
+// --- framework-owned DAEMON driver: the agent declares the server + command sequence; the
+// driver owns the build/start/wait/drive/CAPTURE plumbing the hand-rolled run.sh kept botching
+// (it routed the ASan abort to a side file the finalize never read). ------------------------
+
+test("daemon driver: frameCommand frames RESP and inline protocols", () => {
+  assert.equal(frameCommand("resp", ["PING"]), "*1\r\n$4\r\nPING\r\n");
+  assert.equal(frameCommand("resp", ["SET", "k", "v"]), "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n");
+  assert.equal(frameCommand("inline", ["XACKDEL", "k", "g", "IDS", "9"]), "XACKDEL k g IDS 9\r\n");
+});
+
+test("daemon-protocol: the driver builds, drives, and CAPTURES the server's ASan abort", { skip: ASAN_OK ? false : "no ASan-linking toolchain" }, async () => {
+  const t = repo();
+  // A tiny vulnerable socket daemon — overflows an 8-slot array at the 9th whitespace token.
+  writeFileSync(join(t, "vuln-server.c"), [
+    "#include <stdlib.h>", "#include <string.h>", "#include <unistd.h>", "#include <arpa/inet.h>",
+    "int main(int c,char**v){int p=atoi(v[1]);int fd=socket(AF_INET,SOCK_STREAM,0);int one=1;",
+    "setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));struct sockaddr_in a;memset(&a,0,sizeof(a));",
+    "a.sin_family=AF_INET;a.sin_port=htons(p);a.sin_addr.s_addr=INADDR_ANY;if(bind(fd,(void*)&a,sizeof(a))<0)return 1;",
+    "listen(fd,1);for(;;){int s=accept(fd,0,0);if(s<0)continue;char b[1024];int n=read(s,b,sizeof(b)-1);",
+    "if(n<=0){close(s);continue;}b[n]=0;char ids[8][16];int k=0;char*tok=strtok(b,\" \\r\\n\");",
+    "while(tok){strcpy(ids[k],tok);k++;tok=strtok(0,\" \\r\\n\");}(void)ids;write(s,\"ok\\n\",3);close(s);}}"
+  ].join("\n") + "\n");
+  const runDir = join(storeFor(t).runsDir, "disc-daemon");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "draft.fuzz-discover.json"), JSON.stringify({ discoveries: [{
+    title: "stack-buffer-overflow via >8 tokens", language: "c",
+    evidence: [{ filePath: "vuln-server.c", startLine: 1 }],
+    driver: "daemon-protocol", protocol: "inline",
+    buildCommand: `${tc.cc} -fsanitize=address,undefined -g -O0 ${join(t, "vuln-server.c")} -o ${join(t, "vuln-server")}`,
+    serverCommand: `${join(t, "vuln-server")} {PORT}`,
+    sequence: [["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]]
+  }] }));
+  const res = await finalizeFuzzDiscover(t, runDir, { trustLocal: true, backend: "local" });
+  assert.equal(res.provenCount, 1, "the driver must capture + promote the server's ASan abort (not lose it to a side file)");
+  const fs = readFindings(t).filter((f) => f.source === "fuzz-discover");
+  assert.match(fs[0].cwe, /CWE-(121|787)/);
 });
 
 // --- invariant oracle (non-crash classes): prototype pollution via a FRAMEWORK-owned check.
