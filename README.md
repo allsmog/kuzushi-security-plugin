@@ -261,6 +261,33 @@ contracts** that later steps (and your own tooling) build on:
   and `/fix` attach `verification`, `poc`, `fuzz`, and `fix` blocks instead of replacing the
   finding, so a finding accretes its full discovery → proof → remediation story in one place.
 
+### Precision built into the determinism layer
+
+The agent prose reasons; the deterministic `*-finalize.mjs` scripts decide what's trustworthy, so
+the precision controls can't be reasoned around:
+
+- **Derived severity, not asserted.** A finder supplies `preconditions[]` + `accessLevel`; the
+  finalize computes severity from the precondition-count × access-level table (`scripts/lib/severity.mjs`),
+  taking the *lower* of the two columns, with a threat-model match raising it at most one step. The
+  agent's claimed severity is kept only as an advisory inflation signal — the cure for alert fatigue
+  is a number nobody can talk upward.
+- **A named non-finding taxonomy.** Sixteen numbered false-positive rules (memory-safety in a safe
+  language, auto-escaped XSS, volumetric DoS, trusted-operator input, …) plus a `refuteReason` enum
+  let a producer *drop* a candidate and record **why** — so noise is auditable, not silent.
+- **Adversarial verification by panel.** `/verify --input '{"panel":3}'` runs N independent
+  verifier lenses (reachability / guard-bypass / impact), each from a fresh context seeing only its
+  one finding. A majority confirms — but a `confirmed` consensus still requires at least one lens to
+  supply a concrete trigger, else it downgrades to `inconclusive`. Split votes break by a
+  `noiseTolerance` policy (precision drops, recall keeps, ask surfaces). Default-on for un-pattern-gated
+  `/deep-scan` leads, where false-positive risk is highest.
+- **Worked examples in every finder.** Each discovery/verifier agent carries a compact
+  source→sink→guard→verdict walk-through ending in the exact draft-JSON to emit — the lever that turns
+  *read the right file* into *found the bug*. A test (`test/agent-compliance.test.mjs`) gates the
+  required sections and ratchets worked-example coverage.
+- **Resumable long runs.** `/sweep` and `/taint-analysis` checkpoint on phase/shard boundaries
+  (`scripts/lib/checkpoint.mjs`: atomic, path-confined, payload-from-file), so a rate-limit mid-run
+  resumes instead of restarting.
+
 Schemas live under `schemas/`, and `npm run bench:smoke` verifies the core contracts plus SARIF
 metadata and locked policy behavior. See [BENCHMARKS.md](BENCHMARKS.md).
 
@@ -311,15 +338,6 @@ us, stated plainly:
 The corpus is small (single-digit CVEs, growing), so treat these as *directional, measured* results,
 not a leaderboard. The value isn't the number — it's that the number is **honest, reproducible, and
 local**, and that the instrument won't let an "improvement" ship unmeasured.
-
-### vs. cloud LLM-SAST (Xint Code)
-
-kuzushi wins **by construction** — local / auditable / closed-loop / free / air-gappable — and the
-cloud tools are **genuinely ahead** where it counts most: raw throughput on millions of LOC, and a
-*published track record of real 0days*. kuzushi's recall on hard real CVEs is honestly measured and
-still has a way to go (see above). The honest pitch is **not** "matches Xint's find-rate" — it's
-"the answers it does produce are local, reproducible, and come with a verify→prove→fix loop a cloud
-report doesn't." Full comparison: **[docs/vs-xint.md](docs/vs-xint.md)**.
 
 ## Where it's headed
 

@@ -44,6 +44,32 @@ surfaced them.
 4. Write `rationale` (≥120 chars): the signal, the binary, and why it does or
    doesn't matter. Set `binaryClass` and keep `evidenceAnchors` as `{ filePath }`.
 
+## Worked example (a vendored binary importing `system`)
+
+Signal `{ kind: "dangerous-import", symbol: "system", filePath: "vendor/bin/updater" }` (ELF).
+
+- **Classify:** `vendor/bin/updater` — a vendored helper. Find the caller in source:
+  `subprocess.run(["vendor/bin/updater", user_channel])`, where `user_channel` is a request field.
+- **Context the signal:** `system` is imported AND the binary is fed attacker-controlled argv, so
+  if `updater` forwards that to `system()` it's command injection. The import is reachable from
+  attacker input → real exposure, not a benign libc reference.
+- **Verdict `finding`** (`binaryClass: "vendored-dependency"`); evidence is the binary path. Defer
+  any hardening/exploitability tiering to `/mem-exploitability`. Assessment only — no execution.
+
+```json
+{ "candidates": [{
+  "binaryId": "<prep id for vendor/bin/updater>",
+  "binaryClass": "vendored-dependency",
+  "title": "Vendored updater imports system() and is fed request-controlled argv",
+  "cwe": "CWE-78",
+  "severity": "high",
+  "verdict": "finding",
+  "rationale": "vendor/bin/updater (ELF) imports system(); the app invokes it as subprocess.run(['vendor/bin/updater', user_channel]) where user_channel is a request field. The dangerous import is reachable from attacker-controlled argv, so if updater forwards it to system() it is OS command injection — a real exposure in context, not a benign libc reference. Assessment only; no execution or disassembly.",
+  "nextChecks": ["confirm updater forwards argv to system(); validate/allowlist user_channel"],
+  "evidenceAnchors": [{ "filePath": "vendor/bin/updater" }]
+}] }
+```
+
 ## When NOT to use
 
 - No binaries present, or as an exploitation/gadget tool (it isn't one).

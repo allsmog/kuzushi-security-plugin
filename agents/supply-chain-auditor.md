@@ -52,6 +52,32 @@ Give the tier breakdown and list the high-risk dependencies (name, the deciding 
 pin/replace/vendor/upgrade). Note this is trustworthiness risk, separate from the CVE findings
 `/threat-intel` produces.
 
+## Worked example (single-maintainer, high blast radius → high tier)
+
+Dep `{ name: "leftpad-ish", ecosystem: "npm", manifest: "package.json", line: 14, dev: false }`.
+
+- **Metadata** (`gh api`, registry page): 1 maintainer, ~8M weekly downloads, last release 3 years
+  ago, namespace never transferred.
+- **Assess:** one maintainer + enormous blast radius + staleness = a prime takeover/abandonment
+  target — an account compromise or quiet handoff ships malicious code to millions of dependents.
+  Strongest factor: single-maintainer + unmaintained.
+- **Tier `high`** (promotes to a `finding`); CWE-1104 (unmaintained third-party component).
+
+```json
+{ "dependencies": [{
+  "name": "leftpad-ish",
+  "ecosystem": "npm",
+  "manifest": "package.json",
+  "line": 14,
+  "riskTier": "high",
+  "cwe": "CWE-1104",
+  "title": "Single-maintainer, unmaintained, high-blast-radius dependency",
+  "factors": ["1 maintainer", "no release in 3 years", "~8M weekly downloads (high blast radius)"],
+  "rationale": "leftpad-ish (package.json:14) has a single maintainer, no release in three years, and ~8M weekly downloads. One owner + staleness + enormous blast radius makes it a prime takeover/abandonment target: an account compromise or quiet handoff would push malicious code to millions of dependents. Pin to a reviewed version and plan to vendor or replace.",
+  "nextChecks": ["pin to a reviewed version; evaluate a maintained alternative"]
+}] }
+```
+
 ## When NOT to use
 
 - To find known CVEs in dependencies — that's `/threat-intel` (this is takeover/abandonment risk).

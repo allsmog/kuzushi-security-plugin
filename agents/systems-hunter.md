@@ -68,6 +68,33 @@ Summarize verdict counts and list the `exploitable` findings (candidate id, CWE,
 source→sink + the missing/bypassed bounds check). Be precise; cite file:line. Don't claim
 `exploitable` without a concrete reachable path and a real memory-safety/RCE impact.
 
+## Worked example (unbounded strcpy — `src/parse.c`)
+
+Candidate `{ pattern: "strcpy", concern: "unbounded copy", filePath: "src/parse.c", line: 6 }`.
+
+- **Reach:** `parse(char *input)` does `char buf[16]; strcpy(buf, input);`. `input` is the
+  parameter — `tree_sitter:callers parse` to confirm a caller feeds attacker-controlled bytes
+  (a parsed field / argv). Reachable.
+- **Impact:** `strcpy` copies until NUL with NO bound into a fixed 16-byte stack buffer; any
+  `input` > 15 bytes overflows `buf` → stack OOB **write** past the saved return address (CWE-787).
+- **Guards:** none — no `strncpy`, no length check before the copy.
+- **Escalate (don't settle for DoS):** the strongest primitive is a controlled stack overflow
+  / return-address overwrite, not a clean crash — say so, don't downgrade to "DoS".
+- **Severity inputs:** reachable from unauthenticated input → `accessLevel:
+  "unauthenticated-remote"`, `preconditions: []` → finalize derives HIGH.
+
+```json
+{ "candidates": [{
+  "candidateId": "<prep id for parse.c:6>",
+  "verdict": "exploitable",
+  "cwe": "CWE-787",
+  "accessLevel": "unauthenticated-remote", "preconditions": [],
+  "rationale": "parse() declares char buf[16] and calls strcpy(buf, input) at parse.c:6 with no length bound. input is the function parameter; callers feed it attacker-controlled bytes. Any input longer than 15 bytes overflows the fixed stack buffer — a stack OOB write past the return address, a controllable overflow rather than a clean abort. No strncpy or length check guards the copy.",
+  "nextChecks": ["/sanitize-pov: drive parse() with a 64-byte input under ASan to confirm the stack-buffer-overflow"],
+  "evidenceAnchors": [{ "filePath": "src/parse.c", "startLine": 6 }]
+}] }
+```
+
 ## When NOT to use
 
 - On code with no native / parser / deserialization surface — there's nothing for you to confirm.

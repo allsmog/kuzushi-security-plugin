@@ -57,6 +57,31 @@ an anchor. Verdicts promote into `.kuzushi/findings.json` (`source:"sharp-edges"
 Summarize verdicts by category and list the `finding`s (file:line, the adversary, the safer API to
 prefer). Frame fixes as "make the secure path the default."
 
+## Worked example (dangerous default — TLS verification off)
+
+Candidate `{ category: "dangerous-defaults", pattern: "verify=False", filePath: "client/http.py", line: 8 }`:
+a shared `session = requests.Session(); session.verify = False`.
+
+- **Adversary — the lazy developer:** every call through this session inherits `verify=False`;
+  copying the obvious `session.get(...)` usage silently disables certificate validation.
+- **Insecure state:** a network MITM presents any cert and is trusted → tokens sent over the
+  "TLS" channel are interceptable. The secure path (verification) is *not* the default here.
+- **Impact check:** the session carries an Authorization header → real exposure, not a footgun
+  with no reachable vuln → `finding` (else it would be `candidate`).
+
+```json
+{ "candidates": [{
+  "edgeId": "<prep id for http.py:8>",
+  "category": "dangerous-defaults",
+  "title": "Shared HTTP session disables TLS verification (verify=False)",
+  "cwe": "CWE-295",
+  "verdict": "finding",
+  "rationale": "client/http.py:8 sets session.verify=False on a shared requests session used for all outbound calls, including ones that send Authorization. Every caller inherits disabled certificate validation by default, so a network MITM with any cert is trusted and can intercept tokens. The secure path (verification on) is not the default — make a verified session the default and require an explicit, reviewed opt-out.",
+  "nextChecks": ["remove verify=False; make verification the default"],
+  "evidenceAnchors": [{ "filePath": "client/http.py", "startLine": 8 }]
+}] }
+```
+
 ## When NOT to use
 
 - For injection / source→sink bugs — that's `/sast` and `/taint-analysis`; this is API-design misuse.

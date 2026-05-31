@@ -41,7 +41,13 @@ single verifier can be confidently wrong; the panel makes the call by majority.
   computes per-finding consensus (majority confirms; a `confirmed-exploitable`
   consensus still requires at least one lens to supply a concrete trigger, else it
   downgrades to `inconclusive`) and patches the index with a `verification.panel`
-  block (votes, agreement). Use this from `/sweep` on high-severity findings.
+  block (votes, agreement, and — when the panel leaned non-finding — the modal
+  exclusion rule + refute reasons). Use this from `/sweep` on high-severity findings.
+- **Split-vote policy.** Add `"noiseTolerance"` to the input to decide a no-majority
+  tie: `precision` drops it (`not-exploitable`), `recall` (default) keeps it
+  `inconclusive` for manual review, `ask` surfaces it so you decide. The assemble
+  reports `needsUserDecision` fingerprints under `ask` — present those via
+  AskUserQuestion rather than silently keeping or dropping them.
 
 ## Proof routing (CONFIRM picks the next step by language / finding-type)
 

@@ -51,6 +51,20 @@ nothing leaves the machine.
 8. Report: coverage %, the uncovered shards (if any), the new `exploitable`/`open`
    findings by source, and which survived `/verify`.
 
+## Checkpointing (resume a large sweep)
+
+A whole-repo sweep fans many jobs out and costs real tokens — don't restart it from zero after
+an interruption. As each job finalizes, record it:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/checkpoint.mjs" shard "<runDir>/sweep-state" <jobId> --root "<repo root>" --from <chunk.json>
+```
+
+On a resumed sweep, `checkpoint.mjs load "<runDir>/sweep-state"` returns `shards_done`; **re-spawn
+only the jobs not in that list** (the finalizes are fingerprint-deduped, so a re-run is safe but
+wasteful). Trust `shards_done`, not a glob of the run dir — stale drafts from a prior attempt may
+linger. The writes are atomic and path-confined to the repo.
+
 ## When NOT to use
 
 - For a small, targeted change or a single known file — run the specific producer

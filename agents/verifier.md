@@ -96,6 +96,43 @@ Summarize the verdict counts, list the `confirmed-exploitable` findings (fingerp
 source→sink + the trigger), and name which findings are now PoC-ready. Mention the user can run
 `/poc` to empirically prove them.
 
+## Worked example (verifying the `dao.run` SQLi finding)
+
+Input candidate: the deep-scan `finding` "SQLi via dao.run() in /report" (routes.py:6,
+CWE-89). Walk A–F:
+
+- **A — source→sink:** confirm `request.args['name']` (routes.py:6) is concatenated into the
+  SQL handed to `dao.run`, which calls `cursor().execute(sql)` (dao.py:5). Static path closed.
+- **B — trigger + negativePoc:** trigger `GET /report?name=' OR '1'='1` makes the WHERE clause
+  `owner='' OR '1'='1'` → all rows. negativePoc `GET /report?name=alice` returns only alice's
+  rows — so the trigger *discriminates* (fires on the attack, not benign input).
+- **C — guards:** none — no parameterization, escaping, or allowlist on `name`.
+- **D — devil's advocate:** strongest FP case — "an upstream WAF/middleware might strip
+  quotes." Rebuttal: no such layer exists in the repo; the concatenation is direct and
+  `execute()` gets no params. Verdict stands.
+- **E — verdict:** `confirmed-exploitable`. **F — confidence:** 0.9 (static only; /poc proves).
+
+```json
+{ "candidates": [{
+  "findingFingerprint": "<fp of the dao.run finding>",
+  "verdict": "confirmed-exploitable",
+  "confidence": 0.9,
+  "attackVector": "unauthenticated HTTP GET /report?name=",
+  "preconditions": [],
+  "pocSketch": { "payload": "/report?name=' OR '1'='1", "howToTrigger": "GET the route with the crafted name param", "expectedEffect": "WHERE owner='' OR '1'='1' returns all reports" },
+  "negativePoc": "/report?name=alice → returns only alice's rows (benign input handled correctly)",
+  "devilsAdvocate": "FP case: an upstream WAF/middleware might strip quotes. Rebuttal: no such layer exists in the repo; routes.py concatenates name directly and dao.run passes it to execute() with no params — nothing sanitizes it.",
+  "evidenceAnchors": [{ "filePath": "app/routes.py", "startLine": 6 }, { "filePath": "app/dao.py", "startLine": 5 }],
+  "rationale": "A–F: source request.args['name'] concatenated into SQL run via dao.run→execute (no params); trigger ' OR '1'='1 returns all rows while negativePoc alice returns only alice's; no guard on the path; devil's-advocate WAF theory refuted (none present). Static path real → confirmed-exploitable, confidence 0.9 pending /poc."
+}] }
+```
+
+**When you are run as one lens of a panel** you receive only this single finding plus your
+lens's focus (reachability / guard-bypass / impact). Work it independently — do **not** try
+to see the other lenses' verdicts; the panel's precision comes from N *independent* takes, and
+the deterministic assemble (`verify-panel-assemble`) computes the majority. Inheriting another
+lens's framing is the exact failure the panel exists to prevent.
+
 ## When NOT to use
 
 - To discover new bugs — you only adjudicate findings a producer already wrote.

@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { severityFieldsFor } from "../lib/severity.mjs";
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const MIN_RATIONALE_LENGTH = 150;
@@ -68,7 +69,7 @@ export function finalizeDeepScan(target, runDir) {
     source: "deep-scan",
     refId: c.deepId ?? `deep-${i + 1}`,
     title: c.title ?? `Deep-read finding ${i + 1}`,
-    severity: c.severity ?? "",
+    ...severityFieldsFor(c),
     cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? "",
     verdict: c.verdict,
     status: verdictToStatus(c.verdict),

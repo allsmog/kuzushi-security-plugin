@@ -59,6 +59,21 @@ Summarize the run: ranked CWEs considered, sinks/sources labeled, flows by evide
 `finding`s (CWE, source→sink, the guard gap) and note anything the evidence gate downgraded.
 Point the user at `.kuzushi/taint-analysis.json` and the open findings in `.kuzushi/findings.json`.
 
+## Checkpointing (resume a long run)
+
+The staged drafts in the run dir are phase checkpoints. If a run is interrupted (rate limit,
+context exhaustion), a resumed `/taint-analysis` should **skip the completed phase** rather than
+restart: `sinksDraftPath`+`sourcesDraftPath` present ⇒ labeling done (go to step 3);
+`flowsDraftPath` present ⇒ tracing done (go to step 4); `findingsDraftPath` present ⇒ triage done
+(just run the assemble). To make resume explicit, record the phase on a boundary:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/checkpoint.mjs" save "<runDir>/taint-state" <phaseNum> --key stage --root "<repo root>" --from <chunk.json>
+```
+
+and on a fresh session read it back with `checkpoint.mjs load "<runDir>/taint-state"` (atomic,
+path-confined to the repo) to learn `stage_done` before re-spawning anything.
+
 ## When NOT to use
 
 - For native / memory-safety bugs (OOB, UAF, deserialization, JNI) — use `/systems-hunt`.

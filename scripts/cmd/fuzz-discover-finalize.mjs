@@ -166,6 +166,30 @@ async function runOne(discovery, runDir, backendInfo, trustLocal, idx, resolvedT
       settleMs: discovery.settleMs ?? 1500
     }));
     runCommand = "node daemon-driver.mjs driver-config.json";
+  } else if (discovery.driver === "coverage-fuzz") {
+    // Coverage-guided script/parse-entry path: the agent declared ONLY the one-input entry harness
+    // (which entry point, how to call it), which target sources to compile, and seeds. The FRAMEWORK
+    // owns the portable coverage driver (cov-fuzz.c), the sanitizer build flags, and the verdict —
+    // the agent writes no code that runs in a verdict. Output is a normal sanitizer report, so it
+    // falls through to parseSanitizerReport + the first-party/weak-tier gates below (unchanged).
+    cpSync(join(ORACLE_DIR, "cov-fuzz.c"), join(harnessDir, "cov-fuzz.c"));
+    cpSync(join(ORACLE_DIR, "coverage-fuzz.mjs"), join(harnessDir, "coverage-fuzz.mjs"));
+    writeFileSync(join(harnessDir, "harness.c"), String(discovery.entryHarness ?? ""));
+    writeFileSync(join(harnessDir, "cf-config.json"), JSON.stringify({
+      repo: resolvedTarget,
+      cc: discovery.cc ?? "clang",
+      compileSources: discovery.compileSources ?? [],   // the target's own sources (e.g. the interpreter core)
+      includeDirs: discovery.includeDirs ?? [],
+      extraCflags: discovery.extraCflags ?? [],
+      libs: discovery.libs ?? ["-lm"],
+      harnessFile: "harness.c",
+      seeds: discovery.seeds ?? null,                    // inline grammar seeds, OR
+      seedDir: discovery.seedDir ?? null,                // the target's bundled corpus dir (findScriptCorpus)
+      secs: discovery.secs ?? 60,
+      runSeed: discovery.runSeed ?? 1,                   // recorded -> reproducible search
+      sanitizeEnv: SANITIZE_ENV
+    }));
+    runCommand = "node coverage-fuzz.mjs cf-config.json";
   } else {
     runCommand = `${envPrefix} ${discovery.buildRunCommand}`;
   }

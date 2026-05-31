@@ -50,6 +50,36 @@ atomicity, idempotency, ordering, ownership, a value bound — is *assumed* but 
 5. Write `rationale` (≥150 chars): the steps, the attacker's move, the missing
    invariant. Keep `evidenceAnchors` as `{ filePath, startLine }`.
 
+## Worked example (idempotency — `api/pay.py`)
+
+Flow: `POST /checkout` → `amount = request.json['amount']` → `charge(card, amount)` →
+`order.status='paid'` → `balance -= amount`. Walk it:
+
+- **Invariant that must hold:** the charge is keyed to a single unique execution (an
+  idempotency key, or a dedupe on order id) so a replay can't run it twice.
+- **Enforced?** No. Nothing keys this POST. A retried/duplicated request (double-click,
+  proxy retry, deliberate replay) re-runs `charge` → double debit. Secondary: the steps
+  aren't atomic — if `balance -= amount` fails after `charge`, the card is charged but the
+  ledger isn't — but the primary bug is the replay.
+- **Non-findings check:** not rule 16 (no timing window needed — a plain replay re-runs it).
+- **Severity inputs:** needs a checkout session → `accessLevel: "authenticated"`, 1
+  precondition → the finalize derives MEDIUM.
+
+```json
+{ "candidates": [{
+  "logicId": "checkout-no-idempotency",
+  "logicClass": "idempotency",
+  "title": "Replayable charge: POST /checkout has no idempotency key",
+  "cwe": "CWE-837",
+  "accessLevel": "authenticated",
+  "preconditions": ["a valid checkout session / order in progress"],
+  "verdict": "finding",
+  "rationale": "checkout() calls charge(card, amount) at pay.py:6 with nothing keying the operation to one execution — no idempotency key, no dedupe on order id. A retried or replayed POST re-runs charge → the card is debited twice. The status/balance updates that follow are also non-atomic with the charge.",
+  "nextChecks": ["/verify a double-submit double-charges a test ledger"],
+  "evidenceAnchors": [{ "filePath": "api/pay.py", "startLine": 6 }]
+}] }
+```
+
 ## When NOT to use
 
 - Pure data-flow / injection / memory / crypto bugs — wrong tool.

@@ -44,6 +44,33 @@ Summarize the scan (rules/hits) and the triage counts, and list the `finding`s (
 file:line, the one-line reason). Note that scanner hits you `rejected` were read, not dismissed
 blindly.
 
+## Worked example (reading behind two semgrep hits → one real, one FP)
+
+`semgrep:scan` returns two `sqlalchemy-execute-raw-query` hits:
+
+- **Hit A — `routes/search.py:20`:** `db.execute(text("… WHERE q='"+q+"'"))`. Open it: `q` is
+  `request.args['q']`, concatenated into `text()` with no bind params → real injection → `finding`.
+- **Hit B — `routes/list.py:11`:** `db.execute(text("… WHERE id=:id"), {"id": pid})`. Open it: a
+  bound parameter; `pid` is never string-interpolated → the rule misfired → `rejected`, and *say
+  why* (parameterized) so the dismissal is auditable, not a silent drop.
+
+```json
+{ "candidates": [
+  { "ruleId": "python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+    "title": "SQLi: request q concatenated into text() query",
+    "cwe": "CWE-89", "severity": "high", "verdict": "finding",
+    "rationale": "search.py:20 concatenates request.args['q'] directly into a SQLAlchemy text() string with no bind parameter, so an attacker controls the WHERE clause. Confirmed by reading: q is unsanitized request input and no parameterization is on the path.",
+    "nextChecks": ["/verify the search SQLi"],
+    "evidenceAnchors": [{ "filePath": "routes/search.py", "startLine": 20 }] },
+  { "ruleId": "python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+    "title": "FP: list query is parameterized",
+    "cwe": "CWE-89", "severity": "low", "verdict": "rejected",
+    "rationale": "list.py:11 uses a bound parameter (text('… WHERE id=:id'), {'id': pid}); pid is never string-interpolated into the SQL, so the rule misfired. Read the source — parameterized, not injectable.",
+    "nextChecks": [],
+    "evidenceAnchors": [{ "filePath": "routes/list.py", "startLine": 11 }] }
+] }
+```
+
 ## When NOT to use
 
 - When semgrep isn't installed — there's nothing to scan.

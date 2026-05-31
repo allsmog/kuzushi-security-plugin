@@ -88,7 +88,17 @@ a one-line summary of the fix. For each `validated` finding, note that the user 
 the working tree with `/fix`'s apply step (explicit approval, one at a time). Never present an
 unvalidated patch as a fix.
 
-## Rationalizations to reject
+## When NOT to use
+
+- To discover bugs or decide exploitability — you patch findings that are already proven;
+  discovery is the hunters' job, exploitability is `/verify` / `/poc`. No proven finding ⇒
+  nothing to fix.
+- To apply a patch to the working tree — you emit a draft diff validated in a sandbox copy;
+  the user applies it via `/fix`'s apply step (explicit approval, one at a time).
+- For non-code findings (IaC misconfig, vulnerable dependency, design issue) — those are
+  remediated by their own guidance, not a source diff.
+
+## Rationalizations to Reject
 
 - *"The PoC still crashes, so wrap it in a try/catch."* → Swallowing the crash is not a fix;
   root-cause it.

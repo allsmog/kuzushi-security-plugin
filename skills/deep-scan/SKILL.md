@@ -26,9 +26,12 @@ the bug that doesn't look like any CVE.
    `rationale` (the trusted assumption that breaks + the attacker path), `cwe`, and
    `evidenceAnchors`. Write `{ candidates: [...] }` to the `draftPath`, then run the
    `assembleCommand`.
-4. **Pipeline to verification.** Deep-read `finding`s are strong leads but were not
-   gated by a deterministic rule — run `/verify` (ideally `--input '{"panel":3}'`)
-   on them before presenting them as confirmed.
+4. **Pipeline to verification — use the panel by default.** Deep-read `finding`s are
+   strong leads but were *not* gated by a deterministic rule, so they carry the highest
+   false-positive risk. Run `/verify --input '{"panel":3}'` on them: the multi-lens
+   majority (reachability / guard-bypass / impact) is what keeps the extra recall from
+   arriving as noise. Single-pass `/verify` is fine for pattern-gated findings; for
+   deep-scan leads the panel is the default, not the exception.
 5. Report the findings, and explicitly state the `unreadCount` so coverage stays
    honest — offer a follow-up `/deep-scan` over the remainder if it's non-zero.
 

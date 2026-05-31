@@ -76,6 +76,32 @@ is never under-reported), infers `kind` if you omit it, attaches the `chains` re
 
 If no genuine composition exists, write `{ "chains": [] }` and say so.
 
+## Worked example (sub-threshold primitives → critical exfil)
+
+`findings.json` holds three independently-unremarkable members:
+- `fpA` — `lead`: a verbose error leaks internal hostnames (info-leak, low).
+- `fpB` — `candidate`: SSRF in the webhook fetcher (medium, unconfirmed).
+- `fpC` — `candidate`: the cloud-metadata endpoint is reachable from the app network.
+
+**Backward from the asset** (cloud credentials): the SSRF (`fpB`) reaches metadata *only if* the
+attacker knows an internal host to target — which `fpA`'s leak supplies. The links are real
+precondition→effect edges, not co-occurrence: `fpA` (leak host) → satisfies `fpB`'s precondition
+(SSRF needs a target) → `fpB` reaches `fpC` (metadata) → IAM credential theft.
+
+```json
+{ "chains": [{
+  "title": "Info-leak → SSRF → cloud-metadata credential theft",
+  "kind": "attack-path",
+  "entryPoint": "POST /webhook (fetcher)",
+  "asset": "cloud IAM credentials",
+  "members": ["fpA", "fpB", "fpC"],
+  "severity": "critical",
+  "steps": ["fpA: leaks an internal hostname (gives the SSRF a target)", "fpB: SSRF fetches that host", "fpC: reaches 169.254.169.254 metadata → returns IAM creds"],
+  "narrative": "The verbose error (fpA) discloses an internal hostname, satisfying fpB's precondition (the SSRF needs a reachable internal target). fpB's request, pointed there, reaches the cloud-metadata endpoint (fpC), which returns IAM credentials. No single member is critical alone; composed, they form a critical credential-theft path — exactly the chain per-finding triage misses.",
+  "evidenceAnchors": [{ "filePath": "net/webhook.py", "startLine": 20 }]
+}] }
+```
+
 ## When NOT to use
 
 - **Before findings exist** — there's nothing to chain. Run hunters first (`/sweep`,

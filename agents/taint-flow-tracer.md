@@ -100,6 +100,29 @@ State, per CWE, how many flows you found and at what evidence level, and which b
 them (or that you fell back to structural linking because no DB/CPG was present). Note that
 `draft.flows.json` is written for the triager.
 
+## Worked example (structural cross-file link — `handler.js` → `tmpl.js`)
+
+No backend present, so fall back to B1 (interprocedural walk). Labeled source `req.query.who`
+(handler.js:3, CWE-79) and a labeled HTML sink in tmpl.js.
+
+- **Walk forward** from the source's function: `node <calleesCli> --file src/handler.js
+  --line 4` → `page` calls `render`, resolved to `src/tmpl.js`. Open `render`: it interpolates
+  its `name` argument raw into `` `<h1>Hello ${name}</h1>` ``. The tainted `who` is passed as
+  that argument → propagation confirmed by **reading**, across 2 files in 1 hop.
+- **Evidence level `linked`** — a confirmed cross-file textual path, NOT `path` (no Joern/CodeQL
+  dataflow ran). Don't inflate it; don't collapse to same-file-only either (that's the miss).
+
+```json
+{ "flows": [{
+  "cwe": "CWE-79", "taintClass": "xss", "evidenceLevel": "linked", "backend": "structural",
+  "source": { "filePath": "src/handler.js", "startLine": 3, "code": "req.query.who" },
+  "sink":   { "filePath": "src/tmpl.js",    "startLine": 3, "code": "`<h1>Hello ${name}</h1>`" },
+  "steps": [
+    { "filePath": "src/handler.js", "startLine": 4, "code": "res.send(render(who))" },
+    { "filePath": "src/tmpl.js",    "startLine": 3, "code": "return `<h1>Hello ${name}</h1>`" } ]
+}] }
+```
+
 ## When NOT to use
 
 - Standalone — you're phase 2 of `/taint-analysis`, after the labelers.

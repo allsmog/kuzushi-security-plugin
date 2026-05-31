@@ -50,6 +50,28 @@ is the shape of a use-after-free / double-free, and it hides in branch order, no
 5. **Discharge** = prove no post-free use of the pointer *or any alias* on any path; otherwise emit a
    `finding`/`candidate` that names the exact freed-then-used (or double-freed) path.
 
+For an **`int-overflow-size`** obligation, the discharge is a *width-and-wrap* check, not just a range
+check — the danger is a narrow (often `int`/32-bit) counter, length, or offset that WRAPS before it's
+used as a memory size/index, and the trigger can need an operand so large no fuzzer reaches it (so
+reason it out; do **not** treat "the fuzzer didn't crash" as safe):
+1. **Type the operands** — `tree_sitter:node_at` / `go-to-definition` on each operand of the multiply/
+   shift/subtraction. Note the declared width and signedness of the accumulator and of the result it
+   feeds. A signed `int` product assigned to / passed as a `size_t` length is the classic
+   CWE-190 → CWE-680: the multiply overflows int (wrap/UB), then sign-extends to a huge `size_t`.
+2. **Find the operand's ceiling** — can an attacker drive the counter past the wrap point (≈2^31 for
+   `int`)? Trace where it accumulates (a per-char lexer `count`, a header length field, a repeat count).
+   If its only bound is the attacker-controlled input size, the ceiling is "as large as they can send" —
+   the wrap is reachable *in principle* even when a small input can't show it.
+3. **Check the subtraction direction** — for `len - k*x`: can `k*x` exceed `len` (unsigned underflow →
+   huge length) or overflow signed before the subtract? Either yields an out-of-bounds size.
+4. **Settle it with the solver** — pose the wrap/underflow to `concolic:*` (does any operand value within
+   the input-size limit make `2*(2+sep)` exceed `INT_MAX`, or the result negative?). SAT = the bug; UNSAT
+   (operand provably below the wrap point, or the type is already 64-bit) discharges it.
+5. **Discharge** = prove the arithmetic cannot wrap/underflow at any reachable operand value *and* the
+   result type is wide enough; otherwise emit a `finding`/`candidate` naming the overflowing expression
+   and the operand that drives it. A giant-input trigger is still a real OOB-read/DoS — report it, and
+   note that the execution lane can't reach it (so this lane must own it).
+
 Then free-read the rest of each file for classes the obligations don't cover.
 
 ## Doctrine (reuse the deep-context reading discipline — but emit findings)
@@ -183,3 +205,8 @@ wrapper*, not `.execute()`/`.query()`, so no regex fires. Reading wins it.
   A value freed on an error branch and read on the success fall-through (or freed in iteration
   N and read in N+1) is the classic use-after-free — trace each branch out of the free, don't
   assume linear top-to-bottom order.
+- *"It's just `len - 2*k` / `n * size`; that arithmetic is obviously fine."* → Check the **width**,
+  not the algebra. If the counter is a 32-bit `int` and an attacker can push it past ~2^31, the
+  product wraps before it becomes a `size_t` length — an out-of-bounds read/write. The math looks
+  right at small values and is wrong only past the wrap point; that the fuzzer never tripped it means
+  the trigger is large, not that the bound holds. Reason the width and operand ceiling explicitly.

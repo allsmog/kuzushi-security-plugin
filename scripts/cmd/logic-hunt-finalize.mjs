@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { severityFieldsFor } from "../lib/severity.mjs";
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const VALID_CLASSES = new Set(["idempotency", "toctou-race", "transaction-atomicity", "price-quantity", "state-machine"]);
@@ -81,7 +82,7 @@ export function finalizeLogicHunt(target, runDir) {
     source: "logic-hunt",
     refId: c.logicId ?? `${c.logicClass ?? "logic"}-${i + 1}`,
     title: c.title ?? `Business logic: ${c.logicClass ?? "issue"}`,
-    severity: c.severity ?? "",
+    ...severityFieldsFor(c),
     cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? CLASS_CWE[c.logicClass] ?? "CWE-840",
     verdict: c.verdict,
     status: verdictToStatus(c.verdict),

@@ -55,6 +55,16 @@ Then run the `assembleCommand`. The finalize compiles, runs, and the **sanitizer
 is the verdict**: an abort → the finding becomes `proven` with the exact error class +
 CWE; a clean run → `not-reproduced`; a build failure → `harness-failed-build`.
 
+## When NOT to use
+
+- For non-memory findings (authz / business-logic / crypto / web injection) — a sanitizer
+  abort doesn't prove those. Use `/poc` for an empirical web/script trigger, or `/verify`
+  for static exploitability.
+- Before a memory-class finding exists — you *prove* a finding another stage surfaced; you
+  do not discover new ones (that's `/systems-hunt` / `/fuzz`).
+- When no offline build can reach the function (deps you can't satisfy `--network none`) —
+  say so in `note`; a harness that can't build is `harness-failed-build`, never a proof.
+
 ## Rationalizations to Reject
 
 - *"The code obviously overflows, mark it proven."* → Not your call. If it overflows,

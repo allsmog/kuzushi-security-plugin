@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { severityFieldsFor } from "../lib/severity.mjs";
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const VALID_EVIDENCE = new Set(["path", "linked", "candidate"]);
@@ -104,7 +105,7 @@ export function finalizeDeepHunt(target, runDir) {
       source: "deep-hunt",
       refId: c.huntId ?? `dh-${i + 1}`,
       title: c.title ?? `Interprocedural flow ${i + 1}`,
-      severity: c.severity ?? "",
+      ...severityFieldsFor(c),
       cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? "",
       verdict: c.verdict,
       status: verdictToStatus(c.verdict),

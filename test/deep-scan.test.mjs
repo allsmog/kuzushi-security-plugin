@@ -52,6 +52,38 @@ test("obligations: a realloc(n*sz) line tags alloc-arith, not lifetime-free (fir
   assert.ok(!obs.some((o) => o.kind === "lifetime-free"), "and NOT lifetime-free — the more specific rule wins first");
 });
 
+// --- int-overflow-size obligation (the CWE-190→OOB lever; the 46819 class the fuzzer can't reach) ---
+// Vuln→obligation / safe→no-obligation pair. The shape is structural (a length minus a product, or a
+// multiply/shift in an index) — never the CVE literal — so it generalizes past the Lua lexer.
+test("obligations: a `len - 2*(2+sep)` length-math line emits int-overflow-size; a plain `len - sep` does not", () => {
+  const t = repo();
+  // vuln shape: a narrow `int sep` accumulator drives a length computed by subtracting a product (the
+  // exact arithmetic family of CVE-2025-46819's read_long_string, written generically).
+  write(t, "src/vuln.c", "char *take(char *b, size_t blen, int sep){\n  return newstr(b + (2 + sep), blen - 2*(2 + sep));\n}\n");
+  const vuln = extractObligations(t, "src/vuln.c").filter((o) => o.kind === "int-overflow-size");
+  assert.equal(vuln.length, 1, "the length-minus-a-product line is flagged once");
+  assert.equal(vuln[0].line, 2, "flagged at the arithmetic line");
+  // safe shape: same length cue, but a guarded plain subtraction — no product, no overflow-prone op.
+  write(t, "src/safe.c", "char *take2(char *b, size_t blen, size_t sep){\n  if (sep >= blen) return 0;\n  return b + blen - sep;\n}\n");
+  const safe = extractObligations(t, "src/safe.c").filter((o) => o.kind === "int-overflow-size");
+  assert.equal(safe.length, 0, "a plain guarded `blen - sep` is NOT flagged (no product/shift)");
+});
+
+test("obligations: a multiply inside an array index emits int-overflow-size", () => {
+  const t = repo();
+  write(t, "src/idx.c", "void s(char *a, int i, int w){\n  a[i * w] = 0;\n}\n");
+  const io = extractObligations(t, "src/idx.c").filter((o) => o.kind === "int-overflow-size");
+  assert.equal(io.length, 1, "an `a[i * w]` index multiply is flagged");
+});
+
+test("obligations: malloc(n*sz) stays alloc-arith, not int-overflow-size (first-match ordering)", () => {
+  const t = repo();
+  write(t, "src/m.c", "void f(int n,int sz){ char *p = malloc(n * sz); }\n");
+  const obs = extractObligations(t, "src/m.c");
+  assert.ok(obs.some((o) => o.kind === "alloc-arith"), "malloc-family arithmetic wins as alloc-arith");
+  assert.ok(!obs.some((o) => o.kind === "int-overflow-size"), "and NOT int-overflow-size — the alloc rule is earlier");
+});
+
 test("obligations: even-stride sampling reaches late-file free sites (cap not top-biased — the xackdel property)", () => {
   const t = repo();
   const lines = Array.from({ length: 120 }, (_, i) => `  free(p${i});`); // 120 lifetime-free sites spread down the file

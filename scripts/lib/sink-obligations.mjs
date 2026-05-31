@@ -26,6 +26,14 @@ const RULES = [
     "a raw memory copy/format — prove the destination is large enough for the (attacker-influenced) length, or it overflows"],
   [/\b(malloc|calloc|realloc|zmalloc|zrealloc|xmalloc|kmalloc)\s*\([^;]*[*+][^;]*\)/, "alloc-arith",
     "an allocation size computed with arithmetic — prove it cannot integer-overflow/under-allocate for attacker-influenced operands"],
+  // Integer-overflow → OOB. Overflow-prone arithmetic (a binary multiply, a left-shift, or a length
+  // MINUS a product) feeding a memory length, index, or offset. Generalizes `alloc-arith` past malloc
+  // to copy-lengths and index/offset math. This is the class a small-input fuzzer categorically CANNOT
+  // reach when the overflow needs a huge operand — e.g. a 32-bit `count`/`sep` accumulator in a lexer's
+  // long-bracket length math (`buflen - 2*(2+sep)`), where the wrap only happens past ~2^30 of input.
+  // Structural only: keys on the arithmetic shape + an index bracket or a size/length/offset cue word.
+  [/(?:\[[^\]\n]*[\w)]\s*(?:<<|\*)\s*[(\w][^\]\n]*\])|(?:\b\w*(?:len|size|count|sep|off|idx|index|nbytes|nmemb|width|height|cap)\w*\b[^;\n]*?[-+]\s*\w+\s*\*\s*[(\w])/i, "int-overflow-size",
+    "a memory length/index/offset computed with overflow-prone arithmetic (multiply, shift, or a length minus a product) — prove no signed/`int` counter can overflow/wrap and no unsigned length can underflow for attacker-influenced sizes, else integer-overflow → out-of-bounds read/write (CWE-190 → CWE-125/787)"],
   [/\b(luaS_new|lua_|incr_top|setsvalue|sethvalue|setobj|gc_)/, "gc-rooting",
     "an allocation/stack op in a GC'd runtime — prove the object is rooted/anchored before any call that can allocate or trigger GC (else use-after-free)"],
   // Lifetime/release primitive — the shape of a use-after-free / double-free. Keyed on

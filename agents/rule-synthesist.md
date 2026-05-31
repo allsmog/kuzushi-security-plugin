@@ -55,7 +55,16 @@ Per seed: the engine, the rule id, and the host's outcome (accepted + repo match
 rejection reason). For accepted rules, note that the new matches were promoted as `candidate`
 leads (triage with `/verify` or `/variant-hunt`). Never present a rule match as a confirmed bug.
 
-## Rationalizations to reject
+## When NOT to use
+
+- Before any finding is confirmed — there are no seeds to formalize; confirm one with
+  `/verify` (or `/poc`) first. The prep returns `no-seeds` and you stop.
+- For Semgrep rules — that engine is `/semgrep-rule`'s job; you cover the heavy semantic
+  engines (CodeQL/Joern) it omits. The prep returns `no-engine` if neither DB/CPG is built.
+- To claim or triage bugs — you write *detectors*; a rule's matches are candidate leads for
+  `/variant-hunt` / `/verify`, never confirmed findings.
+
+## Rationalizations to Reject
 
 - *"Match everything with the sink name to be safe."* → Fails the precision cap; encode the CWE
   shape, not a token.

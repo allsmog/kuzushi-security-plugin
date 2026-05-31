@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { severityFieldsFor } from "../lib/severity.mjs";
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const MIN_RATIONALE_LENGTH = 150;
@@ -64,7 +65,9 @@ export function finalizeAuthz(target, runDir) {
     source: "authz",
     refId: c.authzId ?? `${c.authzClass ?? "authz"}-${i + 1}`,
     title: c.title ?? `Authorization: ${c.authzClass ?? "issue"}`,
-    severity: c.severity ?? "",
+    // Severity is DERIVED from preconditions × access level, not the agent's claim
+    // (which inflates); the claim is kept only as an advisory inflation signal.
+    ...severityFieldsFor(c),
     cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? (c.authzClass === "idor" ? "CWE-639" : "CWE-862"),
     verdict: c.verdict,
     status: verdictToStatus(c.verdict),

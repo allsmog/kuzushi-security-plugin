@@ -96,6 +96,40 @@ test("authz: prepare finds endpoint+idor; finalize defaults idor → CWE-639", (
   assert.equal(f.status, "open");
 });
 
+test("authz: severity is DERIVED from preconditions × access level, not the agent's claim", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/o.js"), "app.get('/orders/:id',(req,res)=>{Order.findById(req.params.id)})\n");
+  const prep = prepareAuthz(t, {});
+  // Agent CLAIMS critical but supplies 0 preconditions + unauthenticated-remote → derives HIGH.
+  writeDraft(prep.runDir, "draft.authz.json", { candidates: [
+    { authzId: "a1", authzClass: "idor", verdict: "finding", severity: "critical",
+      preconditions: [], accessLevel: "unauthenticated-remote",
+      rationale: `no ownership scope on Order.findById ${LONG}`, evidenceAnchors: [{ filePath: "src/o.js", startLine: 1 }] }
+  ] });
+  finalizeAuthz(t, prep.runDir);
+  const f = findings(t).find((x) => x.source === "authz");
+  assert.equal(f.severity, "high", "derived from the table, not the claimed 'critical'");
+  assert.equal(f.severityBasis.boosted, false);
+  assert.equal(f.severityBasis.claimedJudgment.delta, 1, "claimed 'critical' is one step over derived 'high' (borderline)");
+});
+
+test("authz: a 3+ precondition local-only finding derives LOW and flags an inflated 'critical' claim", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/o.js"), "app.get('/admin/:id',(req,res)=>{Order.findById(req.params.id)})\n");
+  const prep = prepareAuthz(t, {});
+  writeDraft(prep.runDir, "draft.authz.json", { candidates: [
+    { authzId: "a1", authzClass: "idor", verdict: "finding", severity: "critical",
+      preconditions: ["admin session", "feature flag on", "victim id known"], accessLevel: "local-only",
+      rationale: `deep behind admin + flag ${LONG}`, evidenceAnchors: [{ filePath: "src/o.js", startLine: 1 }] }
+  ] });
+  finalizeAuthz(t, prep.runDir);
+  const f = findings(t).find((x) => x.source === "authz");
+  assert.equal(f.severity, "low", "3+ preconditions and local-only both floor it at LOW");
+  assert.ok(f.severityBasis.claimedJudgment.score < 0, "claimed 'critical' over derived 'low' is flagged inflation");
+});
+
 test("authz: rejected verdict must name the protecting check", () => {
   const t = repo(); emptyFindings(t);
   mkdirSync(join(t, "src")); writeFileSync(join(t, "src/o.js"), "app.get('/x',(req,res)=>{Order.findById(req.params.id)})\n");
