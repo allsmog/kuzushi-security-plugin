@@ -9,22 +9,18 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
-const EXCERPT_RADIUS = 8;
-
-// ±EXCERPT_RADIUS lines around a threat's first anchor; handles missing
-// files / directory targets gracefully.
+// The enclosing function around a threat's first anchor (was ±8 lines); handles
+// missing files / directory targets gracefully.
 function excerptFor(target, threat) {
   const anchor = threat.affectedFiles?.[0] ?? threat.evidenceAnchors?.[0];
   if (!anchor?.filePath) return null;
   const path = resolve(target, anchor.filePath);
   if (!existsSync(path)) return { filePath: anchor.filePath, startLine: anchor.startLine ?? 1, missing: true, lines: [] };
   if (statSync(path).isDirectory()) return { filePath: anchor.filePath, startLine: 1, isDirectory: true, lines: [] };
-  const lines = readFileSync(path, "utf8").split(/\r?\n/);
   const anchorLine = Math.max(1, Number(anchor.startLine ?? 1));
-  const start = Math.max(1, anchorLine - EXCERPT_RADIUS);
-  const end = Math.min(lines.length, anchorLine + EXCERPT_RADIUS);
-  return { filePath: anchor.filePath, startLine: anchorLine, lines: lines.slice(start - 1, end).map((text, i) => ({ line: start + i, text })) };
+  return { filePath: anchor.filePath, startLine: anchorLine, lines: enclosingExcerpt(target, anchor.filePath, anchorLine) ?? [] };
 }
 
 // threat-intel leads + invariants whose CWE intersects the threat's CWEs —

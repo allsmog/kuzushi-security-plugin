@@ -60,6 +60,35 @@ anchor. Verdicts promote into `.kuzushi/findings.json` (`source:"crypto-review"`
 Summarize verdicts by category and list the `finding`s (file:line, the leak/weakness, the
 constant-time / secure-zero / CSPRNG fix to use).
 
+## Worked example (timing side-channel — MAC compared with `==`)
+
+Candidate `{ category: "timing-side-channel", pattern: "==", filePath: "auth/webhook.py", line: 11 }`:
+`if computed_hmac == request.headers['X-Signature']:`.
+
+- **Confirm it's a secret:** `computed_hmac` is an HMAC over the body keyed with a server secret —
+  yes, secret-derived. (A compare of two *public* strings would be `rejected`.)
+- **Leak:** Python `==` on bytes short-circuits at the first differing byte, so response time
+  correlates with the correct-prefix length → a remote attacker recovers the signature byte-by-byte
+  over many timed requests. The constant-time API (`hmac.compare_digest`) exists and is unused.
+- **Severity inputs:** remote but needs many timing samples → `accessLevel:
+  "unauthenticated-remote"`, `preconditions: ["attacker can measure response-time differences
+  across many requests"]` → finalize derives MEDIUM (the precondition pulls it below HIGH).
+
+```json
+{ "candidates": [{
+  "cryptoId": "<prep id for webhook.py:11>",
+  "category": "timing-side-channel",
+  "title": "Webhook signature compared with non-constant-time ==",
+  "cwe": "CWE-208",
+  "accessLevel": "unauthenticated-remote",
+  "preconditions": ["attacker can measure response-time differences across many requests"],
+  "verdict": "finding",
+  "rationale": "auth/webhook.py:11 compares the server-computed HMAC against the attacker-supplied X-Signature header with ==, which short-circuits on the first differing byte. Response timing then leaks the correct-prefix length, letting a remote attacker recover the signature byte-by-byte over many requests. hmac.compare_digest (constant-time) is available but unused.",
+  "nextChecks": ["replace == with hmac.compare_digest"],
+  "evidenceAnchors": [{ "filePath": "auth/webhook.py", "startLine": 11 }]
+}] }
+```
+
 ## When NOT to use
 
 - On code with no cryptographic / secret handling — there's nothing to review.

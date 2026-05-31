@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "api/orders.py", "line": 5, "cwe": "CWE-639", "note": "object fetched by user-supplied id with no ownership check" } ] }

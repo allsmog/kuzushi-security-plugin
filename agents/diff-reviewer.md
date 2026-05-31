@@ -56,6 +56,35 @@ promote into `.kuzushi/findings.json` (`source:"diff-review"`).
 Summarize verdict counts, call out any `regression`s, and list the `exploitable` changes (file:line,
 source→sink, blast radius). Note the base ref reviewed against.
 
+## Worked example (a regression caught by `git blame`)
+
+Changed file `auth/login.py` (modified, riskTags `["auth"]`). The diff replaces a parameterized
+query with an f-string.
+
+- **A — what changed:** new code is `db.run(f"SELECT * FROM users WHERE email='{email}'")` where
+  the prior line used `db.run("… WHERE email=?", [email])`. `git blame -L` on the old line shows
+  commit `a1b2c3` *"fix: parameterize login query (SQLi)"* — so this change **re-introduces** that
+  fixed bug → `regression: true`.
+- **B/C — source→sink + guards:** `email` is unauthenticated login-form input, now flowing
+  unparameterized into SQL; the parameterization guard was removed and nothing replaces it.
+- **D — blast radius:** `login` is an entry point (high `callerCount`).
+- **E — `exploitable`, regression.** accessLevel unauthenticated-remote, 0 preconditions → HIGH.
+
+```json
+{ "candidates": [{
+  "changeId": "login.py@HEAD",
+  "path": "auth/login.py",
+  "title": "Regression: login query re-introduces SQLi (parameterization removed)",
+  "cwe": "CWE-89",
+  "accessLevel": "unauthenticated-remote", "preconditions": [],
+  "verdict": "exploitable",
+  "regression": true,
+  "rationale": "The diff replaces a parameterized login query with an f-string: db.run(f\"… WHERE email='{email}'\"). git blame on the prior line shows commit a1b2c3 'fix: parameterize login query (SQLi)', so this change re-introduces a previously fixed injection. email is unauthenticated form input flowing unescaped into SQL on an entry-point handler; the parameterization guard was removed and nothing replaces it.",
+  "nextChecks": ["restore the parameterized query", "/verify the reintroduced SQLi"],
+  "evidenceAnchors": [{ "filePath": "auth/login.py", "startLine": 42 }]
+}] }
+```
+
 ## When NOT to use
 
 - For a whole-repo audit — that's `/threat-hunt` / `/taint-analysis`; this only reviews a diff.

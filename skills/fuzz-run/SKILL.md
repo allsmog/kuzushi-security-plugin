@@ -2,7 +2,7 @@
 name: fuzz-run
 description: Low-level stage for /fuzz. Execute runnable fuzz harnesses from .kuzushi/fuzz/fuzz-plan.json in an offline sandbox. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz run

@@ -41,6 +41,33 @@ Promotes into `.kuzushi/findings.json` (`source:"iac"`).
 Summarize verdicts by surface; list the `finding`s (file:line, the misconfig, the secure setting
 to use).
 
+## Worked example (public ingress to a sensitive port — Terraform SG)
+
+Candidate `{ surface: "network", pattern: "0.0.0.0/0", filePath: "main.tf", line: 12 }`:
+`ingress { from_port = 5432, to_port = 5432, cidr_blocks = ["0.0.0.0/0"] }`.
+
+- **Confirm in context:** 5432 is Postgres; the rule opens it to the entire internet — not a
+  scoped VPC/SG, not a `${var}` placeholder, not a dev-only file. Real exposure.
+- **Impact:** the database is reachable by any host on the internet → brute force / direct
+  exploitation. Secure setting: restrict `cidr_blocks` to the app-tier SG/CIDR.
+- **Severity inputs:** internet-reachable, no auth precondition → `accessLevel:
+  "unauthenticated-remote"`, `preconditions: []` → finalize derives HIGH.
+
+```json
+{ "candidates": [{
+  "iacId": "<prep id for main.tf:12>",
+  "surface": "network",
+  "title": "Postgres (5432) exposed to 0.0.0.0/0",
+  "cwe": "CWE-284",
+  "accessLevel": "unauthenticated-remote",
+  "preconditions": [],
+  "verdict": "finding",
+  "rationale": "main.tf:12 opens an ingress rule for port 5432 (Postgres) to cidr_blocks 0.0.0.0/0 — the whole internet — with no scoping to a VPC or the app-tier security group. The database becomes directly reachable by any host, exposing it to brute force and direct exploitation. Replace the CIDR with the app-tier SG/CIDR.",
+  "nextChecks": ["scope cidr_blocks to the app-tier SG"],
+  "evidenceAnchors": [{ "filePath": "main.tf", "startLine": 12 }]
+}] }
+```
+
 ## When NOT to use
 
 - For first-party source vulnerabilities (injection, memory) — that's the hunts; this is config.

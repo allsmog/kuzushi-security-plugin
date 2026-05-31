@@ -1,5 +1,6 @@
 ---
 name: doctor
+user-invocable: true
 description: Run kuzushi preflight diagnostics — Node dependencies, plugin MCP server health, and which analysis CLIs and LSP servers are installed, with exact install commands for anything missing. Use when tooling shows as missing or MCP servers won't connect.
 allowed-tools: Bash
 ---

@@ -1,12 +1,20 @@
 {
   "name": "kuzushi-security-plugin",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Local-first vulnerability confirmation and remediation pipeline for Claude Code: threat modeling, SAST/taint, PoC/fuzz proof, rule synthesis, SARIF, and PoC+ patch validation.",
   "type": "module",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "bench:smoke": "node scripts/cmd/bench-smoke.mjs"
+    "bench": "node bench/run.mjs",
+    "bench:cve": "node bench/run.mjs --cve",
+    "bench:smoke": "node scripts/cmd/bench-smoke.mjs",
+    "eval": "node eval/eval.mjs",
+    "eval:cve": "node eval/eval.mjs --cve",
+    "eval:deep-hunt": "node eval/eval.mjs --mode deep-hunt",
+    "eval:deep-hunt:cve": "node eval/eval.mjs --mode deep-hunt --cve",
+    "eval:discover": "node eval/eval.mjs --mode discover",
+    "eval:discover:cve": "node eval/eval.mjs --mode discover --cve"
   },
   "engines": {
     "node": ">=20"

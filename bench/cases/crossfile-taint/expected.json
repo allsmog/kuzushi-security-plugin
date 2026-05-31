@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "src/tmpl.js", "line": 3, "cwe": "CWE-79", "note": "XSS sink reached via cross-file flow from handler.js" } ] }

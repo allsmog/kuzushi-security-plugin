@@ -3,7 +3,7 @@ name: invariant-test
 description: Verify the CVE-derived invariants in .kuzushi/threat-intel.json against the code, using the tree-sitter taint MCP tools (and codeql/joern if available). Writes .kuzushi/invariant-results.json with hold / violated / needs-review verdicts. Requires /threat-intel to have run first.
 context: fork
 agent: invariant-tester
-user-invocable: true
+user-invocable: false
 ---
 
 # Invariant test

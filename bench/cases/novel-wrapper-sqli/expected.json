@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "app/routes.py", "line": 6, "cwe": "CWE-89", "note": "SQLi via custom dao.run() wrapper — no standard sink pattern matches" } ] }

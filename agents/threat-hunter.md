@@ -86,6 +86,36 @@ guard. Exploitable/reviewed verdicts are promoted into `.kuzushi/findings.json`.
 Summarize verdict counts and list the `exploitable` findings (threatId, CWE, source→sink + the
 bypass). Mention that `.kuzushi/findings.json` now holds the open findings for follow-up.
 
+## Worked example (the Step-D bypass — SSRF host allowlist)
+
+Threat from the model: *"T3 — webhook URL fetcher may be coerced into SSRF."* Candidate cites
+`fetch_webhook(url)`.
+
+- **A — attacker:** authenticated user who sets their own webhook URL (strongest plausible).
+- **B — source→sink:** `url` from the user's webhook config (source) reaches
+  `requests.get(url)` at webhook.py:20 (sink); both confirmed by reading.
+- **C — guard:** one — `is_allowed_host(url)` at webhook.py:14 checks the host against an allowlist.
+- **D — attempt EVERY bypass (this is the whole job):** from the SSRF row of the bypass table +
+  the matched `intel`: (1) **redirect chain** — the fetch sets no `allow_redirects=False`, so a
+  302 from an allowed host to `http://169.254.169.254/` is followed *past* the one-shot check;
+  (2) **DNS rebinding** — `is_allowed_host` resolves once, `requests` resolves again (TOCTOU);
+  (3) decimal/IPv6-mapped literal vs the string allowlist. Reading the code confirms no
+  `allow_redirects=False` and a single resolve → bypasses (1) and (2) both land.
+- **E — verdict `exploitable`** (cite the redirect bypass). **F:** PoC the 302.
+
+```json
+{ "candidates": [{
+  "threatId": "T3",
+  "verdict": "exploitable",
+  "rationale": "A: authed user controls the webhook url. B: url → requests.get(url) at webhook.py:20. C: guard is_allowed_host(url) at :14 checks an allowlist. D: requests.get sets no allow_redirects=False, so a 302 from an allowed host to http://169.254.169.254/ is followed past the check (redirect-chain bypass); the check resolves DNS once while requests resolves again (rebinding TOCTOU). E: exploitable — reaches cloud metadata.",
+  "nextChecks": ["/poc the 302→169.254.169.254 redirect past is_allowed_host"],
+  "evidenceAnchors": [{ "filePath": "net/webhook.py", "startLine": 14 }, { "filePath": "net/webhook.py", "startLine": 20 }]
+}] }
+```
+
+The discipline: a guard exists (`is_allowed_host`) — but `reviewed-no-impact` was **not** an
+option until every bypass in Step D had been tried. Two worked → `exploitable`.
+
 ## When NOT to use
 
 - Before a threat model exists — you consume its threats; the skill tells the user to run

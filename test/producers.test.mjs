@@ -27,6 +27,10 @@ import { finalizeTrafficMap } from "../scripts/cmd/traffic-map-finalize.mjs";
 import { buildCodeGraph } from "../scripts/cmd/code-graph-build.mjs";
 import { preparePathSolve } from "../scripts/cmd/path-solve-prepare.mjs";
 import { assemblePathSolve } from "../scripts/cmd/path-solve-assemble.mjs";
+import { prepareLogicHunt } from "../scripts/cmd/logic-hunt-prepare.mjs";
+import { finalizeLogicHunt } from "../scripts/cmd/logic-hunt-finalize.mjs";
+import { prepareBinaryRecon } from "../scripts/cmd/binary-recon-prepare.mjs";
+import { finalizeBinaryRecon } from "../scripts/cmd/binary-recon-finalize.mjs";
 
 function repo() {
   const t = mkdtempSync(join(tmpdir(), "kz-prod-"));
@@ -90,6 +94,40 @@ test("authz: prepare finds endpoint+idor; finalize defaults idor → CWE-639", (
   const f = findings(t).find((x) => x.source === "authz");
   assert.equal(f.cwe, "CWE-639", "idor default CWE");
   assert.equal(f.status, "open");
+});
+
+test("authz: severity is DERIVED from preconditions × access level, not the agent's claim", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/o.js"), "app.get('/orders/:id',(req,res)=>{Order.findById(req.params.id)})\n");
+  const prep = prepareAuthz(t, {});
+  // Agent CLAIMS critical but supplies 0 preconditions + unauthenticated-remote → derives HIGH.
+  writeDraft(prep.runDir, "draft.authz.json", { candidates: [
+    { authzId: "a1", authzClass: "idor", verdict: "finding", severity: "critical",
+      preconditions: [], accessLevel: "unauthenticated-remote",
+      rationale: `no ownership scope on Order.findById ${LONG}`, evidenceAnchors: [{ filePath: "src/o.js", startLine: 1 }] }
+  ] });
+  finalizeAuthz(t, prep.runDir);
+  const f = findings(t).find((x) => x.source === "authz");
+  assert.equal(f.severity, "high", "derived from the table, not the claimed 'critical'");
+  assert.equal(f.severityBasis.boosted, false);
+  assert.equal(f.severityBasis.claimedJudgment.delta, 1, "claimed 'critical' is one step over derived 'high' (borderline)");
+});
+
+test("authz: a 3+ precondition local-only finding derives LOW and flags an inflated 'critical' claim", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/o.js"), "app.get('/admin/:id',(req,res)=>{Order.findById(req.params.id)})\n");
+  const prep = prepareAuthz(t, {});
+  writeDraft(prep.runDir, "draft.authz.json", { candidates: [
+    { authzId: "a1", authzClass: "idor", verdict: "finding", severity: "critical",
+      preconditions: ["admin session", "feature flag on", "victim id known"], accessLevel: "local-only",
+      rationale: `deep behind admin + flag ${LONG}`, evidenceAnchors: [{ filePath: "src/o.js", startLine: 1 }] }
+  ] });
+  finalizeAuthz(t, prep.runDir);
+  const f = findings(t).find((x) => x.source === "authz");
+  assert.equal(f.severity, "low", "3+ preconditions and local-only both floor it at LOW");
+  assert.ok(f.severityBasis.claimedJudgment.score < 0, "claimed 'critical' over derived 'low' is flagged inflation");
 });
 
 test("authz: rejected verdict must name the protecting check", () => {
@@ -234,4 +272,65 @@ test("composition: multiple producers accrete into one findings.json by source",
   const sources = new Set(doc.findings.map((f) => f.source));
   assert.ok(sources.has("iac") && sources.has("sharp-edges"), "both producers' findings coexist in the shared index");
   assert.equal(doc.findings.length, 2);
+});
+
+// ---- /logic-hunt ------------------------------------------------------------
+test("logic-hunt: prepare detects money/state/idempotency shapes; finalize promotes + gates rejected", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "api"));
+  writeFileSync(join(t, "api/pay.py"),
+    "def checkout(request):\n    charge(card, amount)\n    order.status = 'paid'\n    balance -= amount\n");
+  const prep = prepareLogicHunt(t, {});
+  assert.equal(prep.status, "prepared");
+  assert.ok(prep.candidateCount >= 1, "detects a money/state mutation shape");
+
+  // A valid finding promotes.
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l1", logicClass: "idempotency", verdict: "finding", cwe: "CWE-837",
+      rationale: `checkout has no idempotency key so a replayed request charges twice ${LONG}`,
+      evidenceAnchors: [{ filePath: "api/pay.py", startLine: 2 }] }
+  ] });
+  const res = finalizeLogicHunt(t, prep.runDir);
+  assert.equal(res.status, "completed");
+  assert.equal(findings(t).filter((f) => f.source === "logic-hunt").length, 1);
+
+  // "rejected" without naming the protecting invariant is refused.
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l2", logicClass: "idempotency", verdict: "rejected", rationale: `looks fine to me ${LONG}` }
+  ] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir));
+
+  // bad verdict is refused.
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [{ logicId: "l3", verdict: "totally-wrong", rationale: LONG }] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir));
+});
+
+// ---- /binary-recon ----------------------------------------------------------
+test("binary-recon: prepare detects an ELF by magic bytes; finalize promotes + rejects bad verdict", () => {
+  const t = repo(); emptyFindings(t);
+  // Minimal ELF magic header (enough for detection; triage degrades gracefully).
+  mkdirSync(join(t, "bin"));
+  writeFileSync(join(t, "bin/app"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0, 0, 0, 0]));
+  const prep = prepareBinaryRecon(t, {});
+  assert.equal(prep.status, "prepared");
+  assert.ok(prep.candidateCount >= 1, "detects the ELF artifact");
+
+  writeDraft(prep.runDir, "draft.binary-recon.json", { candidates: [
+    { binaryId: "b1", binaryClass: "rwx-segment", verdict: "finding", cwe: "CWE-1340",
+      rationale: `binary ships a writable+executable segment with no JIT justification ${LONG}`,
+      evidenceAnchors: [{ filePath: "bin/app" }] }
+  ] });
+  const res = finalizeBinaryRecon(t, prep.runDir);
+  assert.equal(res.status, "completed");
+  assert.equal(findings(t).filter((f) => f.source === "binary-recon").length, 1);
+
+  writeDraft(prep.runDir, "draft.binary-recon.json", { candidates: [{ binaryId: "b2", verdict: "nope", rationale: LONG }] });
+  expectReject(() => finalizeBinaryRecon(t, prep.runDir));
+});
+
+test("binary-recon: no binaries → no-candidates", () => {
+  const t = repo();
+  writeFileSync(join(t, "readme.txt"), "just text\n");
+  const prep = prepareBinaryRecon(t, {});
+  assert.equal(prep.status, "no-candidates");
 });

@@ -3,7 +3,7 @@ name: sharp-edges
 description: Find footgun APIs, dangerous defaults, and misuse-prone designs (where the secure path isn't the default). The sharp-edges-analyzer agent reasons through three adversaries (scoundrel / lazy dev / confused dev) across six categories and promotes real edges into .kuzushi/findings.json (source "sharp-edges"). Distinct from /sast (injection) and the insecure-defaults companion (config values).
 context: fork
 agent: sharp-edges-analyzer
-user-invocable: true
+user-invocable: false
 ---
 
 # Sharp edges

@@ -3,7 +3,7 @@ name: sast
 description: Semgrep-driven SAST pass — scan the repo with semgrep, then triage each hit against the source as finding / candidate / rejected (scanner hits are leads, not findings). Promotes the kept ones into .kuzushi/findings.json (source "sast"). Needs semgrep installed.
 context: fork
 agent: sast-triager
-user-invocable: true
+user-invocable: false
 ---
 
 # SAST (semgrep scan → triage)

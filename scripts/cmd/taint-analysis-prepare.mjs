@@ -14,7 +14,7 @@ import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { hasContextRun, hasCodeqlDb, hasJoernCpg } from "../lib/context-status.mjs";
 import { rankCatalog, buildStructuralQueries, languagesFromDisplayNames } from "../lib/taint-catalog.mjs";
-import { listFiles, runRg } from "../lib/ripgrep.mjs";
+import { listFiles, runRg, scopePaths } from "../lib/ripgrep.mjs";
 
 const DEFAULTS = { maxCatalogEntries: 20, maxCandidateFiles: 80, maxPatternsForSearch: 120 };
 
@@ -58,12 +58,12 @@ function inferLanguages(target) {
 
 // ripgrep the grep-able structural patterns (fixed strings) and return the set
 // of candidate files, capped. Patterns longer/codey enough to narrow the repo.
-function candidateFiles(target, patterns, cap) {
+function candidateFiles(target, patterns, cap, scopes = ["."]) {
   const usable = [...new Set(patterns)].filter((p) => p && p.length >= 3).slice(0, DEFAULTS.maxPatternsForSearch);
   if (!usable.length) return [];
   const args = ["-l", "-F", "--no-messages"];
   for (const p of usable) args.push("-e", p);
-  args.push(".");
+  args.push(...scopes);
   const result = runRg(target, args);
   if (!result.ok) return [];
   return result.stdout.split(/\r?\n/).map((s) => s.replace(/^\.\//, "")).filter(Boolean).slice(0, cap);
@@ -88,23 +88,34 @@ export function prepareTaintAnalysis(target, input = {}) {
   // Candidate files: sink/source-bearing tokens narrow where labelers look.
   const sinkPatterns = ranked.flatMap((e) => [...e.sinkSignals, ...e.structuralQueries]);
   const sourcePatterns = ranked.flatMap((e) => e.structuralQueries);
-  const sinkCandidateFiles = candidateFiles(resolvedTarget, sinkPatterns, maxCandidateFiles);
-  const sourceCandidateFiles = candidateFiles(resolvedTarget, sourcePatterns, maxCandidateFiles);
+  const scopes = scopePaths(input);
+  const sinkCandidateFiles = candidateFiles(resolvedTarget, sinkPatterns, maxCandidateFiles, scopes);
+  const sourceCandidateFiles = candidateFiles(resolvedTarget, sourcePatterns, maxCandidateFiles, scopes);
 
   const codeql = hasCodeqlDb(resolvedTarget);
   const joern = hasJoernCpg(resolvedTarget);
+  const cmdDir = import.meta.dirname ?? resolve(".");
   const backends = {
     codeql: { available: codeql.built, dbDir: store.codeqlDbDir, languages: codeql.languages ?? [] },
     joern: { available: joern.built, cpgPath: store.joernCpgPath },
     treeSitter: { available: true },
-    joernScriptPath: join(import.meta.dirname ?? resolve("."), "..", "joern", "taint-flows.sc")
+    joernScriptPath: join(cmdDir, "..", "joern", "taint-flows.sc"),
+    // Always-available interprocedural reachability walk (no CPG required): the
+    // forward (callees) + backward (callers) CLIs let the flow-tracer connect a
+    // source and sink in DIFFERENT files via a confirmed textual call path —
+    // cross-file `linked` evidence, the floor when no backend dataflow exists.
+    reachability: {
+      calleesCli: join(cmdDir, "callees.mjs"),
+      callersCli: join(cmdDir, "callers.mjs"),
+      cpgPresent: codeql.built || joern.built
+    }
   };
 
   const run = openRun(resolvedTarget, "taint-analysis");
   const warnings = [];
   if (!ctxState.built) warnings.push("no context run found — languages inferred from file extensions; run /context-build (or restart the session) for richer ranking");
   if (!threatModel) warnings.push("no threat-model.json — ranking proceeds without threat-model CWE boost; /threat-model improves it");
-  if (!backends.codeql.available && !backends.joern.available) warnings.push("no CodeQL DB or Joern CPG present — flow tracing will degrade to tree-sitter + same-file linking (linked/candidate evidence, no path evidence)");
+  if (!backends.codeql.available && !backends.joern.available) warnings.push("no CodeQL DB or Joern CPG present — flow tracing uses the interprocedural reachability walk (callees/callers CLIs) for cross-file linked evidence; build one (/build-databases) for sound path evidence");
 
   run.writeJson("prep.json", {
     runId: run.runId,

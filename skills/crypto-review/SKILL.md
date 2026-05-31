@@ -3,7 +3,7 @@ name: crypto-review
 description: Crypto-misuse review — non-constant-time comparison of secrets (timing side-channels), missing/compiler-elidable zeroization of secrets, and non-cryptographic RNG used to mint secrets. The crypto-reviewer agent confirms each candidate handles a secret and promotes real issues into .kuzushi/findings.json (source "crypto-review"). Distinct from /sast (injection) and /sharp-edges (API design).
 context: fork
 agent: crypto-reviewer
-user-invocable: true
+user-invocable: false
 ---
 
 # Crypto review

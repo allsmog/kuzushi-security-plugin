@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { severityFieldsFor } from "../lib/severity.mjs";
 
 const VALID_VERDICTS = new Set([
   "exploitable", "likely-library-noise", "reviewed-no-impact",
@@ -75,7 +76,7 @@ export function finalizeSystemsHunt(target, runDir) {
       source: "systems-hunt",
       refId: id,
       title: m.concern ?? id,
-      severity: c.severity ?? "",
+      ...severityFieldsFor(c),
       cwe,
       verdict: c.verdict,
       status: verdictToStatus(c.verdict),

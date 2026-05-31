@@ -38,6 +38,27 @@
     "fix": { "$ref": "fix.schema.json" },
     "rationale": { "type": "string" },
     "nextChecks": { "type": "array" },
+    "preconditions": {
+      "type": "array",
+      "description": "Conditions that must hold for exploitation. Count + accessLevel feed the deterministic severity derivation (scripts/lib/severity.mjs).",
+      "items": { "type": "string" }
+    },
+    "accessLevel": {
+      "type": "string",
+      "description": "Minimum access the attacker needs (e.g. unauthenticated-remote / authenticated / local-only). Severity column; see severity.mjs."
+    },
+    "severityBasis": {
+      "type": "object",
+      "description": "How the stored severity was derived (precondition count, access level, threat-model boost) plus the advisory claimed-vs-derived inflation judgment."
+    },
+    "exclusionRule": {
+      "description": "When a producer drops a candidate as a non-finding, the numbered false-positive rule (1-16) it matched. Tallies why things were excluded.",
+      "type": ["integer", "string", "null"]
+    },
+    "refuteReason": {
+      "type": "string",
+      "description": "Why a candidate was refuted: doesnt_exist | already_handled | implausible_trigger | intentional_behavior | misread_code | duplicate | not_actionable | n/a."
+    },
     "updatedAt": { "type": "string" }
   },
   "$defs": {

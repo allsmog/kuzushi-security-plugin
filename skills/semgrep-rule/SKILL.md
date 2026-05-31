@@ -3,7 +3,7 @@ name: semgrep-rule
 description: Turn confirmed findings into reusable, test-driven Semgrep rules under .kuzushi/rules/. For each seed, the semgrep-rule-author agent writes a positive/negative fixture and a rule that matches the bug shape, validates it with semgrep, and indexes it. The rules seed /variant-hunt and /sast re-runs. Requires a confirmed finding first.
 context: fork
 agent: semgrep-rule-author
-user-invocable: true
+user-invocable: false
 ---
 
 # Semgrep rule generation

@@ -2,7 +2,7 @@
 name: fuzz-triage
 description: Low-level stage for /fuzz. Group exploited fuzz-run results by deterministic crash hash. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz triage

@@ -53,6 +53,37 @@ chars; `finding` without an anchor; `rejected` without a named check. Promotes i
 Summarize by class; list the `finding`s (file:line, the attacker, the missing/broken check, the fix —
 add the ownership filter / authz decorator).
 
+## Worked example (idor — `api/orders.py`)
+
+Route `GET /orders/<oid>` whose handler runs `order = Order.objects.get(id=request.GET['id'])`
+at orders.py:5. Walk it:
+
+- **Trusted?** The id comes straight from `request.GET['id']` — attacker-controlled. Note
+  the route param `oid` is ignored, so the object is chosen by the *query string*.
+- **Guard?** Grep up for a gate: no `@login_required`/decorator, and the query is
+  `get(id=…)` with NO ownership/tenant scope (no `owner=current_user`). Even if app-wide
+  auth exists, this object isn't *authorized* to the caller.
+- **Attacker:** any authenticated user enumerates `?id=` and reads another user's order.
+- **Non-findings check:** not rule 8 (the id is request input, not operator config); not
+  rule 15 (sequential order ids are guessable, not an unguessable token).
+- **Severity inputs:** needs only a session → `accessLevel: "authenticated"`, 1 precondition
+  → the finalize derives MEDIUM (don't claim HIGH/critical).
+
+```json
+{ "candidates": [{
+  "authzId": "idor-orders-get",
+  "authzClass": "idor",
+  "title": "IDOR: order fetched by user-supplied id with no ownership scope",
+  "cwe": "CWE-639",
+  "accessLevel": "authenticated",
+  "preconditions": ["attacker has any authenticated session"],
+  "verdict": "finding",
+  "rationale": "request.GET['id'] flows unfiltered into Order.objects.get(id=…) at orders.py:5; the route param oid is ignored and there is no owner/tenant scope, so any logged-in user reads another user's order by changing ?id=. No authorization check gates the object.",
+  "nextChecks": ["/verify the cross-tenant read with two accounts"],
+  "evidenceAnchors": [{ "filePath": "api/orders.py", "startLine": 5 }]
+}] }
+```
+
 ## When NOT to use
 
 - For injection / memory / config bugs — that's the other producers.

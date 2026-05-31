@@ -8,9 +8,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
-import { runRg, parseJsonMatches, rankHit, buildGlobs } from "../lib/ripgrep.mjs";
-
-const EXCERPT_RADIUS = 10;
+import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePaths } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Two candidate kinds: endpoint definitions (is there an authz gate?) and
 // object-by-id access (is there an ownership check? → IDOR).
@@ -21,22 +20,12 @@ const AUTHZ_PATTERNS = [
     query: "(findById|findOne|get_object_or_404|find_by_id|getById|\\.find\\(|objects\\.get\\(|Repository\\.findById)\\s*\\([^)]*(params|req\\.(params|query|body)|request\\.|\\bid\\b)" }
 ];
 
-function excerptFor(target, filePath, line) {
-  const path = resolve(target, filePath);
-  if (!existsSync(path) || statSync(path).isDirectory()) return null;
-  const lines = readFileSync(path, "utf8").split(/\r?\n/);
-  const anchorLine = Math.max(1, Number(line ?? 1));
-  const start = Math.max(1, anchorLine - EXCERPT_RADIUS);
-  const end = Math.min(lines.length, anchorLine + EXCERPT_RADIUS);
-  return lines.slice(start - 1, end).map((text, i) => ({ line: start + i, text }));
-}
-
-function collectCandidates(target, maxCandidates, maxHitsPerPattern = 12) {
+function collectCandidates(target, maxCandidates, scopes = ["."], maxHitsPerPattern = 12) {
   const candidates = [];
   const globs = buildGlobs();
   for (const pattern of AUTHZ_PATTERNS) {
     if (candidates.length >= maxCandidates) break;
-    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "8", "-e", pattern.query, ...globs, "."]);
+    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "8", "-e", pattern.query, ...globs, ...scopes]);
     const remaining = maxCandidates - candidates.length;
     const hits = result.ok
       ? parseJsonMatches(result.stdout, 300)
@@ -47,7 +36,7 @@ function collectCandidates(target, maxCandidates, maxHitsPerPattern = 12) {
       candidates.push({
         id: `authz-${pattern.id}-${candidates.length + 1}`,
         kind: pattern.kind, filePath: hit.filePath, line: hit.line, text: hit.text,
-        excerpt: excerptFor(target, hit.filePath, hit.line)
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line)
       });
       if (candidates.length >= maxCandidates) break;
     }
@@ -58,7 +47,7 @@ function collectCandidates(target, maxCandidates, maxHitsPerPattern = 12) {
 export function prepareAuthz(target, input = {}) {
   const resolvedTarget = resolve(target);
   const maxCandidates = Number(input.maxCandidates ?? 30);
-  const candidates = collectCandidates(resolvedTarget, maxCandidates);
+  const candidates = collectCandidates(resolvedTarget, maxCandidates, scopePaths(input));
 
   const run = openRun(resolvedTarget, "authz");
   run.writeJson("prep.json", {

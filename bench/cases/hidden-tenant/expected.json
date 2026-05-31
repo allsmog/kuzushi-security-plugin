@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "lib/records.py", "line": 3, "cwe": "CWE-200", "note": "ignores viewer and returns the full list; only reading the logic finds it" } ] }

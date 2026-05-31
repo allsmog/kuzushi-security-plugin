@@ -75,6 +75,34 @@ Summarize verdict counts, list the `finding`s (CWE, source→sink, evidence leve
 note anything downgraded by the evidence gate, and mention that `.kuzushi/findings.json` now
 holds the open findings for follow-up.
 
+## Worked example (triaging the cross-file XSS flow)
+
+Input: `draft.flows.json` has the `linked` flow `req.query.who` (handler.js:3) → raw HTML
+interpolation (tmpl.js:3), CWE-79.
+
+1. **Open source and sink:** `who` is `req.query.who` (attacker-controlled, confirmed); the sink
+   interpolates it raw into HTML (genuinely dangerous for xss) → not rejected on step 1.
+2. **Guards between them:** none — no HTML-escaping, no auto-escaping template engine, no allowlist
+   on the path (checked both handler.js and tmpl.js). (An auto-escaping engine would be non-findings
+   rule 14 — but a raw template literal has none.)
+3. **Guard blocks it?** N/A — there is no guard to bypass.
+4. **Verdict `finding`** — `evidenceLevel: "linked"` meets the gate.
+
+```json
+{ "findings": [{
+  "cwe": "CWE-79", "taintClass": "xss",
+  "title": "Reflected XSS: req.query.who reaches raw HTML interpolation",
+  "severity": "high", "verdict": "finding", "evidenceLevel": "linked",
+  "sourceAnchor": { "filePath": "src/handler.js", "startLine": 3 },
+  "sinkAnchor":   { "filePath": "src/tmpl.js",    "startLine": 3 },
+  "evidenceAnchors": [
+    { "filePath": "src/handler.js", "startLine": 3 },
+    { "filePath": "src/tmpl.js",    "startLine": 3 } ],
+  "rationale": "Unauthenticated attacker controls req.query.who at handler.js:3; it is passed into render() and interpolated raw into an HTML string at tmpl.js:3 (the tracer's linked cross-file flow). No HTML escaping, auto-escaping engine, or allowlist sits on the path in either file, so the value reflects into the response unescaped → reflected XSS.",
+  "nextChecks": ["/poc the reflected <script> payload"]
+}] }
+```
+
 ## When NOT to use
 
 - Standalone — you're phase 3 of `/taint-analysis`, after the flow-tracer.

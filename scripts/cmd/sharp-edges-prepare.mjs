@@ -7,7 +7,8 @@
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult } from "../lib/artifact-store.mjs";
-import { runRg, parseJsonMatches, rankHit, buildGlobs } from "../lib/ripgrep.mjs";
+import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePaths } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Footgun signals grouped by sharp-edges category. These are LEADS — the agent
 // confirms whether each is a real misuse-prone edge for the stated adversary.
@@ -24,12 +25,12 @@ const FOOTGUN_PATTERNS = [
     query: "role\\s*==\\s*['\"]admin['\"]|permission\\s*==\\s*['\"]|hasRole\\(['\"]|authorize\\(['\"][^'\"]+['\"]\\)|if\\s+user\\.role\\s*===?\\s*['\"]" }
 ];
 
-function collectCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
+function collectCandidates(target, maxCandidates, scopes = ["."], maxHitsPerPattern = 6) {
   const candidates = [];
   const globs = buildGlobs();
   for (const pattern of FOOTGUN_PATTERNS) {
     if (candidates.length >= maxCandidates) break;
-    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "4", "-e", pattern.query, ...globs, "."]);
+    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "4", "-e", pattern.query, ...globs, ...scopes]);
     const remaining = maxCandidates - candidates.length;
     const hits = result.ok
       ? parseJsonMatches(result.stdout, 300)
@@ -43,7 +44,8 @@ function collectCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
         category: pattern.category,
         filePath: hit.filePath,
         line: hit.line,
-        text: hit.text
+        text: hit.text,
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line)
       });
       if (candidates.length >= maxCandidates) break;
     }
@@ -54,7 +56,7 @@ function collectCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
 export function prepareSharpEdges(target, input = {}) {
   const resolvedTarget = resolve(target);
   const maxCandidates = Number(input.maxCandidates ?? 30);
-  const candidates = collectCandidates(resolvedTarget, maxCandidates);
+  const candidates = collectCandidates(resolvedTarget, maxCandidates, scopePaths(input));
 
   const run = openRun(resolvedTarget, "sharp-edges");
   run.writeJson("prep.json", {

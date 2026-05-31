@@ -9,7 +9,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, artifactSnapshot, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
-import { runRg, parseJsonMatches, rankHit, buildGlobs } from "../lib/ripgrep.mjs";
+import { runRg, parseJsonMatches, rankHit, buildGlobs, scopePaths } from "../lib/ripgrep.mjs";
+import { enclosingExcerpt } from "../lib/excerpt.mjs";
 
 // Native boundaries, unsafe memory primitives, binary/archive parsers, plus two
 // high-signal systems sinks (deserialization, process exec).
@@ -27,12 +28,12 @@ const NEXT_CHECKS = [
   "Separate app-owned code from generated, vendored, or runtime-library code before reporting."
 ];
 
-function collectScannedCandidates(target, maxCandidates, maxHitsPerPattern = 6) {
+function collectScannedCandidates(target, maxCandidates, scopes = ["."], maxHitsPerPattern = 6) {
   const candidates = [];
   const globs = buildGlobs();
   for (const pattern of SYSTEMS_PATTERNS) {
     if (candidates.length >= maxCandidates) break;
-    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "3", "-e", pattern.query, ...globs, "."]);
+    const result = runRg(target, ["--json", "-n", "-S", "--max-count", "3", "-e", pattern.query, ...globs, ...scopes]);
     const remaining = maxCandidates - candidates.length;
     const hits = result.ok
       ? parseJsonMatches(result.stdout, 300)
@@ -48,6 +49,7 @@ function collectScannedCandidates(target, maxCandidates, maxHitsPerPattern = 6) 
         filePath: hit.filePath,
         line: hit.line,
         text: hit.text,
+        excerpt: enclosingExcerpt(target, hit.filePath, hit.line),
         proofLevel: "artifact-review-only",
         nextChecks: NEXT_CHECKS
       });
@@ -95,7 +97,7 @@ export function prepareSystemsHunt(target, input = {}) {
   const store = storeFor(resolvedTarget);
   const maxCandidates = Number(input.maxCandidates ?? 30);
 
-  const scanned = collectScannedCandidates(resolvedTarget, maxCandidates);
+  const scanned = collectScannedCandidates(resolvedTarget, maxCandidates, scopePaths(input));
   const remaining = Math.max(0, maxCandidates - scanned.length);
   const threatModel = readJsonIfPresent(store.threatModelPath);
   const intel = readJsonIfPresent(store.threatIntelPath);

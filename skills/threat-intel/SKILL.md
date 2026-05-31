@@ -3,7 +3,7 @@ name: threat-intel
 description: Research recent critical/high CVEs for this repo's stack and for similar apps in its domain, and distill them into checkable invariants written to .kuzushi/threat-intel.json. Uses live web search. Best run after /threat-model.
 context: fork
 agent: threat-intel-researcher
-user-invocable: true
+user-invocable: false
 ---
 
 # Threat intel research

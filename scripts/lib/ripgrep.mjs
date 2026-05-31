@@ -45,6 +45,28 @@ export function ripgrepPath() {
   return resolveRg();
 }
 
+// /sweep scopes a producer to one shard by passing { scopeDir } in its input.
+// Producers pass that input here to turn it into the rg search-path argument —
+// narrowing the walk to a subtree instead of the whole repo. Absent/"." → repo
+// root, so this is backward-compatible for standalone (non-sweep) runs.
+export function scopePath(input) {
+  const dir = input?.scopeDir;
+  return dir && dir !== "." ? dir : ".";
+}
+
+// Like scopePath, but returns an ARRAY of rg search paths. When /sweep's attack-surface
+// overlay (partition mode) scopes a producer to an explicit subsystem file list rather
+// than a single directory, the producer passes `{ files: [...] }` and rg searches exactly
+// those paths. Absent `files` falls back to the single dir scope, so this is a drop-in,
+// backward-compatible replacement everywhere a producer used a lone scopePath() arg.
+export function scopePaths(input) {
+  const files = input?.files;
+  if (Array.isArray(files) && files.length) {
+    return files.map((f) => String(f).replace(/^\.\//, "")).filter(Boolean);
+  }
+  return [scopePath(input)];
+}
+
 const DEFAULT_GLOBS = [
   "*.java",
   "*.kt",

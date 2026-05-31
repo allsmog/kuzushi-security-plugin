@@ -1,7 +1,7 @@
 ---
 name: fuzz
 description: Canonical fuzzing workflow for confirmed/proven findings. Coordinates plan → author harnesses (fuzz-harness-author agent) → replay → triage → promote, and advances a finding to proven only on empirical crash/sanitizer evidence. Prefer this over the lower-level /fuzz-* stage commands.
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz workflow

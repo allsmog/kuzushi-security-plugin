@@ -3,7 +3,7 @@ name: systems-hunt
 description: Native / parser / memory-safety review. Scans the repo for systems patterns (loadLibrary/JNI, memcpy/Unsafe/gets, archive parsers, deserialization, exec), then the systems-hunter agent confirms reachability + memory-safety impact and promotes verdicts to .kuzushi/findings.json. Most useful on C/C++/Rust/native code.
 context: fork
 agent: systems-hunter
-user-invocable: true
+user-invocable: false
 ---
 
 # Systems hunt

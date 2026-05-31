@@ -1,6 +1,6 @@
 ---
 name: taint-flow-tracer
-description: "Phase 2 of /taint-analysis. Reads the labeled sinks + sources and connects them: runs Joern (and/or CodeQL) dataflow queries against prebuilt databases for whole-repo source→sink paths, falling back to same-file structural linking. Read-only. Writes draft.flows.json with evidence levels."
+description: "Phase 2 of /taint-analysis. Reads the labeled sinks + sources and connects them: runs Joern (and/or CodeQL) dataflow queries against prebuilt databases for whole-repo source→sink paths; without a backend, walks the call graph interprocedurally (callees/callers CLIs) to connect a source and sink across files, then same-file linking. Read-only. Writes draft.flows.json with evidence levels."
 ---
 
 # Taint flow tracer (source→sink path detection)
@@ -51,12 +51,31 @@ source and one sink:
 catalog `backendHints.codeql` as guidance, and map returned paths to `path` evidence. Skip if
 you can't form a sound query — don't fabricate.
 
-### B — Structural linking fallback (→ `linked` / `candidate`)
-For groups with no backend path (or no backend): if a source and a sink for the same CWE sit in
-the **same file** (ideally same function, source line ≤ sink line, or the sink's argument
-visibly derives from the source variable), record `linked` evidence with both anchors and the
-intervening lines as `steps`. If they only co-occur by CWE with no same-file story, record
-`candidate`.
+### B — Structural linking fallback (no backend, or backend found nothing) → `linked` / `candidate`
+
+Don't stop at file boundaries. `prep.json`'s `backends.reachability` gives two CLIs that walk
+the call graph textually (a reachability HINT — confirm by reading each hop, not by trusting the
+call exists):
+- **forward** — `node <calleesCli> --target <repo> --file <f> --line <n>` → the functions that
+  function calls, each with its resolved definition (follow data *from* a source).
+- **backward** — `node <callersCli> --target <repo> --symbol <fn>` → repo-wide call sites of a
+  function (follow data *into* a sink).
+
+**B1 — interprocedural walk (source and sink in different files/functions).** From the source's
+function step toward the sink with `callees` (or from the sink's function step back with
+`callers`); meet in the middle, **≤ 4 hops**. At each hop READ the function and confirm the
+tainted value is actually carried along — passed as an argument, returned, or stored — not merely
+that a call exists. If it propagates end-to-end, record `linked` evidence with the source and sink
+anchors in their **real files** and the **cross-file hop chain as `steps`** (`{filePath,startLine,code}`
+per hop). This is the flow that same-file linking and pattern-gating both miss. It stays `linked`:
+a confirmed textual path is not a backend-proven dataflow `path`.
+
+**B2 — same-file linking.** If source and sink sit in the same file/function (source line ≤ sink
+line, or the sink's argument visibly derives from the source variable), record `linked` with both
+anchors and the intervening lines as `steps`.
+
+**B3 — candidate.** If they only co-occur by CWE with no demonstrable path (no backend, no
+confirmed call chain, not same-file), record `candidate` — don't drop it, don't inflate it.
 
 ## Output
 
@@ -81,6 +100,29 @@ State, per CWE, how many flows you found and at what evidence level, and which b
 them (or that you fell back to structural linking because no DB/CPG was present). Note that
 `draft.flows.json` is written for the triager.
 
+## Worked example (structural cross-file link — `handler.js` → `tmpl.js`)
+
+No backend present, so fall back to B1 (interprocedural walk). Labeled source `req.query.who`
+(handler.js:3, CWE-79) and a labeled HTML sink in tmpl.js.
+
+- **Walk forward** from the source's function: `node <calleesCli> --file src/handler.js
+  --line 4` → `page` calls `render`, resolved to `src/tmpl.js`. Open `render`: it interpolates
+  its `name` argument raw into `` `<h1>Hello ${name}</h1>` ``. The tainted `who` is passed as
+  that argument → propagation confirmed by **reading**, across 2 files in 1 hop.
+- **Evidence level `linked`** — a confirmed cross-file textual path, NOT `path` (no Joern/CodeQL
+  dataflow ran). Don't inflate it; don't collapse to same-file-only either (that's the miss).
+
+```json
+{ "flows": [{
+  "cwe": "CWE-79", "taintClass": "xss", "evidenceLevel": "linked", "backend": "structural",
+  "source": { "filePath": "src/handler.js", "startLine": 3, "code": "req.query.who" },
+  "sink":   { "filePath": "src/tmpl.js",    "startLine": 3, "code": "`<h1>Hello ${name}</h1>`" },
+  "steps": [
+    { "filePath": "src/handler.js", "startLine": 4, "code": "res.send(render(who))" },
+    { "filePath": "src/tmpl.js",    "startLine": 3, "code": "return `<h1>Hello ${name}</h1>`" } ]
+}] }
+```
+
 ## When NOT to use
 
 - Standalone — you're phase 2 of `/taint-analysis`, after the labelers.
@@ -90,7 +132,10 @@ them (or that you fell back to structural linking because no DB/CPG was present)
 
 - *"Same CWE in the repo, call it a path."* → `path` requires a backend-returned dataflow; same-file
   proximity is `linked`; bare co-occurrence is `candidate`. Don't inflate the level.
-- *"No DB/CPG, so I can't trace."* → Fall back to structural linking and report the honest lower
-  level; don't drop the flow.
+- *"No DB/CPG, so I can't trace across files."* → Walk the call graph with the `callees` / `callers`
+  CLIs and read each hop; a confirmed cross-file textual path is honest `linked` evidence. Collapsing
+  to same-file-only is the biggest recall miss without a backend.
+- *"A call exists, so the taint flows."* → A call site is not propagation. Confirm the tainted value
+  is the argument/return/stored value at each hop by reading the function; otherwise it's `candidate`.
 - *"I'll loosen the query to get a hit."* → Don't fabricate paths; an unsound query that "matches"
   is worse than a `candidate`.

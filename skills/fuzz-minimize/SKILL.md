@@ -2,7 +2,7 @@
 name: fuzz-minimize
 description: Low-level stage for /fuzz. Record minimization status for triaged fuzz crashes. Prefer /fuzz --stage replay for normal use.
 allowed-tools: Bash
-user-invocable: true
+user-invocable: false
 ---
 
 # Fuzz minimize

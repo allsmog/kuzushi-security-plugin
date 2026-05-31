@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "api/pay.py", "line": 6, "cwe": "CWE-837", "note": "charge with no idempotency key — replayable" } ] }

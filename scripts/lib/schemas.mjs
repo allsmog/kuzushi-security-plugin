@@ -18,7 +18,11 @@ const VERIFY_VERDICTS = new Set(["confirmed-exploitable", "not-exploitable", "in
 const POC_VERDICTS = new Set(["exploited", "not-reproduced", "harness-failed-build", "timeout", "error"]);
 const FIX_VERDICTS = new Set([
   "validated", "unvalidated-no-harness", "build-failed", "needs-more-evidence",
-  "exploit-still-fires", "stops-exploit-breaks-function"
+  "exploit-still-fires", "stops-exploit-breaks-function",
+  // Seam for the follow-up agent-driven sibling-caller re-attack (1.3 Option B): a
+  // patch that passed the deterministic checks but is awaiting a fresh adversary pass.
+  // Maps to no status change (FIX_STATUS leaves it null) — inert until that step ships.
+  "validated-pending-reattack"
 ]);
 const RAW_QUERY = new Set(["allow", "require-approval", "deny"]);
 const HOOK_ERROR = new Set(["allow", "require-approval", "deny"]);

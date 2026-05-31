@@ -18,6 +18,7 @@ import { fuzzRun } from "./fuzz-run.mjs";
 import { fuzzTriage } from "./fuzz-triage.mjs";
 import { fuzzMinimize } from "./fuzz-minimize.mjs";
 import { fuzzPromote } from "./fuzz-promote.mjs";
+import { prepareFuzzDiscover } from "./fuzz-discover-prepare.mjs";
 
 function artifact(path) {
   if (!existsSync(path)) return { present: false };
@@ -53,6 +54,11 @@ export function fuzzStatus(target) {
 export async function fuzzWorkflow(target, { stage = "status", input = {}, trustLocal = false, timeoutMs = undefined, planPath = undefined } = {}) {
   const resolvedStage = String(stage ?? "status");
   if (resolvedStage === "status") return fuzzStatus(target);
+  // Discovery-by-execution: deterministic recon prep (no pre-existing finding needed).
+  // The coordinator spawns the fuzz-discoverer agent against the prep, then runs the
+  // returned assembleCommand (fuzz-discover-finalize) — the same prepare→agent→finalize
+  // shape as /sanitize-pov, but it FINDS bugs rather than only proving known ones.
+  if (resolvedStage === "discover") return prepareFuzzDiscover(target, input);
   if (resolvedStage === "plan" || resolvedStage === "init") return fuzzInit(target, input);
   if (resolvedStage === "run") return fuzzRun(target, { trustLocal, timeoutMs, planPath });
   if (resolvedStage === "triage") return fuzzTriage(target);
@@ -74,12 +80,12 @@ export async function fuzzWorkflow(target, { stage = "status", input = {}, trust
       promote
     };
   }
-  throw new Error(`unknown fuzz stage "${resolvedStage}" (expected status|plan|run|triage|minimize|promote|replay)`);
+  throw new Error(`unknown fuzz stage "${resolvedStage}" (expected status|discover|plan|run|triage|minimize|promote|replay)`);
 }
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("fuzz --target <path> [--stage status|plan|run|triage|minimize|promote|replay] [--trust-local] [--timeout-ms 120000]");
+    console.log("fuzz --target <path> [--stage status|discover|plan|run|triage|minimize|promote|replay] [--trust-local] [--timeout-ms 120000]");
     process.exit(0);
   }
   const { flags } = parseFlags(process.argv.slice(2), {

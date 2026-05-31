@@ -3,7 +3,7 @@ name: supply-chain
 description: Audit direct dependencies for takeover / abandonment risk (maintainer count, popularity, CVE history, release cadence, ownership) and promote the risky ones into .kuzushi/findings.json (source "supply-chain"). Complements /threat-intel (which checks CVEs, not dependency trustworthiness). Uses the network — asks first.
 context: fork
 agent: supply-chain-auditor
-user-invocable: true
+user-invocable: false
 ---
 
 # Supply-chain risk audit

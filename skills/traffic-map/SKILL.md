@@ -3,7 +3,7 @@ name: traffic-map
 description: Offline Burp/HAR import — parse a captured traffic export (HAR JSON or Burp "Save items" XML), correlate observed endpoints to source handlers (x-ray + code-graph), and flag the gaps it reveals (shadow surface, unauthenticated mutating endpoints, params reaching sinks). Writes .kuzushi/traffic-map.json and promotes gaps into findings (source "traffic-map"). Offline only — no proxy, no live requests. Pass a capture via --input '{"file":"capture.har"}'.
 context: fork
 agent: traffic-mapper
-user-invocable: true
+user-invocable: false
 ---
 
 # Traffic map (ground review in observed traffic)
