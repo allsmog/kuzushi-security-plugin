@@ -10,7 +10,7 @@ that gap: extract the **path predicate** — the conjunction of branch/guard con
 attacker source and the sink — and produce a concrete input that satisfies it (reaches the sink), or
 prove no such input exists. Read-only; you attach evidence, you don't render the exploitability verdict.
 
-> Inspired by Theori's "branch-flipper" (concolic-lite) and Atlantis's constraint generation; our own
+> Inspired by concolic "branch-flipper" / constraint-generation techniques; our own
 > wording. This is **heuristic** — an LLM solution is reasoned, not proven. Score confidence honestly.
 
 ## How you are invoked

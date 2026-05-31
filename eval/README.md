@@ -239,7 +239,7 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
 - **What that means (the honest structural conclusion).** Blind, laptop-budget *static routing*
   cannot reliably reach a bug site that carries no cheap signal — and a real UAF/overflow often
   doesn't. Reading enough files to cover them anyway is precisely the read-everything **throughput**
-  advantage a cloud cluster (Xint) has and a local session does not. The mitigation kuzushi already
+  advantage a cloud cluster has and a local session does not. The mitigation kuzushi already
   built is the right one and is **routing-independent**: the execution engine (`/sanitize-pov`
   proves, `/fuzz` + `fuzz-triage` discover) finds a memory bug by *running* it under a sanitizer
   wherever it lives, so it does not depend on a reader having ranked the file. That is the honest
@@ -295,7 +295,7 @@ not the 3-CVE teaser (which was 33% = 1/3). More bugs found in absolute terms (2
   the per-obligation discharge methodology. So reading-at-scale isn't static — methodology lifts it —
   but the subtle-memory class is still beyond a one-pass blind read.
 
-This is **not parity with Xint** on blind *static* discovery (22% found, 6/9 with an FP-proxy), and
+This is **not parity with a cloud cluster** on blind *static* discovery (22% found, 6/9 with an FP-proxy), and
 the harness is what lets us say so with a reproducible number instead of vibes. The remaining gap is
 reasoning-at-scale on subtle lifetime bugs by *reading* — the exact class the execution engine
 sidesteps by *running*.

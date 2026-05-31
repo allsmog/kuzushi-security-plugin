@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Prepare phase for /sweep — the whole-repo orchestrator.
 //
-// Xint Code's headline is "thousands of parallel agents over the whole repo".
+// A common cloud-SAST headline is "thousands of parallel agents over the whole repo".
 // kuzushi already has the producers and a fingerprint-deduped findings index;
 // what it lacked was a planner that fans them out across EVERY shard of the repo
 // instead of only the threat-model-seeded hotspots. This script does the

@@ -46,7 +46,7 @@ scores worse than pattern on a case. Results land in `scoreboard.md`.
 
 ### Real-CVE lane (`npm run bench:cve`)
 
-The credible "as good as Xint" evidence runs the same three lanes against **real
+The credible "strong raw bug-finding" evidence runs the same three lanes against **real
 projects cloned at a known-vulnerable commit**. Cases live in `bench/cves/<id>/` as a
 `fetch.sh` (clones/downloads on demand — nothing third-party is committed) plus an
 `expected.json`. With nothing fetched, `bench:cve` prints the fetch commands and

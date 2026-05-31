@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // kuzushi benchmark harness.
 //
-// "Better than Xint on raw bug-finding power" is unfalsifiable until it's measured.
+// "Strong raw bug-finding power" is unfalsifiable until it's measured.
 // This makes it a number — without an LLM in the loop, so it runs in CI.
 //
 // It measures CANDIDATE RECALL: a producer's deterministic prepare phase decides
@@ -15,7 +15,7 @@
 // especially on bugs no regex matches (custom wrappers, cross-file flows).
 //
 // `--cve` runs the same lanes against real projects cloned at a vulnerable commit
-// (bench/cves/<id>/, fetched on demand) — the credible "as good as Xint" evidence.
+// (bench/cves/<id>/, fetched on demand) — the credible "strong raw bug-finding" evidence.
 
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, existsSync, writeFileSync, cpSync, mkdtempSync } from "node:fs";

@@ -1,5 +1,5 @@
 // Compiled-binary detection + read-only static triage. Source-only scanners (and
-// kuzushi until now) never open the shipped artifacts; Xint Code makes a point of
+// kuzushi until now) never open the shipped artifacts; some scanners make a point of
 // analyzing binaries. This is the modest, honest version: detect ELF/PE/Mach-O by
 // magic bytes, then surface read-only signals (dangerous imported symbols, RWX /
 // writable-executable segments, suspicious strings) via whatever standard binutils

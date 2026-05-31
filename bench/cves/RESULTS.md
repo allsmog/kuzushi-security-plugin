@@ -1,11 +1,10 @@
 # Real-CVE run — honest results
 
-Cases are real public CVEs in the projects **Xint Code publicly reports finding bugs
-in** (Redis), plus minimist. Ground truth in each `expected.json` is derived from the
+Cases are real public CVEs in widely-analyzed projects (Redis), plus minimist. Ground truth in each `expected.json` is derived from the
 actual upstream **fix commit** (not memory): the case fetches the source at the
 fix's *parent* (vulnerable) commit, and the changed file:line is the truth.
 
-> Xint's *specific* 0days aren't published with a verifiable file:line, and blind-
+> Cloud-SAST vendors' *specific* 0days aren't published with a verifiable file:line, and blind-
 > rediscovering a real 0day in a million-LOC tree in a shell session isn't realistic.
 > These are the verifiable proxy: real disclosed CVEs in the same codebases, run
 > blind, scored against the real fix.
@@ -53,7 +52,7 @@ knowledge of Lua's GC rooting invariants. Right file, wrong mechanism.
 - The machinery works: sweep + sharding routes to real vulnerable files (3/3), and
   the deep-reader → panel pipeline produces verified findings on real third-party
   code (minimist).
-- **It is not yet at Xint's level on raw bug-finding power against real targets.** On
+- **It is not yet at cloud-SAST level on raw bug-finding power against real targets.** On
   the one genuinely-blind subtle CVE tested (Redis Lua RCE), it reached the file but
   did not identify the bug. The limits are concrete: (a) the risk-ranker is heuristic
   and budget-bounded, so the right file isn't guaranteed to be read on a large repo;

@@ -1,4 +1,4 @@
-// Coverage map for /sweep. Answers the question Xint's "we scanned everything"
+// Coverage map for /sweep. Answers the question a "we scanned everything"
 // claim dodges: which files did each producer ACTUALLY examine, and what slice of
 // the repo did the whole sweep leave untouched? Silent truncation reads as
 // "covered everything" when it isn't — so we compute the uncovered set explicitly
