@@ -15,7 +15,7 @@ import { languageOf } from "./sharding.mjs";
 
 // risk-rank reasons[] that mean "an attacker's data reaches this file". An
 // `entry-defs=<n>` tag is per-file dynamic, so match it by prefix.
-const REACHABLE_TAGS = new Set(["input-processor", "entry-point", "framework-route", "trust-boundary"]);
+const REACHABLE_TAGS = new Set(["input-processor", "entry-point", "framework-route", "trust-boundary", "dispatch-entry"]);
 function isReachable(reasons = []) {
   return reasons.some((r) => REACHABLE_TAGS.has(r) || r.startsWith("entry-defs="));
 }

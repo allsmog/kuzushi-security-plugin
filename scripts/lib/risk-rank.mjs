@@ -15,6 +15,7 @@ import { readJsonIfPresent, storeFor } from "./artifact-store.mjs";
 import { inventory, languageOf } from "./sharding.mjs";
 import { runRg, parseJsonMatches, buildGlobs } from "./ripgrep.mjs";
 import { routeFiles } from "./routes.mjs";
+import { dispatchHandlerFiles } from "./dispatch.mjs";
 
 // Files that DEFINE request/command entry points — the attacker-reachable surface.
 // This is the reachability signal that call-count misses: a command handler or HTTP
@@ -118,6 +119,11 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
   // surface that the generic entry-def regex misses (L4). Best-effort; empty if rg
   // is unavailable.
   const routes = (() => { try { return routeFiles(target, { scopeDir }); } catch { return new Set(); } })();
+  // Files that DEFINE a dispatch-registered handler (command table, vtable, registry, or a
+  // convention-named *Command/*Handler whose table is generated). These are the real
+  // attacker entry points that call-count reachability scores ~0 (no inbound call edge) —
+  // the exact blind spot that buried redis t_stream.c under a vendored RESP parser.
+  const dispatch = (() => { try { return dispatchHandlerFiles(target, { scopeDir }); } catch { return new Set(); } })();
 
   const scored = files.map((file) => {
     const reasons = [];
@@ -133,6 +139,10 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
     if (rs > 0) { score += rs; reasons.push(`reach=${cw}`); }
     if (entries.has(file)) { score += 4; reasons.push("entry-point"); }
     if (routes.has(file)) { score += 4; reasons.push("framework-route"); }
+    // Strong: a dispatch handler IS the attacker entry point. Weighted above input-processor
+    // (+5) so a real command handler outranks a file that merely matches a "parser" keyword
+    // (a vendored RESP reader). Additive — a handler that also has callers still wins.
+    if (dispatch.has(file)) { score += 6; reasons.push("dispatch-entry"); }
     if (boundaries.has(file)) { score += 3; reasons.push("trust-boundary"); }
     if (changed.has(file)) { score += 2; reasons.push("recently-changed"); }
     // Input-processing surface (parser/decoder/deserializer/VM): real weight — these

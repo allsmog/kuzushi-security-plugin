@@ -23,6 +23,34 @@ function fail(message) { console.error(`fuzz-discover-finalize: ${message}`); pr
 
 const envPrefix = Object.entries(SANITIZE_ENV).map(([k, v]) => `${k}='${v}'`).join(" ");
 
+// --- Promotion gates (the eval forensics: the lane "proved" a benign signed-overflow in a
+// vendored client RESP parser, reached only by a standalone leaf harness). Two deterministic
+// gates, enforced here so the agent can't reason around them. ---------------------------------
+
+// Source files named in the sanitizer backtrace.
+function crashFrameFiles(out) {
+  const files = [];
+  const re = /#\d+[^\n]*?([A-Za-z0-9_./\-+]+\.(?:c|cc|cpp|cxx|h|hpp|hh|m|mm|rs)):\d+/gi;
+  let m;
+  while ((m = re.exec(String(out ?? ""))) !== null) files.push(m[1]);
+  return files;
+}
+// Frames that are NOT the target's own first-party source: vendored deps, test/example code,
+// or harness/stub scaffolding. A crash whose frames are ALL off-target was not reached through
+// the real entry point (it's the leaf-harness retreat) — reject it. NOTE: a bug in an embedded
+// interpreter reached via the real entry (e.g. lua via an EVAL command) still has a first-party
+// frame on the stack (the command handler), so it passes — only vendored-ONLY crashes fail.
+const OFF_TARGET = /(?:^|\/)(?:deps|vendor|third[_-]?party|external|node_modules|contrib|examples?|tests?)\/|harness|(?:^|[_/])stub|fuzz[_-]?driver|(?:^|\/)mock|conftest|_test\.|(?:^|\/)test_/i;
+export function crashOffTargetOnly(out) {
+  const files = crashFrameFiles(out);
+  return files.length > 0 && files.every((f) => OFF_TARGET.test(f));
+}
+// Weak-tier sanitizer classes: undefined behavior with no demonstrated memory-corruption
+// consequence (a bare signed/unsigned overflow, a bad shift). UB, frequently benign. A REAL
+// integer-overflow that corrupts memory surfaces instead as an OOB-write / deadly-signal
+// (parseSanitizerReport returns that stronger class first), so this only catches the benign tier.
+export const WEAK_TIER = new Set(["integer-overflow", "bad-shift", "undefined-behavior", "misaligned-access", "div-by-zero"]);
+
 // Error classes that corrupt memory with attacker influence → critical; other sanitizer
 // catches (null-deref, integer overflow surfacing as a trap, leaks) → high.
 const CRITICAL_CLASSES = new Set([
@@ -94,13 +122,20 @@ async function runOne(discovery, runDir, backendInfo, trustLocal, idx) {
   const report = parseSanitizerReport(out);
   const classified = classifyResult(result);
   // The sanitizer report is the oracle and outranks the generic classifier — UNLESS the
-  // harness never built (a build failure must never read as a proof).
+  // harness never built (a build failure must never read as a proof), the crash is reachable
+  // only through vendored/stub/harness frames (the leaf-harness retreat), or it's a weak-tier
+  // UB with no memory consequence. The last two are recorded, never promoted.
   let proofVerdict = classified.proofVerdict;
   let proofLevel = classified.proofLevel;
-  if (report && classified.proofVerdict !== "harness-failed-build") { proofVerdict = "exploited"; proofLevel = 4; }
+  let gate = null;
+  if (report && classified.proofVerdict !== "harness-failed-build") {
+    if (crashOffTargetOnly(out)) { proofVerdict = "off-target"; gate = "crash frames are all vendored/stub/harness — not reachable from a real entry point"; }
+    else if (WEAK_TIER.has(report.errorClass)) { proofVerdict = "weak-tier"; gate = `${report.errorClass}: undefined behavior with no memory-corruption consequence — candidate, not proven`; }
+    else { proofVerdict = "exploited"; proofLevel = 4; }
+  }
   const logPath = join(harnessDir, "run.log");
   writeFileSync(logPath, out);
-  return { report, proofVerdict, proofLevel, backend: result.backend ?? backendInfo.backend, durationMs: result.durationMs ?? null, harnessDir, runCommand, logPath, skipped: Boolean(result.skipped), reason: result.reason ?? null };
+  return { report, proofVerdict, proofLevel, gate, backend: result.backend ?? backendInfo.backend, durationMs: result.durationMs ?? null, harnessDir, runCommand, logPath, skipped: Boolean(result.skipped), reason: result.reason ?? null };
 }
 
 export async function finalizeFuzzDiscover(target, runDir, input = {}) {
@@ -142,7 +177,7 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
       promoted = { refId: clean.refId, cwe: clean.cwe, severity: clean.severity, crashKey: _crashKey, duplicate };
     }
     results.push({
-      title: d.title ?? null, proofVerdict: r.proofVerdict, proofLevel: r.proofLevel,
+      title: d.title ?? null, proofVerdict: r.proofVerdict, proofLevel: r.proofLevel, gate: r.gate ?? null,
       backend: r.backend, durationMs: r.durationMs, harnessDir: r.harnessDir, runCommand: r.runCommand,
       logPath: r.logPath, sanitizer: r.report, skipped: r.skipped, reason: r.reason, promoted, duplicate
     });

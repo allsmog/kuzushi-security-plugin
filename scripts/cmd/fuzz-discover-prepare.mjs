@@ -16,6 +16,7 @@ import { inventory } from "../lib/sharding.mjs";
 import { detectToolchain, SANITIZE_CFLAGS, SANITIZE_ENV } from "../lib/sanitizers.mjs";
 import { detectBackend } from "../lib/sandbox.mjs";
 import { partitionAttackSurface } from "../lib/attack-surface.mjs";
+import { classifyProgramKind, harnessStrategyFor, detectSanitizerBuild, dispatchVocabulary } from "../lib/dispatch.mjs";
 
 const NATIVE_LANGS = new Set(["C", "C++", "Rust", "Objective-C"]);
 const BUILD_FILES = ["Makefile", "makefile", "GNUmakefile", "CMakeLists.txt", "configure", "configure.ac", "Cargo.toml", "meson.build", "BUILD.bazel", "build.zig"];
@@ -45,17 +46,32 @@ export function prepareFuzzDiscover(target, input = {}) {
     .map((s) => ({ ...s, files: s.files.filter((f) => NATIVE_EXT.test(f)) }))
     .filter((s) => s.files.length);
 
-  // Honest self-skip ladder (mirrors sanitize-pov-prepare's structured status).
+  // The decisive additions (from the eval forensics): the agent retreated to a standalone
+  // vendored leaf because building the whole project "looked hard" and nothing pinned it
+  // to the real entry point. So: classify the program KIND (drives how to harness it),
+  // name the project's OWN sanitizer build (amortize the expensive build once), and hand
+  // over the dispatch VOCABULARY (the command/method grammar) so a daemon/CLI is driven
+  // through its real protocol — reaching stateful bugs a leaf harness never can.
+  const programKind = classifyProgramKind(resolvedTarget);
+  const sanitizerBuild = detectSanitizerBuild(resolvedTarget);
+  const vocabulary = (() => { try { return dispatchVocabulary(resolvedTarget, { cap: 220 }); } catch { return []; } })();
+
+  // Honest self-skip ladder (mirrors sanitize-pov-prepare's structured status). A daemon/CLI
+  // with a buildable project + a dispatch vocabulary is fuzzable through its real entry even
+  // when no single file forms a tidy standalone subsystem — so it does NOT count as no-target.
+  const drivableEntry = (programKind.kind === "daemon" || programKind.kind === "cli") && Boolean(sanitizerBuild) && vocabulary.length > 0;
   let status = "prepared";
   if (!hasNativeSource(inv)) status = "no-native-source";
   else if (!toolchain.cc && !toolchain.rust) status = "no-toolchain";
-  else if (!subsystems.length) status = "no-fuzzable-target";
+  else if (!subsystems.length && !drivableEntry) status = "no-fuzzable-target";
   else if (backend.backend !== "docker" && backend.backend !== "local") status = "no-sandbox";
 
   const run = openRun(resolvedTarget, "fuzz-discover");
   run.writeJson("prep.json", {
     runId: run.runId, runDir: run.runDir, target: resolvedTarget,
     status, toolchain, backend, buildSystem,
+    programKind, harnessStrategy: harnessStrategyFor(programKind.kind), sanitizerBuild,
+    vocabularyCount: vocabulary.length, vocabulary,
     sanitizeCflags: SANITIZE_CFLAGS, sanitizeEnv: SANITIZE_ENV,
     subsystemCount: subsystems.length, subsystems, input
   });
@@ -69,11 +85,14 @@ export function prepareFuzzDiscover(target, input = {}) {
     prepPath: join(run.runDir, "prep.json"),
     draftPath: join(run.runDir, "draft.fuzz-discover.json"),
     subsystemCount: subsystems.length,
+    programKind: programKind.kind,
+    vocabularyCount: vocabulary.length,
+    sanitizerBuild: sanitizerBuild?.command ?? null,
     toolchain,
     backend: backend.backend,
     buildSystem,
     note: status === "prepared"
-      ? "Spawn the fuzz-discoverer agent against prepPath; it builds an ASan/UBSan target, crafts malformed inputs, runs them, and writes draft.fuzz-discover.json. Then run the assembleCommand."
+      ? `Spawn the fuzz-discoverer against prepPath. programKind=${programKind.kind}: ${harnessStrategyFor(programKind.kind)} Then run the assembleCommand.`
       : `discovery lane self-skipped: ${status}`,
     assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "fuzz-discover-finalize.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`
   };
