@@ -144,16 +144,53 @@ classifies a sanitizer-caught deadly signal, using the access-type hint to land
 a *dependency*, an *integer-overflow* class, a *script-driven* trigger — and the harness
 catching its own blind spot before it shipped.
 
+## Discovery by execution — now wired (no finding required)
+
+`/sanitize-pov` proves a memory bug that a hunter *already found*. The harder gap the eval
+exposed is **discovering** the unknown ones: 5 of 9 real CVEs were *read and missed*. So the
+same execution machinery is now wired a second way — a **routing-independent discovery lane**
+that finds bugs by *running* crafted inputs under sanitizers, with **no pre-existing finding**:
+
+- **Surface:** no new slash command — a `discover` stage of `/fuzz` and an opt-in,
+  consent-gated `fuzz-discover` producer in `/sweep` (`default:false`, never in an offline
+  sweep — it compiles and executes target code).
+- **Shape (mirrors the proven `/sanitize-pov` trio):** `fuzz-discover-prepare` does
+  deterministic recon — detects native source + an **ASan-linking** toolchain + a sandbox,
+  and partitions the attacker-reachable surface into subsystem seeds (`attack-surface.mjs`),
+  self-skipping honestly (`no-native-source` / `no-toolchain` / `no-fuzzable-target` /
+  `no-sandbox`). The `fuzz-discoverer` agent builds the instrumented target, crafts malformed
+  inputs, **runs** them, escalates a weak crash toward a controllable OOB-write/UAF, and
+  validates 3/3. `fuzz-discover-finalize` is the determinism boundary: it re-runs the draft
+  bytes in a fresh sandbox, forces the sanitizer env, and lets `parseSanitizerReport` decide —
+  a parsed report promotes a **NEW `proven` finding** (`source:"fuzz-discover"`, CWE = the
+  sanitizer's exact class); a build failure is `harness-failed-build`, a clean run is
+  `not-reproduced`. Never a false proof, no LLM in the verdict (the abort is the oracle).
+- **Validated (free, deterministic):** the promotion spine is unit-tested from captured
+  sanitizer reports (CWE-121/CWE-416), and a **compiler-gated end-to-end** test compiles a
+  crafted overflow, runs it, and promotes a real `proven` finding (`test/fuzz-discover.test.mjs`).
+  The recon prep was run against real Redis source and correctly produced 15 native subsystems
+  with a verified-ASan gcc toolchain.
+- **The paid blind 9-CVE gate is NOT YET RUN — honest status.** The merge gate
+  (`npm run eval:discover:cve`, success = ≥3/6 memory-class cases reach `proven`) requires the
+  harness to spawn headless `claude -p` discovery agents. In the environment this was built in,
+  that autonomous-agent spawn is **denied by the auto-mode permission classifier**, so the gate
+  could not be executed here. It is recorded as **not-run**, not as a win — the **22%** blind
+  find-rate below **stands** until the gate runs where headless agents are permitted. (This is
+  the false-win guard from the plan: if the number doesn't move on the memory class under the
+  blind eval, the lane is documented as "doesn't yet move find-rate," not merged as a win.)
+
 ## Where Xint is still ahead (no spin)
 
 - **Empirical at scale.** `/sanitize-pov` proves *one finding* on consent; Xint/Theori run
   **coverage-guided fuzzing campaigns** (many inputs, corpus/frontier management) as the
   primary *discovery* engine. kuzushi's `/fuzz` is the seed of that but not a cluster
-  campaign. The honest gap now: we can *prove* a memory finding by execution, but
-  *discovering* the unknown ones still leans on the (weaker) static reader rather than a
-  fuzzing fleet. (Discovery now also has a sanitizer path: `/fuzz` builds C/C++ targets with
-  ASan and `fuzz-triage` classifies crashes by the same oracle — but it's laptop-scale, not
-  a coverage-guided cluster campaign.) We tried to close the *coverage-guided* half with an
+  campaign. The honest gap now: we can *prove* a memory finding by execution, and we now have
+  an LLM-guided *discovery*-by-execution lane (`/fuzz --stage discover`) that crafts and runs
+  inputs with no pre-existing finding — but it is cold-start, laptop-scale discovery, the
+  **seed of** a fuzzing fleet, not a coverage-guided cluster campaign, and its blind find-rate
+  gate has not yet been run (see "Discovery by execution" above). (Discovery also has the
+  earlier sanitizer path: `/fuzz` builds C/C++ targets with ASan and `fuzz-triage` classifies
+  crashes by the same oracle — still laptop-scale.) We tried to close the *coverage-guided* half with an
   engine **ladder** — local libFuzzer → libFuzzer in a `kuzushi-fuzz` Docker image →
   portable ASan dumb-fuzz — and report the result honestly: the bundled `ubuntu-clang-14`
   image **links and runs** libFuzzer but coverage feedback did not engage (`cov:1`, the gate

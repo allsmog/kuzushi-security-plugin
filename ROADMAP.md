@@ -56,6 +56,11 @@ hunters and **union** their leads (recall), then adversarially verify (precision
 the loop: feed verify's "couldn't reach the sink" back into routing, and `/poc`'s
 "proven" into `/variant-hunt`.
 
+*Partial:* `/sweep --partition` adds a deterministic attack-surface overlay (subsystem
+jobs on top of the dir-shards) so hunters diverge across attack paths at discovery time;
+semantic dedup (`enclosingFnKey`) unions the duplicates in the findings index. The
+closed feedback loop (verify→routing, proven→variant) is still open.
+
 ### L6 — Class-specialized deep reasoning
 Some classes need methodology, not patterns: deserialization / prototype-pollution
 **gadget chains**, **TOCTOU / races**, integer-overflow → OOB, type confusion. Dedicated
@@ -67,6 +72,14 @@ deep agents per class find instances the generic readers miss.
 triage, minimization ledger, and promote-to-proven are consolidated under `/fuzz`
 with `/fuzz-*` replay/debug stages. Deeper engine-specific harness synthesis and
 minimizers remain follow-up work.
+
+**Discovery by execution landed (`/fuzz --stage discover`, `/sweep` `fuzz-discover`
+producer):** the routing-independent lane that finds memory bugs by *running* crafted
+inputs under sanitizers with no pre-existing finding — recon-prepare → fuzz-discoverer
+agent → fuzz-discover-finalize (the sanitizer report promotes a NEW `proven` finding).
+The promotion spine is unit- + end-to-end-tested; the **blind 9-CVE find-rate gate**
+(`npm run eval:discover:cve`, ≥3/6 memory cases) is the merge bar and has not yet been
+run (it needs an environment that permits headless discovery agents).
 
 For libraries / native / parser / CLI targets there's no HTTP layer to proxy, so the
 dynamic complement to static review is **fuzzing**, not a web proxy. `/poc` builds a
