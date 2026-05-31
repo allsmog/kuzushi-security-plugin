@@ -89,16 +89,33 @@ Don't assert a severity — the finalize derives it (`scripts/lib/severity.mjs`)
 `"an authenticated connection"`) and `accessLevel` (minimum attacker access:
 `unauthenticated-remote` / `authenticated` / `local-only`). The crash's memory class drives the rest.
 
+## Non-crash classes — invariant oracles
+
+Some real bugs emit NO sanitizer abort (prototype pollution, global/class corruption). They are
+still in scope through a **framework-owned invariant oracle**: you DECLARE the target, the
+framework drives standard payloads and checks the broken invariant. When `prep.json` lists
+`oracleTargets` (e.g. a JS package → `prototype-pollution` / CWE-1321), emit an oracle discovery —
+NO harness code, NO buildRunCommand:
+
+    { "oracle": "prototype-pollution", "targetModule": "<the package entry, e.g. index.js>",
+      "inputShape": "argv-array" | "merge-object" | "json-parse" | "query-string" | "auto",
+      "evidence": [{ "filePath": "<the polluting sink>", "startLine": N }],
+      "preconditions": [...], "accessLevel": "..." }
+
+The finalize runs the framework oracle against your declared target and trusts ONLY its marker —
+you cannot fake it (it fires only if the prototype is actually polluted). Pick `inputShape` from how
+the entry takes input (an argv array, an object it merges, a JSON string it parses, a query string);
+`auto` tries all. Anchor `evidence` to the sink that writes the attacker-controlled key.
+
 ## When NOT to use
 
-- On non-native targets (no C/C++/Rust/Obj-C) — there's no sanitizer abort to drive; the lane
-  self-skips.
 - To PROVE an already-found memory finding from a harness — that's `/sanitize-pov` (it starts from a
   finding; you start from nothing).
 - When code execution isn't acceptable, or no sandbox/toolchain/buildable target is available —
   report the skip.
-- For bugs that don't crash — authorization/logic flaws, prototype pollution, info leaks produce no
-  sanitizer abort. Execution can't see them; they need a semantic/differential oracle, not this lane.
+- For a non-crash class with NO oracle yet — prototype pollution has a framework oracle (above), but
+  authorization / business-logic flaws need a differential oracle that isn't wired here yet; don't
+  force a sanitizer crash for them — report the skip rather than a false proof.
 - To grade exploitability or write a fix — that's `/mem-exploitability` and `/fix`.
 
 ## Rationalizations to Reject

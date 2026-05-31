@@ -10,8 +10,8 @@
 // no LLM in this step (the abort is the oracle). Unlike /sanitize-pov it requires NO
 // pre-existing finding — that's the whole point: discovery independent of static routing.
 
-import { resolve, join } from "node:path";
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { resolve, join, isAbsolute } from "node:path";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, cpSync } from "node:fs";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, pocVerdictToStatus } from "../lib/findings.mjs";
@@ -50,6 +50,18 @@ export function crashOffTargetOnly(out) {
 // integer-overflow that corrupts memory surfaces instead as an OOB-write / deadly-signal
 // (parseSanitizerReport returns that stronger class first), so this only catches the benign tier.
 export const WEAK_TIER = new Set(["integer-overflow", "bad-shift", "undefined-behavior", "misaligned-access", "div-by-zero"]);
+
+// Invariant-oracle proof (non-crash classes: prototype pollution, etc.). A framework-owned
+// oracle harness drives standard payloads and, on a real invariant violation, prints this
+// marker. The agent writes NO code that runs in the oracle, so the marker is ungameable — the
+// finalize trusts it exactly as it trusts a sanitizer report. Shape mirrors parseSanitizerReport.
+const ORACLE_DIR = resolve(import.meta.dirname ?? ".", "../lib/oracle-harness");
+const ORACLE_HARNESS = { "prototype-pollution": "proto-pollution.mjs" };
+export function parseOracleMarker(out) {
+  const m = /KUZUSHI-ORACLE:\s*(CWE-\d+)\s+([a-z0-9-]+)\b([^\n]*)/i.exec(String(out ?? ""));
+  if (!m) return null;
+  return { tool: "invariant-oracle", errorClass: m[2], cwe: m[1], summary: `${m[2]}${m[3] ?? ""}`.trim().slice(0, 200), frame0: null };
+}
 
 // Error classes that corrupt memory with attacker influence → critical; other sanitizer
 // catches (null-deref, integer overflow surfacing as a trap, leaks) → high.
@@ -104,9 +116,28 @@ export function buildDiscoveryFinding({ discovery, report, proofLevel = 4, backe
   };
 }
 
-async function runOne(discovery, runDir, backendInfo, trustLocal, idx) {
+async function runOne(discovery, runDir, backendInfo, trustLocal, idx, resolvedTarget) {
   const harnessDir = join(runDir, "harness", `discovery-${idx}`);
   mkdirSync(harnessDir, { recursive: true });
+
+  // Invariant-oracle path (non-crash classes). The agent only DECLARED a target + input shape;
+  // the FRAMEWORK oracle harness (copied in here, not from the draft) drives standard payloads
+  // and checks the invariant, so the proof can't be faked. No sanitizer build, and the
+  // first-party/weak-tier gates don't apply (this isn't a memory crash) — the marker IS the proof.
+  if (discovery.oracle && ORACLE_HARNESS[discovery.oracle]) {
+    const harnessName = ORACLE_HARNESS[discovery.oracle];
+    cpSync(join(ORACLE_DIR, harnessName), join(harnessDir, harnessName));
+    const tm = String(discovery.targetModule ?? "");
+    const absTarget = tm && isAbsolute(tm) ? tm : join(resolvedTarget ?? ".", tm || "index.js");
+    const runCommand = `node ${harnessName} '${absTarget}' '${String(discovery.inputShape ?? "auto")}'`;
+    const result = await runInSandbox({ backend: backendInfo.backend, language: "javascript", harnessDir, runCommand, timeoutMs: Number(discovery.timeoutMs ?? 60000), trustLocal });
+    const out = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    const report = parseOracleMarker(out);
+    const logPath = join(harnessDir, "run.log");
+    writeFileSync(logPath, out);
+    return { report, proofVerdict: report ? "exploited" : "not-reproduced", proofLevel: report ? 3 : 0, gate: null, backend: result.backend ?? backendInfo.backend, durationMs: result.durationMs ?? null, harnessDir, runCommand, logPath, skipped: Boolean(result.skipped), reason: result.reason ?? null };
+  }
+
   for (const f of discovery.harnessFiles ?? []) {
     if (!f?.name || String(f.name).includes("..")) continue;
     const p = join(harnessDir, f.name);
@@ -150,6 +181,9 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
   const discoveries = Array.isArray(draft.discoveries) ? draft.discoveries : null;
   if (!discoveries || !discoveries.length) fail("draft must have discoveries[] (each { title, language, harnessFiles[], buildRunCommand })");
   for (const d of discoveries) {
+    // An invariant-oracle discovery (non-crash class) declares a target, not a build command —
+    // the framework oracle supplies the run. A memory-class discovery needs its buildRunCommand.
+    if (d.oracle && ORACLE_HARNESS[d.oracle]) { if (!d.targetModule) fail("an oracle discovery needs a targetModule"); continue; }
     if (!d.buildRunCommand) fail("each discovery needs a buildRunCommand that compiles WITH -fsanitize and runs the crafted input");
   }
 
@@ -162,7 +196,7 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
   const toPromote = [];
   for (let i = 0; i < discoveries.length; i += 1) {
     const d = discoveries[i];
-    const r = await runOne(d, resolvedRunDir, backendInfo, trustLocal, i);
+    const r = await runOne(d, resolvedRunDir, backendInfo, trustLocal, i, resolvedTarget);
     let promoted = null;
     let duplicate = false;
     if (r.proofVerdict === "exploited" && r.report) {

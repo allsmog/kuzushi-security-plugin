@@ -121,6 +121,39 @@ test("gate: a bare signed-integer-overflow is weak-tier (candidate, not proven)"
   assert.equal(WEAK_TIER.has(parseSanitizerReport(UAF_REPORT).errorClass), false);
 });
 
+// --- invariant oracle (non-crash classes): prototype pollution via a FRAMEWORK-owned check.
+// The agent declares only the target; it writes no oracle code, so the proof is ungameable. ----
+
+test("oracle: a vulnerable JS parser ⇒ proven CWE-1321 via the framework invariant oracle", async () => {
+  const t = repo();
+  // The minimist bug shape: a path-walk setter that descends through __proto__.
+  writeFileSync(join(t, "vuln.js"), "module.exports=function(a){var o={};for(var i=0;i<a.length;i++){var m=/^--(.+)=(.*)$/.exec(a[i]);if(!m)continue;var p=m[1].split('.'),c=o;for(var j=0;j<p.length-1;j++){if(c[p[j]]===undefined)c[p[j]]={};c=c[p[j]];}c[p[p.length-1]]=m[2];}return o;};\n");
+  const runDir = join(storeFor(t).runsDir, "disc-oracle");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "draft.fuzz-discover.json"), JSON.stringify({ discoveries: [{
+    title: "prototype pollution", language: "javascript", oracle: "prototype-pollution",
+    targetModule: "vuln.js", inputShape: "argv-array", evidence: [{ filePath: "vuln.js", startLine: 1 }]
+  }] }));
+  const res = await finalizeFuzzDiscover(t, runDir, { trustLocal: true, backend: "local" });
+  assert.equal(res.provenCount, 1, "the framework oracle must prove the pollution");
+  const fs = readFindings(t).filter((f) => f.source === "fuzz-discover");
+  assert.equal(fs[0].status, "proven");
+  assert.equal(fs[0].cwe, "CWE-1321");
+});
+
+test("oracle: a SAFE parser ⇒ nothing promoted (no false proof)", async () => {
+  const t = repo();
+  writeFileSync(join(t, "safe.js"), "module.exports=function(a){var o={};for(var i=0;i<a.length;i++){var m=/^--(.+)=(.*)$/.exec(a[i]);if(!m)continue;var k=m[1];if(k==='__proto__'||k==='constructor'||k==='prototype')continue;o[k]=m[2];}return o;};\n");
+  const runDir = join(storeFor(t).runsDir, "disc-oracle-safe");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "draft.fuzz-discover.json"), JSON.stringify({ discoveries: [{
+    title: "x", language: "javascript", oracle: "prototype-pollution", targetModule: "safe.js",
+    inputShape: "auto", evidence: [{ filePath: "safe.js", startLine: 1 }]
+  }] }));
+  const res = await finalizeFuzzDiscover(t, runDir, { trustLocal: true, backend: "local" });
+  assert.equal(res.provenCount, 0, "a parser that blocks __proto__ yields no proof");
+});
+
 test("spine: re-discovering the same crash dedupes to one finding (stable refId)", () => {
   const t = repo();
   const report = parseSanitizerReport(OVERFLOW_REPORT);
