@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { parseSanitizerReport, detectToolchain } from "../scripts/lib/sanitizers.mjs";
 import { buildDiscoveryFinding, finalizeFuzzDiscover, crashOffTargetOnly, WEAK_TIER } from "../scripts/cmd/fuzz-discover-finalize.mjs";
 import { frameCommand } from "../scripts/lib/oracle-harness/daemon-driver.mjs";
+import { scriptMutate, scriptCorpusBatch } from "../scripts/lib/oracle-harness/script-mutator.mjs";
 import { upsertFindings } from "../scripts/lib/findings.mjs";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
 
@@ -125,6 +126,16 @@ test("gate: a bare signed-integer-overflow is weak-tier (candidate, not proven)"
 // --- framework-owned DAEMON driver: the agent declares the server + command sequence; the
 // driver owns the build/start/wait/drive/CAPTURE plumbing the hand-rolled run.sh kept botching
 // (it routed the ASan abort to a side file the finalize never read). ------------------------
+
+test("script-mutator: deterministic + emits parser/lexer stressors (Lever 2)", () => {
+  const seeds = ["return {unpack({1,2,3}, 1, 2)}", "local t={} for i=1,5 do t[i]=i end return #t"];
+  assert.equal(scriptMutate(seeds, 5, 10), scriptMutate(seeds, 5, 10), "same (seeds,runSeed,index) ⇒ identical (reproducible)");
+  assert.notEqual(scriptMutate(seeds, 5, 10), scriptMutate(seeds, 6, 10), "runSeed varies the output");
+  const batch = scriptCorpusBatch(seeds, 1, 800);
+  assert.ok(batch.some((s) => /\[={16,}\[/.test(s)), "produces long-bracket lexer stressors");
+  assert.ok(batch.some((s) => /\[={4,}\[[^\]]*$/.test(s)), "produces MALFORMED (unterminated) long brackets");
+  assert.ok(batch.some((s) => /2147483647|9223372036854775807/.test(s)), "produces boundary-int stressors");
+});
 
 test("daemon driver: frameCommand frames RESP and inline protocols", () => {
   assert.equal(frameCommand("resp", ["PING"]), "*1\r\n$4\r\nPING\r\n");

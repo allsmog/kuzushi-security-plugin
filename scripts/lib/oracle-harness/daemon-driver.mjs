@@ -16,6 +16,7 @@
 import { readFileSync } from "node:fs";
 import { spawn, execSync } from "node:child_process";
 import { Socket } from "node:net";
+import { scriptMutate } from "./script-mutator.mjs";
 
 // Frame one command's args for the wire. Exported for unit testing.
 export function frameCommand(protocol, args) {
@@ -85,9 +86,27 @@ async function main() {
   // Optional readiness handshake, then drive the sequence.
   const send = (args) => new Promise((res) => { sock.write(frameCommand(protocol, args)); setTimeout(res, 60); });
   if (Array.isArray(cfg.readyProbe) && cfg.readyProbe.length) { await send(cfg.readyProbe); }
+  // Optional setup ops to reach the vulnerable state, then the crafted sequence (memory lane).
+  for (const cmd of cfg.setup || []) { if (exited) break; await send(cmd); }
   for (const cmd of cfg.sequence || []) {
     if (exited) break;          // server already died (the crash) — stop sending
     await send(cmd);
+  }
+  // Script-corpus loop (interpreter/script entries): fire many framework-mutated programs at a
+  // script-taking command (e.g. EVAL) through one running server — interpreters eval repeatedly,
+  // so this is socket-write-cheap. The framework owns the mutator; the agent only named the entry
+  // + seeds, so the crashing input it can't fake. Stop on the first abort.
+  if (cfg.scriptCorpus && cfg.scriptCorpus.command) {
+    const { seeds = [], budget = 1000, runSeed = 1, command, trailingArgs = [] } = cfg.scriptCorpus;
+    const raw = seeds.slice(0, 64);
+    for (let i = 0; i < raw.length + budget; i++) {
+      if (exited || sanitizerSeen()) break;
+      const program = i < raw.length ? String(raw[i]) : scriptMutate(seeds, runSeed, i - raw.length);
+      try { sock.write(frameCommand(protocol, [command, program, ...trailingArgs])); }
+      catch { break; }                       // EPIPE — the server died (likely the crash)
+      if (i % 32 === 0) await new Promise((r) => setTimeout(r, 12)); // let it process + maybe abort
+    }
+    await new Promise((r) => setTimeout(r, 300));
   }
   try { sock.end(); } catch {}
 

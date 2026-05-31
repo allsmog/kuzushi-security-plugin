@@ -152,13 +152,16 @@ async function runOne(discovery, runDir, backendInfo, trustLocal, idx, resolvedT
   let runCommand;
   if (discovery.driver === "daemon-protocol") {
     cpSync(join(ORACLE_DIR, "daemon-driver.mjs"), join(harnessDir, "daemon-driver.mjs"));
+    cpSync(join(ORACLE_DIR, "script-mutator.mjs"), join(harnessDir, "script-mutator.mjs")); // daemon-driver imports it
     writeFileSync(join(harnessDir, "driver-config.json"), JSON.stringify({
       repo: resolvedTarget,
       buildCommand: discovery.buildCommand ?? null,
       serverCommand: discovery.serverCommand,
       protocol: discovery.protocol ?? "resp",
       readyProbe: discovery.readyProbe ?? null,
+      setup: discovery.setup ?? [],
       sequence: discovery.sequence ?? [],
+      scriptCorpus: discovery.scriptCorpus ?? null,   // Lever 2: interpreter/script-entry fuzzing
       sanitizeEnv: SANITIZE_ENV,
       settleMs: discovery.settleMs ?? 1500
     }));
