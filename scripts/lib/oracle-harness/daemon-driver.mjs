@@ -51,8 +51,12 @@ async function main() {
   const PORT = freePortFor(process.pid);
 
   if (cfg.buildCommand) {
-    try { execSync(cfg.buildCommand, { cwd: repo, stdio: ["ignore", "ignore", "inherit"], timeout: 1200000 }); }
-    catch { console.log("daemon-driver: build failed"); process.exit(2); } // → harness-failed-build
+    // Build with stderr SWALLOWED. A successful build that links a runnable server can still emit
+    // benign stderr noise (a `make clean` complaining about a missing tests/ dir) — if that leaked
+    // into our output it would trip the finalize's build-fail check and SUPPRESS a real crash the
+    // server later produces. So we only surface a build problem when execSync actually throws.
+    try { execSync(cfg.buildCommand, { cwd: repo, stdio: "ignore", timeout: 1200000 }); }
+    catch (e) { console.log("daemon-driver: build failed:", (e?.message ?? "").slice(0, 200)); process.exit(2); }
   }
 
   const serverCmd = String(cfg.serverCommand || "").replaceAll("{PORT}", String(PORT));
