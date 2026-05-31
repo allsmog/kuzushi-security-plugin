@@ -1,0 +1,1 @@
+{ "expected": [ { "filePath": "src/conn.c", "line": 20, "cwe": "CWE-416", "note": "use of conn after free on the error path: conn freed at line 18, read (conn->fd) at line 20 via the shared fall-through exit" } ] }

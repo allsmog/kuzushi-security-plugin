@@ -27,7 +27,13 @@ const RULES = [
   [/\b(malloc|calloc|realloc|zmalloc|zrealloc|xmalloc|kmalloc)\s*\([^;]*[*+][^;]*\)/, "alloc-arith",
     "an allocation size computed with arithmetic — prove it cannot integer-overflow/under-allocate for attacker-influenced operands"],
   [/\b(luaS_new|lua_|incr_top|setsvalue|sethvalue|setobj|gc_)/, "gc-rooting",
-    "an allocation/stack op in a GC'd runtime — prove the object is rooted/anchored before any call that can allocate or trigger GC (else use-after-free)"]
+    "an allocation/stack op in a GC'd runtime — prove the object is rooted/anchored before any call that can allocate or trigger GC (else use-after-free)"],
+  // Lifetime/release primitive — the shape of a use-after-free / double-free. Keyed on
+  // UNIVERSAL release verbs (C free-family, C++ delete/reset, Python C-API DECREF, generic
+  // release/destroy) — never on any project symbol or CVE line — so it fires on any native
+  // codebase. Placed LAST so a `realloc(n*sz)` still tags alloc-arith first (first-match wins).
+  [/\b(free|kfree|vfree|g_free|xfree|delete|Py_DECREF|Py_XDECREF|RefCount|release|destroy)\b\s*[(.]|->\s*reset\(/, "lifetime-free",
+    "a release/free of an object — prove the pointer (and every alias/stored copy) is not read, written, or re-freed on ANY later path (including loop re-entry and error/cleanup branches), else use-after-free (CWE-416) / double-free (CWE-415)"]
 ];
 
 // Extract obligations from one file. Returns [{ line, kind, obligation, text }].

@@ -42,7 +42,12 @@ Your launch prompt gives the **target directory** and the **prep path** (else ru
    model: what's trusted, and what value is interesting (the request field at a source; the
    dangerous argument at a sink; the tainted value at a finding).
 2. **Hypothesize.** State a concrete claim: *"the `id` from `req.query` at handler.js:12 could
-   reach the `db.query` sink at db.js:42 if it isn't parameterized along the way."*
+   reach the `db.query` sink at db.js:42 if it isn't parameterized along the way."* For a
+   **lifetime** anchor (a `free`/release site), the claim is a cross-file UAF flow instead:
+   *"the object freed in `cleanup()` at conn.c:40 is still read by `handler()` at server.c:88,
+   which runs after cleanup on the error path."* Then walk callers/callees to confirm the freed
+   object reaches a later use in another file (free-in-cleanup → use-in-handler) — same path/linked
+   evidence discipline, no new schema.
 3. **Walk the flow** with the call-graph CLIs — meet in the middle, ≤ `maxHops` hops:
    - forward from a source: `node <calleesCli> --target <repo> --file <f> --line <n>` → the
      functions this one calls + each callee's resolved definition. Open the callee that the
@@ -78,7 +83,8 @@ Write `draft.deep-hunt.json`:
 { "candidates": [ {
   "huntId": "dh-1",
   "title": "Reflected req.query.id reaches db.query unparameterized",
-  "cwe": "CWE-89", "severity": "high",
+  "cwe": "CWE-89",
+  "accessLevel": "unauthenticated-remote", "preconditions": [],  // finalize DERIVES severity from these
   "verdict": "finding",            // finding | candidate | rejected
   "evidenceLevel": "linked",       // path | linked | candidate
   "source": { "filePath": "src/handler.js", "startLine": 12 },
@@ -104,6 +110,44 @@ cross-file path, emit `candidate`, not `finding`. The finalizer enforces this an
 Per anchor pursued: the hypothesis, what you walked, and the verdict + evidence level. State the
 budget you spent and what you left unwalked (anchors skipped, `unanchoredCount`). Note that
 `draft.deep-hunt.json` is written for the finalizer, and findings flow to `/verify` (panel).
+
+## Worked example (cross-file XSS — `handler.js` → `tmpl.js`)
+
+A `source`/`file` anchor in `src/handler.js`. The flow crosses two files, so same-file taint
+misses it and only the interprocedural walk lands it.
+
+- **Read the anchor:** `page(req,res)` does `const who = req.query.who` (source), then
+  `res.send(render(who))`; `render` is imported from `./tmpl`.
+- **Hypothesize:** `who` (user input) reaches an HTML sink inside `render`, in another file.
+- **Walk (callees):** open `src/tmpl.js` — `render(name)` returns `` `<h1>Hello ${name}</h1>` ``,
+  interpolating `name` raw into HTML. The tainted value is carried as the argument and reaches
+  the sink. 2 hops across 2 files → `linked` (a confirmed textual walk, not `path`).
+- **Guards:** none on the path. (An auto-escaping template engine would be non-findings rule 14
+  — but a raw template literal has no escaping.)
+- **selfCheck:** safe only if `name` were HTML-escaped before interpolation; confirmed raw → absent.
+- **Severity inputs:** reflected from an unauthenticated request → `accessLevel:
+  "unauthenticated-remote"`, `preconditions: []` → finalize derives HIGH.
+
+```json
+{ "candidates": [{
+  "huntId": "dh-xss-render",
+  "title": "Reflected XSS: req.query.who reaches raw HTML interpolation in tmpl.render",
+  "cwe": "CWE-79",
+  "accessLevel": "unauthenticated-remote", "preconditions": [],
+  "verdict": "finding",
+  "evidenceLevel": "linked",
+  "source": { "filePath": "src/handler.js", "startLine": 3 },
+  "sink":   { "filePath": "src/tmpl.js",    "startLine": 3 },
+  "path": [
+    { "filePath": "src/handler.js", "startLine": 3, "role": "source: req.query.who" },
+    { "filePath": "src/handler.js", "startLine": 4, "role": "passes who to render()" },
+    { "filePath": "src/tmpl.js",    "startLine": 3, "role": "sink: `<h1>Hello ${name}</h1>`" } ],
+  "guards": [ "no HTML escaping on the path" ],
+  "rationale": "req.query.who enters at handler.js:3 and is passed unmodified into render() (imported from ./tmpl), which interpolates it raw into an HTML string at tmpl.js:3. The flow crosses handler.js→tmpl.js with no escaping, so an unauthenticated GET /?who=<script> reflects script into the response.",
+  "selfCheck": "Safe only if who were HTML-escaped before interpolation; confirmed tmpl.js interpolates name raw into the template literal — no encoding on the path.",
+  "nextChecks": [ "/verify (panel) then /poc" ]
+}] }
+```
 
 ## When NOT to use
 

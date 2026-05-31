@@ -13,6 +13,7 @@ import { storeFor } from "../scripts/lib/artifact-store.mjs";
 import { rankFiles } from "../scripts/lib/risk-rank.mjs";
 import { prepareDeepScan } from "../scripts/cmd/deep-scan-prepare.mjs";
 import { finalizeDeepScan } from "../scripts/cmd/deep-scan-finalize.mjs";
+import { extractObligations } from "../scripts/lib/sink-obligations.mjs";
 
 function repo() {
   const t = mkdtempSync(join(tmpdir(), "kz-deep-"));
@@ -33,6 +34,34 @@ function expectReject(fn) {
   try { assert.throws(fn, /process\.exit\(1\)/); } finally { process.exit = orig; }
 }
 const LONG = "x".repeat(160);
+
+// --- lifetime-free obligation (the UAF lever) — unit-gate the new rule ----------------------
+test("obligations: a free() emits a lifetime-free obligation; a commented free does not", () => {
+  const t = repo();
+  write(t, "src/c.c", "void g(struct s *p){\n  free(p);\n  // free(p)\n  return;\n}\n");
+  const free = extractObligations(t, "src/c.c").filter((o) => o.kind === "lifetime-free");
+  assert.equal(free.length, 1, "the real free() is flagged, the comment is not");
+  assert.equal(free[0].line, 2);
+});
+
+test("obligations: a realloc(n*sz) line tags alloc-arith, not lifetime-free (first-match ordering)", () => {
+  const t = repo();
+  write(t, "src/r.c", "void f(int n,int sz){ char *p = realloc(p, n*sz); }\n");
+  const obs = extractObligations(t, "src/r.c");
+  assert.ok(obs.some((o) => o.kind === "alloc-arith"), "realloc tags alloc-arith");
+  assert.ok(!obs.some((o) => o.kind === "lifetime-free"), "and NOT lifetime-free — the more specific rule wins first");
+});
+
+test("obligations: even-stride sampling reaches late-file free sites (cap not top-biased — the xackdel property)", () => {
+  const t = repo();
+  const lines = Array.from({ length: 120 }, (_, i) => `  free(p${i});`); // 120 lifetime-free sites spread down the file
+  write(t, "src/long.c", `void f(){\n${lines.join("\n")}\n}\n`);
+  const obs = extractObligations(t, "src/long.c", { cap: 32 });
+  assert.equal(obs.length, 32, "capped to 32");
+  assert.ok(obs.every((o) => o.kind === "lifetime-free"), "all free sites tagged lifetime-free");
+  const maxLine = Math.max(...obs.map((o) => o.line));
+  assert.ok(maxLine > 90, `even-stride reaches the late file (max sampled free at line ${maxLine} of ~122), not just the first 32`);
+});
 
 test("risk-rank: security-relevant files outrank boring ones", () => {
   const t = repo();

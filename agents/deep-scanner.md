@@ -36,6 +36,20 @@ For **each** obligation:
 4. **Verdict** — prove the invariant holds for all attacker inputs (discharge, move on),
    or emit a `finding`/`candidate`. Never "probably fine."
 
+For a **`lifetime-free`** obligation, the discharge is a *lifetime trace*, not a bound check — this
+is the shape of a use-after-free / double-free, and it hides in branch order, not in arithmetic:
+1. **Scope the release** — `tree_sitter:node_at(file, line)` for the enclosing function; note the
+   freed pointer and which branch the free sits on (success path? error/cleanup path? inside a loop?).
+2. **Trace every later use, per branch** — find every subsequent read/write of the freed pointer on
+   **each** path out of the free, *including loop re-entry* (freed in iteration N, used in N+1) and
+   the fall-through after an early `return`/`goto err`. Any post-free read/write is a use-after-free.
+3. **Check stored aliases** — was the pointer copied into a struct field, a global, or a list
+   *before* the free (`find-references` on the variable)? Freeing one alias while another stays live
+   is a UAF even if the local is never reused.
+4. **Check for a second free** — can any error/cleanup path reach the same free again? Double-free.
+5. **Discharge** = prove no post-free use of the pointer *or any alias* on any path; otherwise emit a
+   `finding`/`candidate` that names the exact freed-then-used (or double-freed) path.
+
 Then free-read the rest of each file for classes the obligations don't cover.
 
 ## Doctrine (reuse the deep-context reading discipline — but emit findings)
@@ -106,6 +120,39 @@ Write the `{ candidates: [...] }` bundle to the prep's `draftPath`, then run the
 `/verify` (ideally the panel) before anyone treats them as confirmed, precisely
 because they came from reading rather than a deterministic rule.
 
+## Worked example (the no-signal wrapper — `app/routes.py`)
+
+This is the case pattern scanners structurally miss: the sink is a *project-specific
+wrapper*, not `.execute()`/`.query()`, so no regex fires. Reading wins it.
+
+- Open `app/routes.py`: `report()` reads `name = request.args['name']`, then returns
+  `dao.run("SELECT * FROM reports WHERE owner = '" + name + "'")`.
+- **Follow the value** (callees): `dao.run` isn't a known sink — open `app/dao.py`. Its
+  `run(sql)` does `_conn.cursor().execute(sql)` — a real SQL execution. So `dao.run` *is*
+  the sink; the wrapper is exactly what hid it from the pattern producers.
+- **selfCheck — falsify first:** the guard that *would* make this safe is parameterization
+  (`execute(sql, params)`) or escaping of `name`. Confirm in code: the SQL is built with
+  string `+` and `run` passes it straight to `execute` with no param tuple. Guard absent →
+  it's a `finding`, not `rejected`.
+- **Non-findings check:** not rule 2 (a live route, not test code); not rule 9 (server-side).
+- **Severity inputs:** the route has no auth gate → `accessLevel: "unauthenticated-remote"`,
+  `preconditions: []` → the finalize derives HIGH (you don't assert it).
+
+```json
+{ "candidates": [{
+  "deepId": "sqli-dao-run-report",
+  "bugClass": "sqli",
+  "title": "SQL injection via custom dao.run() wrapper in /report",
+  "cwe": "CWE-89",
+  "accessLevel": "unauthenticated-remote",
+  "preconditions": [],
+  "verdict": "finding",
+  "rationale": "routes.py:6 concatenates request.args['name'] into a SQL string and passes it to dao.run(), which (dao.py:5) calls cursor().execute(sql) with no parameters. No standard sink pattern matches dao.run, so only reading the wrapper reveals the injection: GET /report?name=' OR '1'='1 rewrites the query.",
+  "selfCheck": "Safe only if name were parameterized or escaped; confirmed dao.run builds the query by string concatenation and execute() receives no param tuple — the guard is absent.",
+  "evidenceAnchors": [{ "filePath": "app/routes.py", "startLine": 6 }, { "filePath": "app/dao.py", "startLine": 5 }]
+}] }
+```
+
 ## When NOT to use
 
 - When you only need known bug-classes fast and cheap — the pattern producers
@@ -132,3 +179,7 @@ because they came from reading rather than a deterministic rule.
   conclusion. A fixed-offset null-deref is often the shallow face of a controllable
   overflow on a neighboring path; reason about whether the same length/index, varied,
   reaches an out-of-bounds write before you call it low-impact.
+- *"It's freed at the end, so any use is before it."* → Frees are reached on multiple paths.
+  A value freed on an error branch and read on the success fall-through (or freed in iteration
+  N and read in N+1) is the classic use-after-free — trace each branch out of the free, don't
+  assume linear top-to-bottom order.
