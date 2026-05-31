@@ -1,3 +1,5 @@
+<img src="kuzushi-logo.png" alt="Kuzushi" width="200" />
+
 # kuzushi-security-plugin
 
 [![test](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml)
@@ -111,7 +113,7 @@ are two commands: **`/sweep` then `/report`**.
 3  CONFIRM    prove it's real
    → /verify                 reconstruct trigger → verdict; routes each finding to its proof
    → /poc                    build + sandbox-run one harness (executes; explicit)
-   + fuzz · path-solve · mem-exploitability   (verify picks these by language / finding-type)
+   + fuzz · sanitize-pov · path-solve · mem-exploitability   (verify picks these by language / finding-type)
 
 4  FIX · SHIP  remediate + deliver
    → /fix                    minimal patch, PoC⁺-validated, applied behind approval
@@ -170,6 +172,7 @@ in each skill's frontmatter — hidden from `/`, still model-invocable.)
 | `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/path-solve` | **Concolic-lite path solving** for findings `/verify` left `inconclusive`. The path-solver agent extracts the guard predicate between source and sink (tree-sitter) and solves it into a concrete reaching input — via the optional concolic MCP backend (**Z3** for numeric/string, **CrossHair** for Python) when installed, else by reasoning (LLM). Attaches a `pathSolution` block that feeds `/verify` + `/fuzz`. Heuristic, not a proof. | `.kuzushi/path-solve.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
+| `/sanitize-pov` | **Sanitizer-driven proof for memory-class findings** — kuzushi's AIxCC-style "find-by-execution" lever. For each memory-safety finding, the sanitize-pov-author agent writes a minimal harness compiled with **AddressSanitizer/UBSan** and runs it in the offline sandbox (`--network none`); a sanitizer abort is ground-truth proof, naming the exact error class + CWE and promoting the finding to `proven` (clean run → `not-reproduced`, build failure → `harness-failed-build` — never a false proof). Executes code — consented, like `/poc` and `/fuzz`. | `.kuzushi/sanitize-pov.json`, `findings.json` |
 | `/fuzz` | **Consolidated fuzz proof loop.** Plans a fuzz campaign from confirmed/proven findings, creates harness directories, runs declared harness commands offline, groups crashes, records minimization status, and promotes only `proofVerdict:"exploited"` evidence to `proven`. Lower-level `/fuzz-init`, `/fuzz-run`, `/fuzz-triage`, `/fuzz-minimize`, and `/fuzz-promote` remain replay/debug stages. | `.kuzushi/fuzz/*.json`, `findings.json` |
 | `/mem-exploitability` | **Memory-corruption exploitability assessment.** For each memory-safety finding, an agent works the analysis phases — vuln shape, control/offset plausibility, input constraints, and **mitigation posture** (NX/PIE/canary/RELRO/FORTIFY/CFG from build flags + read-only binary inspection via checksec/readelf/otool) — and assigns an exploitability **tier** (`crash-only`/`dos`/`info-leak`/`control-flow-hijack-plausible`/`likely-code-exec`) + remediation. **Assessment only** — no shellcode, ROP chains, or mitigation bypasses; empirical crash proof stays in `/poc`. Attaches an `exploitability` block onto each finding. | `.kuzushi/mem-exploitability.json`, `findings.json` |
 | `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + functional and semantic checks. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire), the functional check, and the semantic oracle check for supported CWEs — a patch is **`validated`** only if all required gates pass. The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
@@ -182,9 +185,9 @@ in each skill's frontmatter — hidden from `/`, still model-invocable.)
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
-`iac-reviewer`, `authz-reviewer`, `logic-hunter`, `binary-recon`, `deep-scanner`, `traffic-mapper`,
-`rule-synthesist`, `fixer`, `chain-finder`) that run in isolated context and
+`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `sanitize-pov-author`,
+`path-solver`, `iac-reviewer`, `authz-reviewer`, `logic-hunter`, `binary-recon`, `deep-scanner`,
+`deep-hunter`, `traffic-mapper`, `rule-synthesist`, `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/sweep` is a **coordinator** (`sweep-coordinator`) that fans the
 producers out across repo shards in parallel and aggregates a coverage map. `/verify` supports a
 **panel mode** (`--input '{"panel":3}'`) that runs N independent verifiers per finding and decides
