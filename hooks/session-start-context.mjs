@@ -44,6 +44,7 @@ import { VENDOR_TOOLS } from "../scripts/lib/vendor-manifest.mjs";
 import { autoInstallAllowed, loadPolicy } from "../scripts/lib/policy.mjs";
 import { commandInstalled } from "../scripts/lib/capabilities.mjs";
 import { autoBuildDecision, effectiveAutoBuildSetting } from "../scripts/lib/auto-build.mjs";
+import { installStarterPack } from "../scripts/cmd/install-starter-pack.mjs";
 
 // Absolute paths resolved from this hook's own location so directives Claude
 // runs need no env-var expansion in its shell.
@@ -111,6 +112,10 @@ function autoBuildDatabases(cwd, byLanguage) {
       { detached: true, stdio: ["ignore", log, log] }
     );
     child.unref();
+    // Install the curated starter queries so they're ready when the DB/CPG is —
+    // the other half of deep-by-default. Idempotent (upserts by ruleId); never
+    // let it break the session.
+    try { installStarterPack(cwd); } catch { /* starter pack is best-effort */ }
     return { ...decision, started: true };
   } catch {
     return null; // never let auto-build break the session

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "starter-pack.v1",
+  "description": "Curated, deep starter queries so the first interprocedural taint query needs no agent synthesis. Maintainer-validated; CI re-validates against the engine. install-starter-pack copies these into <target>/.kuzushi/rules/ and registers them in the digest-attested pack so the codeql/joern MCP servers will run them.",
+  "rules": [
+    {
+      "ruleId": "kuzushi/starter/js-command-injection",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-78",
+      "file": "codeql/javascript/command-injection.ql",
+      "title": "Command injection from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/py-path-injection",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-22",
+      "file": "codeql/python/path-injection.ql",
+      "title": "Path traversal from user input (Python)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-command-injection",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-78",
+      "file": "joern/command-injection.sc",
+      "title": "Command injection from user input (Joern/CPG)"
+    }
+  ]
+}

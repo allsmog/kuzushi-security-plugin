@@ -209,7 +209,9 @@ The plugin only spins up what your repo needs, and installs what it can.
   the SessionStart hook kicks this off automatically so interprocedural taint is ready in minute one
   rather than degrading to same-file linking — governed by `policy.analysis.autoBuildDatabases`
   (`when-installed` for developer/review profiles, `off` for `ci-locked`; CLI absent → it still just
-  *offers*, since an install needs approval).
+  *offers*, since an install needs approval). The build also installs a **curated starter query pack**
+  (`packs/starter/` → `.kuzushi/rules/`, digest-attested) so the first interprocedural CodeQL/Joern
+  query runs without on-the-fly agent synthesis; `/rule-synth` adds repo-specific rules alongside it.
 
 Run `/doctor` any time to see exactly what's available — including the effective
 **tool-boundary policy**.
