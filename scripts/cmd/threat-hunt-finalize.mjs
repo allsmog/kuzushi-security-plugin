@@ -83,6 +83,9 @@ export function finalizeThreatHunt(target, runDir) {
       cwe: meta.cwe ?? "",
       verdict: c.verdict,
       status: verdictToStatus(c.verdict),
+      // Attacker reachability class drives priority ranking (unauth > authed >
+      // local). The hunter already establishes attacker capabilities per threat.
+      ...(c.exposure ? { exposure: String(c.exposure) } : {}),
       evidence: (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine })),
       rationale: String(c.rationale ?? ""),
       nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : []

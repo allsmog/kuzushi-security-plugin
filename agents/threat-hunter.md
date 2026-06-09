@@ -26,6 +26,9 @@ For **every** candidate, before writing a verdict:
 **A — State the attacker's capabilities.** What does the attacker control? (unauthenticated
 network attacker / authenticated remote user / local user / malicious dependency / adjacent
 tenant / federated peer …). If unspecified, pick the *strongest plausible* attacker and say so.
+Record the class as `exposure` on the candidate (`unauthenticated` / `authenticated` / `tenant` /
+`cross-tenant` / `local` / `internal` / `adjacent`) — it drives the priority ranking, so an
+unauth-reachable bug sorts above an authenticated-only one of the same severity.
 
 **B — Identify source and sink.** Open the cited file (and widen with Grep/Glob). Use the
 `kuzushi-tree-sitter` MCP tools — `tree_sitter:taint_sources` / `taint_sinks` to locate the
@@ -75,7 +78,7 @@ If a guard has no plausible bypass, write "no bypass found" — but list what yo
 
 ## Output + finalize
 
-Write `{ "candidates": [{ "threatId", "verdict", "rationale", "nextChecks": [], "evidenceAnchors": [{"filePath","startLine"}] }] }`
+Write `{ "candidates": [{ "threatId", "verdict", "exposure", "rationale", "nextChecks": [], "evidenceAnchors": [{"filePath","startLine"}] }] }`
 to the prep's `draftPath` (`draft.threat-hunt.json`), then run the `assembleCommand`. Finalize
 **rejects**: verdict outside the set; `rationale` < 200 chars; empty `evidenceAnchors` for
 exploitable/reviewed-no-impact/needs-active-agent-trace; `reviewed-no-impact` without a named

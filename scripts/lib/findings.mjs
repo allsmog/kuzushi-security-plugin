@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import { storeFor, atomicWrite, readJsonIfPresent } from "./artifact-store.mjs";
 import { assertFindingsDocument } from "./schemas.mjs";
+import { priorityScore, sortByPriority } from "./ranking.mjs";
 
 // Closed verdict set (shared with threat-hunt-finalize) → finding status.
 // taint-analysis adds the IRIS triage verdicts (finding/candidate/rejected).
@@ -126,6 +127,9 @@ export function normalizeFinding(raw, now = new Date().toISOString(), target = n
     updatedAt: raw.updatedAt ?? now
   };
   normalized.proofState = proofStateFor(normalized);
+  // Priority is derived from severity + proofState + exposure + reach, recomputed
+  // here so it always reflects the finding's current rung on the proof ladder.
+  normalized.priority = priorityScore(normalized);
   return normalized;
 }
 
@@ -141,14 +145,25 @@ export function fingerprint(finding) {
   return createHash("sha256").update(key).digest("hex").slice(0, 16);
 }
 
+// Statuses that represent actionable, unresolved work — what triage should look
+// at first. Resolved/parked rungs are excluded from the priority leaderboard.
+const ACTIONABLE_STATUSES = new Set(["lead", "candidate", "open", "needs-evidence", "needs-trace", "confirmed", "proven"]);
+
 function buildSummary(findings) {
   const byStatus = {};
   const byVerdict = {};
+  const byPriority = {};
   for (const f of findings) {
     byStatus[f.status] = (byStatus[f.status] ?? 0) + 1;
     if (f.verdict) byVerdict[f.verdict] = (byVerdict[f.verdict] ?? 0) + 1;
+    const tier = f.priority?.tier;
+    if (tier) byPriority[tier] = (byPriority[tier] ?? 0) + 1;
   }
-  return { total: findings.length, byStatus, byVerdict };
+  // A ready-to-read leaderboard: highest-priority actionable findings first.
+  const topPriorities = sortByPriority(findings.filter((f) => ACTIONABLE_STATUSES.has(f.status)))
+    .slice(0, 10)
+    .map((f) => ({ fingerprint: f.fingerprint, title: f.title, severity: f.severity, status: f.status, tier: f.priority?.tier, score: f.priority?.score }));
+  return { total: findings.length, byStatus, byVerdict, byPriority, topPriorities };
 }
 
 // Merge `newFindings` into <target>/.kuzushi/findings.json, deduping by

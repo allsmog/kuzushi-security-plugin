@@ -15,7 +15,7 @@ const PROOF_STATE = new Set([
 ]);
 
 const VERIFY_VERDICTS = new Set(["confirmed-exploitable", "not-exploitable", "inconclusive"]);
-const POC_VERDICTS = new Set(["exploited", "not-reproduced", "harness-failed-build", "timeout", "error"]);
+const POC_VERDICTS = new Set(["exploited", "not-reproduced", "non-discriminating", "harness-failed-build", "timeout", "error"]);
 const FIX_VERDICTS = new Set([
   "validated", "unvalidated-no-harness", "build-failed", "needs-more-evidence",
   "exploit-still-fires", "stops-exploit-breaks-function"
@@ -63,8 +63,8 @@ export function validatePoc(value, path = "poc") {
     push(errors, path, "must be an object");
     return errors;
   }
-  if (!Number.isInteger(Number(value.proofLevel)) || Number(value.proofLevel) < 1 || Number(value.proofLevel) > 4) {
-    push(errors, `${path}.proofLevel`, "must be an integer 1-4");
+  if (!Number.isInteger(Number(value.proofLevel)) || Number(value.proofLevel) < 1 || Number(value.proofLevel) > 5) {
+    push(errors, `${path}.proofLevel`, "must be an integer 1-5");
   }
   if (!POC_VERDICTS.has(value.proofVerdict)) push(errors, `${path}.proofVerdict`, "invalid PoC verdict");
   if (!value.backend || typeof value.backend !== "string") push(errors, `${path}.backend`, "must be a non-empty string");
