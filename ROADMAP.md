@@ -66,10 +66,12 @@ These were approved but not yet built. They strengthen the static white-box miss
 - ~~**Cross-finding chaining.**~~ **Done (v0.7.0).** `/chain` (chain-finder agent + chain-prepare/
   finalize) links related findings into higher-impact attack chains in `.kuzushi/chains.json` and
   attaches a `chains` ref onto each member (status unchanged).
-- **Per-finding remediation.** Only `/mem-exploitability` attaches `remediation` today
-  (`scripts/cmd/mem-exploitability-finalize.mjs`). Extend `threat-hunt`, `systems-hunt`, and
-  `taint-analysis` finalizers to carry concrete fix guidance per finding.
-- **Deeper routing introspection.** Entry-point detection is 7 hardcoded regex patterns in
-  `scripts/cmd/x-ray.mjs` (`ENTRY_POINT_PATTERNS`). Add framework route-table / OpenAPI parsing
-  (Express, Django, FastAPI, Spring) so source enumeration misses fewer handlers — this feeds
-  every downstream stage.
+- ~~**Per-finding remediation.**~~ **Done.** `scripts/lib/remediation.mjs` maps 33 CWE classes to
+  concrete fixes (+ a generic floor); the `threat-hunt`, `systems-hunt`, and `taint-analysis`
+  finalizers attach `remediation` to every actionable finding (agent's own wins, else the floor).
+- ~~**Deeper routing introspection.**~~ **Done.** `scripts/lib/routes.mjs` adds web-framework route
+  patterns (Express/Koa/Fastify/NestJS, Flask/Django, FastAPI, Spring, Go, Rails, ASP.NET) and an
+  OpenAPI/Swagger spec parser (JSON + YAML) to the `/x-ray` entry-point sweep, so source enumeration
+  catches web handlers and declared endpoints — feeding every downstream stage.
+- **Engine-verified shipped queries.** The `codeql-verify` CI job compiles the starter pack against
+  the CodeQL bundle; extend it to also verify Joern (needs a small fixture CPG) and to gate releases.
