@@ -521,16 +521,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   // in the BACKGROUND (never block the session). Offer once, before a build is
   // attempted (db-build.log present = attempted/in-progress).
   const hasSource = Object.entries(byLanguage).some(([l, c]) => l !== "Other" && Number(c) > 0);
-  if (hasSource && !(codeqlDb.built && joernCpg.built) && !dbBuilding) {
+  if (hasSource && !joernCpg.built && !dbBuilding) {
     additionalContext +=
-      `\n\nNo codeql database / joern CPG is built yet — these power deep semantic queries for ` +
-      `/threat-hunt and /invariant-test. They're large and slow, so they build in the BACKGROUND ` +
-      `(the session is NOT blocked). Ask the user with AskUserQuestion whether to build them now ` +
-      `("Yes, build in background" / "No"). If Yes, run exactly:\n` +
-      `    node "${BUILD_DATABASES}" --target "${cwd}" --which both --background --include-install\n` +
-      `It returns immediately ({status:"started", logPath}); it installs the codeql/joern CLI first ` +
-      `if missing (~1–3 GB) and writes progress to .kuzushi/db-build.log. Tell the user it's building ` +
-      `and will be ready for codeql/joern queries once it finishes. If No, note /build-databases is available later.`;
+      `\n\nNo deep semantic index is built yet — these power interprocedural queries for /threat-hunt, ` +
+      `/taint-analysis and /invariant-test. **Joern is the primary backend** (Apache-2.0, works on private ` +
+      `code, language-agnostic). It's large/slow so it builds in the BACKGROUND (the session is NOT blocked). ` +
+      `Ask the user with AskUserQuestion whether to build it now ("Yes, build in background" / "No"). If Yes, run exactly:\n` +
+      `    node "${BUILD_DATABASES}" --target "${cwd}" --which joern --background --include-install\n` +
+      `It returns immediately ({status:"started", logPath}) and writes progress to .kuzushi/db-build.log. ` +
+      `CodeQL is an OPTIONAL accelerator (higher precision, but proprietary — only licensed for public repos / ` +
+      `GitHub Advanced Security); if this is a public repo or you have GHAS, add it with ` +
+      `\`--which both\` instead. If No, note /build-databases is available later.`;
   }
 
   // Tooling notes. Light, language-relevant tools (rust-analyzer/clangd/jdtls +
@@ -548,13 +549,18 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
         : `. Auto-install is disabled by the active policy profile; run /install explicitly if needed.`) +
       ` Mention only if the user asks about code intelligence.`;
   }
-  const heavyMissing = relevantHeavyMissing(byLanguage);
+  // Surface heavy backends Joern-first: it's the primary (open, unconditional);
+  // CodeQL is an opt-in accelerator with a license caveat.
+  const heavyMissing = relevantHeavyMissing(byLanguage)
+    .sort((a, b) => (a === "joern" ? -1 : b === "joern" ? 1 : 0));
   if (heavyMissing.length) {
+    const primary = heavyMissing.includes("joern") ? "joern" : heavyMissing[0];
     additionalContext +=
-      `\n\nOptional analysis backends relevant to this repo are NOT installed (opt-in, not ` +
-      `auto-installed): ${heavyMissing.join(", ")}. Run /install ${heavyMissing[0]} to add it ` +
-      `(codeql ~1GB / joern ~2GB for deeper semantic queries; z3 / crosshair are small concolic ` +
-      `solvers for /path-solve).`;
+      `\n\nOptional analysis backends relevant to this repo are NOT installed (opt-in): ` +
+      `${heavyMissing.join(", ")}. **Joern is the recommended primary** (Apache-2.0, ~2GB, works on ` +
+      `private code) — run /install ${primary} to add it. CodeQL (~1GB) gives higher-precision flows ` +
+      `but is proprietary and only licensed for public repos / GitHub Advanced Security, so add it only ` +
+      `if that applies. (z3 / crosshair are small concolic solvers for /path-solve.)`;
   }
   additionalContext +=
     `\n\nCommands: /deep-context (deep system-understanding pass → deep-context.json), ` +

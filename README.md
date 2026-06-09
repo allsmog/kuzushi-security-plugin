@@ -201,15 +201,23 @@ The plugin only spins up what your repo needs, and installs what it can.
   CLI is present.
 - **Vendoring**: light tools (rust-analyzer, clangd, jdtls, codegraph) can auto-install in the
   background on first session in `developer-fast`; `review-safe` and `ci-locked` disable surprise
-  downloads. Heavy ones (CodeQL ~1 GB, Joern ~2 GB) are opt-in via `/install codeql|joern`.
+  downloads. Heavy ones (Joern ~2 GB, CodeQL ~1 GB) are opt-in via `/install joern|codeql`.
   Install state records source URLs and digests where available.
+- **Deep backend — Joern is primary, CodeQL is the optional accelerator.** **Joern** (Apache-2.0,
+  language-agnostic, works on private code, no build required) is the default interprocedural engine
+  the pipeline auto-builds and recommends — `policy.analysis.primaryBackend` is `joern`. **CodeQL**
+  has higher dataflow precision but is **proprietary and only licensed for public repos / GitHub
+  Advanced Security**, so it's layered on as an opt-in accelerator when you legitimately have it
+  (public repo or GHAS); the plugin never requires it. When both are built, queries can use either;
+  Joern guarantees the floor, CodeQL raises the ceiling.
 - **Databases**: `/build-databases` creates the CodeQL DB + Joern CPG **asynchronously** (logs
   to `.kuzushi/db-build.log`) so deep semantic queries work without blocking your session.
-  **Deep-by-default**: when the CodeQL/Joern CLI is already installed (a local build, no network),
-  the SessionStart hook kicks this off automatically so interprocedural taint is ready in minute one
-  rather than degrading to same-file linking — governed by `policy.analysis.autoBuildDatabases`
-  (`when-installed` for developer/review profiles, `off` for `ci-locked`; CLI absent → it still just
-  *offers*, since an install needs approval). The build also installs a **curated starter query pack**
+  **Deep-by-default**: when the Joern/CodeQL CLI is already installed (a local build, no network),
+  the SessionStart hook kicks this off automatically — **Joern first** as the primary backend — so
+  interprocedural taint is ready in minute one rather than degrading to same-file linking. Governed by
+  `policy.analysis.autoBuildDatabases` (`when-installed` for developer/review profiles, `off` for
+  `ci-locked`; CLI absent → it *offers* Joern first, since an install needs approval). The build also
+  installs a **curated starter query pack**
   (`packs/starter/` → `.kuzushi/rules/`, digest-attested) so the first interprocedural CodeQL/Joern
   query runs without on-the-fly agent synthesis. It ships 23 queries spanning a dozen CWE classes (CWE-22/78/79/89/90/94/502/601/611/918/943/1336)
   — CodeQL standard-library security flows for JavaScript and Python, plus language-agnostic Joern CPG

@@ -22,6 +22,25 @@ test("CLI absent → OFFER (an install needs approval), never an auto-build", ()
   assert.equal(d.anyOffer, true);
 });
 
+test("Joern is the primary backend: nothing installed → recommend Joern, not CodeQL", () => {
+  const d = autoBuildDecision({ setting: "when-installed", sourcePresent: true, codeqlCli: false, joernCli: false });
+  assert.equal(d.primary, "joern");
+  assert.equal(d.recommendedInstall, "joern", "steer to the open, unconditional backend first");
+});
+
+test("CodeQL is the accelerator: recommended only once Joern is already present", () => {
+  const d = autoBuildDecision({ setting: "when-installed", sourcePresent: true, joernCli: true, joernCpgBuilt: true, codeqlCli: false });
+  assert.equal(d.recommendedInstall, "codeql", "CodeQL offered as a precision layer on top of Joern");
+});
+
+test("both CLIs present → build both, Joern leads the build target", () => {
+  const d = autoBuildDecision({ setting: "when-installed", sourcePresent: true, joernCli: true, codeqlCli: true });
+  assert.equal(d.which, "both");
+  // Joern-only install still builds joern (primary); codeql-only builds codeql.
+  assert.equal(autoBuildDecision({ setting: "when-installed", sourcePresent: true, joernCli: true }).which, "joern");
+  assert.equal(autoBuildDecision({ setting: "when-installed", sourcePresent: true, codeqlCli: true }).which, "codeql");
+});
+
 test("only the installed engine builds; the missing one is offered", () => {
   const d = autoBuildDecision({ setting: "when-installed", sourcePresent: true, codeqlCli: true, joernCli: false });
   assert.equal(d.codeql, "build");

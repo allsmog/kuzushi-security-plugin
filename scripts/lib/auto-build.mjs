@@ -17,6 +17,13 @@
 //   "off"            — never build at session start (e.g. ci-locked).
 const VALID_SETTINGS = new Set(["when-installed", "offer", "off"]);
 
+// Joern is the PRIMARY deep backend: Apache-2.0, no license restriction, works on
+// private code, language-agnostic, build-free. CodeQL is an optional ACCELERATOR —
+// higher dataflow precision, but proprietary and only licensed for public repos /
+// GitHub Advanced Security. So when nothing is installed we steer the user to
+// install Joern (unconditional), and treat CodeQL as a layer they opt into.
+export const PRIMARY_BACKEND = "joern";
+
 export function effectiveAutoBuildSetting(policy) {
   const profile = policy?.profiles?.[policy?.activeProfile] ?? {};
   const setting = profile.analysis?.autoBuildDatabases
@@ -52,18 +59,26 @@ export function autoBuildDecision({
   const joern = decide(joernCli, joernCpgBuilt);
   const anyBuild = codeql === "build" || joern === "build";
   const which = codeql === "build" && joern === "build" ? "both"
-    : codeql === "build" ? "codeql"
     : joern === "build" ? "joern"
+    : codeql === "build" ? "codeql"
     : null;
   const anyOffer = codeql === "offer" || joern === "offer";
 
+  // What to recommend installing when offering: Joern first (the unconditional
+  // primary); CodeQL only as an accelerator once Joern is already in place.
+  let recommendedInstall = null;
+  if (joern === "offer") recommendedInstall = "joern";
+  else if (joern === "present" && codeql === "offer") recommendedInstall = "codeql";
+
   let reason;
-  if (anyBuild) reason = `engine CLI present and policy "${setting}" — building ${which} locally in the background`;
+  if (anyBuild) reason = `engine CLI present and policy "${setting}" — building ${which} locally in the background (Joern is the primary backend)`;
   else if (dbBuilding) reason = "a database build is already in progress";
   else if (codeql === "present" && joern === "present") reason = "CodeQL DB and Joern CPG already built";
   else if (setting === "off") reason = "policy disables session-start auto-build";
+  else if (recommendedInstall === "joern") reason = "Joern (primary backend) not installed — offering it; an install needs approval";
+  else if (recommendedInstall === "codeql") reason = "Joern present; CodeQL (accelerator) not installed — offering it as an optional precision layer";
   else if (anyOffer) reason = "engine CLI not installed — an install needs approval, so offering rather than auto-building";
   else reason = "no source detected";
 
-  return { codeql, joern, anyBuild, anyOffer, which, reason };
+  return { codeql, joern, anyBuild, anyOffer, which, primary: PRIMARY_BACKEND, recommendedInstall, reason };
 }
