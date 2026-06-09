@@ -6,10 +6,14 @@
   "required": ["proofLevel", "proofVerdict", "backend", "provenAt"],
   "properties": {
     "schemaVersion": { "const": "poc.v1" },
-    "proofLevel": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "proofLevel": { "type": "integer", "minimum": 1, "maximum": 5 },
     "proofVerdict": {
       "type": "string",
-      "enum": ["exploited", "not-reproduced", "harness-failed-build", "timeout", "error"]
+      "enum": ["exploited", "not-reproduced", "non-discriminating", "harness-failed-build", "timeout", "error"]
+    },
+    "differential": {
+      "type": "string",
+      "enum": ["discriminated", "benign-also-fired", "benign-inconclusive", "attack-did-not-fire", "not-tested"]
     },
     "backend": { "type": "string" },
     "durationMs": { "type": ["number", "null"] },

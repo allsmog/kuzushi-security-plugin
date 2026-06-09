@@ -46,6 +46,9 @@ const VERIFY_STATUS = {
 const POC_STATUS = {
   exploited: "proven",
   "not-reproduced": "reviewed",
+  // The attack fired but the negative control fired too — the harness doesn't
+  // discriminate the bug, so it is NOT proof. Send it back for a better harness.
+  "non-discriminating": "needs-trace",
   "harness-failed-build": "needs-trace",
   timeout: "needs-trace",
   error: "needs-trace"
