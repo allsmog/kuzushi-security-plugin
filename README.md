@@ -109,6 +109,7 @@ claude --plugin-dir .
 /taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
 /sast                # semgrep scan → triage hits into findings.json
 /sharp-edges         # footgun APIs / dangerous defaults (misuse-resistance review) → findings
+/logic-hunt          # business-logic & invariant violations (atomicity, ordering, replay, authz-omission) → findings
 /crypto-review       # timing side-channels, missing zeroization, weak crypto RNG → findings
 /authz               # authorization-model review: missing authz, IDOR, privilege escalation → findings
 /iac                 # config & container security: Dockerfile/k8s/Terraform misconfig → findings
@@ -144,6 +145,7 @@ claude --plugin-dir .
 | `/supply-chain` | **Dependency takeover/abandonment risk.** Parses manifests for direct deps, then the supply-chain-auditor agent rates each by maintainer count, popularity, CVE history, and release cadence (via `gh` + web), promoting high→finding / medium→candidate (`source: supply-chain`). Complements `/threat-intel` (CVEs). *Uses the network — asks first.* | `.kuzushi/supply-chain.json`, `findings.json` |
 | `/diff-review` | **Change-focused security review.** Resolves a base ref, risk-scores changed files, then the diff-reviewer agent walks source→sink on the new code, uses `git blame` to catch **regressions**, and estimates **blast radius** by caller count. Threat-hunt verdict set. Needs git. | `.kuzushi/diff-review.json`, `findings.json` |
 | `/sharp-edges` | **Misuse-resistance review.** Scans for footgun APIs / dangerous defaults, then the sharp-edges-analyzer agent reasons through three adversaries (scoundrel / lazy / confused dev) across six categories (e.g. JWT `alg:none`, TLS verify off, stringly-typed auth). Distinct from `/sast` (injection). | `.kuzushi/sharp-edges.json`, `findings.json` |
+| `/logic-hunt` | **Business-logic & invariant-violation hunt** — the bugs taint/SAST structurally miss (no injection token; the code does the wrong *thing*). Seeds from `/deep-context` system invariants + probes for logic-prone shapes, then the logic-hunter agent adversarially tries to *violate* each property: broken atomicity, skippable state transitions, authorization-by-omission, replay, business-rule abuse (negative amounts, rounding theft). Closed verdict set; `violation` requires the ordered break scenario + evidence. Strongest after `/deep-context`. | `.kuzushi/logic-hunt.json`, `findings.json` |
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/crypto-review` | **Crypto-misuse review.** The crypto-reviewer agent confirms each candidate handles a secret, then flags timing side-channels (variable-time compare of a MAC/token, CWE-208), missing/elidable zeroization (CWE-226/14), and non-cryptographic RNG minting secrets (CWE-338). Distinct from `/sast` and `/sharp-edges`. | `.kuzushi/crypto-review.json`, `findings.json` |
 | `/authz` | **Authorization-model review.** Scans endpoints + object-access-by-id sites; the authz-reviewer agent finds missing authz (CWE-862), IDOR / broken object-level authz (CWE-639), privilege escalation, and broken ownership. | `.kuzushi/authz.json`, `findings.json` |
@@ -169,7 +171,7 @@ claude --plugin-dir .
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
+`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `logic-hunter`, `fuzz-harness-author`, `path-solver`,
 `iac-reviewer`, `authz-reviewer`, `traffic-mapper`, `rule-synthesist`,
 `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of

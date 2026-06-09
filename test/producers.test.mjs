@@ -27,6 +27,8 @@ import { finalizeTrafficMap } from "../scripts/cmd/traffic-map-finalize.mjs";
 import { buildCodeGraph } from "../scripts/cmd/code-graph-build.mjs";
 import { preparePathSolve } from "../scripts/cmd/path-solve-prepare.mjs";
 import { assemblePathSolve } from "../scripts/cmd/path-solve-assemble.mjs";
+import { prepareLogicHunt } from "../scripts/cmd/logic-hunt-prepare.mjs";
+import { finalizeLogicHunt } from "../scripts/cmd/logic-hunt-finalize.mjs";
 
 function repo() {
   const t = mkdtempSync(join(tmpdir(), "kz-prod-"));
@@ -100,6 +102,53 @@ test("authz: rejected verdict must name the protecting check", () => {
     { authzId: "a1", authzClass: "idor", verdict: "rejected", rationale: `looks fine ${LONG}` } // no authz keyword
   ] });
   expectReject(() => finalizeAuthz(t, prep.runDir));
+});
+
+// ---- /logic-hunt ------------------------------------------------------------
+test("logic-hunt: prepare seeds from deep-context invariants + probes; finalize promotes a violation", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/wallet.js"), "function transfer(a,b,amount){ a.balance -= amount; b.balance += amount; }\n");
+  // A deep-context invariant becomes the strongest seed.
+  writeFileSync(join(storeFor(t).root, "deep-context.json"), JSON.stringify({
+    invariants: [{ statement: "a transfer debits and credits atomically", logicClass: "atomicity" }]
+  }));
+  const prep = prepareLogicHunt(t, {});
+  assert.equal(prep.status, "prepared");
+  assert.ok(prep.invariantSeedCount >= 1, "invariant seeded as a candidate");
+  assert.ok(prep.candidateCount >= 1);
+
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l1", logicClass: "atomicity", verdict: "violation", severity: "high", exposure: "authenticated",
+      violationScenario: "crash between the debit and the credit line leaves money destroyed",
+      rationale: `transfer() mutates a.balance then b.balance with no transaction; an interruption between the two writes debits the sender without crediting the recipient. ${LONG}`,
+      evidenceAnchors: [{ filePath: "src/wallet.js", startLine: 1 }] }
+  ] });
+  const res = finalizeLogicHunt(t, prep.runDir);
+  assert.equal(res.status, "completed");
+  const f = findings(t).find((x) => x.source === "logic-hunt");
+  assert.equal(f.status, "open");
+  assert.equal(f.exposure, "authenticated"); // flows into priority ranking
+  assert.equal(f.cwe, "CWE-840"); // business-logic default
+});
+
+test("logic-hunt: a 'holds' verdict must name the enforcement; 'violation' needs a scenario", () => {
+  const t = repo(); emptyFindings(t);
+  const prep = prepareLogicHunt(t, {});
+  // ≥200 chars so the LENGTH gate passes and the verdict-specific gate is what fires.
+  // 'holds' rationale that never names an enforcement (no lock/constraint/check/...).
+  const holdsNoEnforcement = "i read the surrounding handler and its helpers and the property appeared upheld throughout; i could not produce a counterexample in the time spent, so i am recording it as holding for now pending a deeper read of persistence";
+  assert.ok(holdsNoEnforcement.length >= 200);
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l1", logicClass: "atomicity", verdict: "holds", rationale: holdsNoEnforcement }
+  ] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir)); // holds without a named enforcement
+  // 'violation' with a long rationale + evidence but NO violationScenario → rejected.
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l2", logicClass: "ordering", verdict: "violation", rationale: `the ordering can be abused ${LONG}`,
+      evidenceAnchors: [{ filePath: "x.js", startLine: 1 }] }
+  ] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir)); // violation without a violationScenario
 });
 
 // ---- /sharp-edges -----------------------------------------------------------
