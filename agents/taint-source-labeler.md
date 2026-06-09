@@ -31,6 +31,14 @@ the **draft path** to write (`draft.sources.json`). Read `prep.json`. Fields you
 4. Record a typed source spec. Skip framework-internal/trusted config sources unless an
    attacker can influence them. Cap at ~8 sources per relevant CWE/taintClass.
 
+**Deserialization sources (CWE-502) — flag, but note the gadget caveat.** A sink like
+`pickle.loads` / `ObjectInputStream.readObject` / `yaml.load` / `unserialize` / `Marshal.load`
+on attacker data is a real source, but whether it reaches **RCE** depends on the *gadget chains*
+available in the loaded libraries — which static labeling can't enumerate. Label the source and
+set `note: "gadget chains not enumerated — verify empirically"` so the triager doesn't over- or
+under-rate it; `/verify` + `/poc` settle exploitability (consult ysoserial / phpggc / marshalsec-
+style gadget catalogs there), not here.
+
 ## Output
 
 Write `draft.sources.json` to the path in your launch prompt:
