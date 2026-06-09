@@ -78,7 +78,8 @@ If a guard has no plausible bypass, write "no bypass found" — but list what yo
 
 ## Output + finalize
 
-Write `{ "candidates": [{ "threatId", "verdict", "exposure", "rationale", "nextChecks": [], "evidenceAnchors": [{"filePath","startLine"}] }] }`
+Write `{ "candidates": [{ "threatId", "verdict", "exposure", "remediation", "rationale", "nextChecks": [], "evidenceAnchors": [{"filePath","startLine"}] }] }`
+For an `exploitable` verdict, give a concrete `remediation` — the specific fix for *this* site (the guard to add, the API to switch to). If you omit it, the finalizer falls back to a generic CWE-class fix, so write the site-specific one when you can.
 to the prep's `draftPath` (`draft.threat-hunt.json`), then run the `assembleCommand`. Finalize
 **rejects**: verdict outside the set; `rationale` < 200 chars; empty `evidenceAnchors` for
 exploitable/reviewed-no-impact/needs-active-agent-trace; `reviewed-no-impact` without a named

@@ -60,9 +60,12 @@ Write `draft.findings.json`:
       { "filePath": "src/routes/users.js", "startLine": 12 },
       { "filePath": "src/db/users.js", "startLine": 42 } ],
     "rationale": "Unauthenticated attacker controls req.query.id ... reaches db.query via ... no parameterization or escaping on the path ...",
+    "remediation": "Use a parameterized query (bind req.query.id) instead of string concatenation in db.query.",
     "nextChecks": ["PoC the injection with a UNION payload"] }
 ] }
 ```
+For a `finding` verdict, include a concrete `remediation` (the specific fix for this flow). Omit it
+and the assembler falls back to a generic CWE-class fix, so prefer the site-specific one.
 
 Then run the **assemble command** from your launch prompt verbatim. It validates the verdicts,
 enforces `minEvidenceLevel` (downgrading under-evidenced `finding`s to `candidate`), writes

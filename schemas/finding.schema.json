@@ -37,6 +37,7 @@
     "fuzz": { "type": "object" },
     "fix": { "$ref": "fix.schema.json" },
     "rationale": { "type": "string" },
+    "remediation": { "type": "string", "description": "Concrete fix guidance; agent-supplied or a deterministic CWE-class floor." },
     "nextChecks": { "type": "array" },
     "exposure": {
       "type": "string",

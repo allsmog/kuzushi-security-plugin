@@ -9,6 +9,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { remediationFor } from "../lib/remediation.mjs";
+
+const ACTIONABLE = new Set(["open", "confirmed", "proven", "needs-evidence", "needs-trace"]);
 
 const VALID_VERDICTS = new Set([
   "exploitable", "likely-library-noise", "reviewed-no-impact",
@@ -86,6 +89,8 @@ export function finalizeThreatHunt(target, runDir) {
       // Attacker reachability class drives priority ranking (unauth > authed >
       // local). The hunter already establishes attacker capabilities per threat.
       ...(c.exposure ? { exposure: String(c.exposure) } : {}),
+      // Actionable findings carry a concrete fix (agent's, else the CWE floor).
+      ...(ACTIONABLE.has(verdictToStatus(c.verdict)) ? { remediation: String(c.remediation ?? "").trim() || remediationFor(meta.cwe) } : {}),
       evidence: (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine })),
       rationale: String(c.rationale ?? ""),
       nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : []
