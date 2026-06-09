@@ -21,6 +21,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { commandInstalled } from "../lib/capabilities.mjs";
+import { codeqlPerfArgs } from "../lib/codeql-tuning.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const INSTALL_TOOLING = join(dirname(SELF), "install-tooling.mjs");
@@ -127,11 +128,15 @@ function buildCodeql(target, store, includeInstall, force) {
   const dep = ensureInstalled(store, "codeql", includeInstall);
   if (!dep.ok) return [{ tool: "codeql", ok: false, reason: dep.reason }];
   const results = [];
+  // Built sequentially ON PURPOSE: codeqlPerfArgs sets --threads 0 (all cores)
+  // and a 75%-RAM budget, so each create already saturates the machine. Running
+  // languages concurrently would oversubscribe cores and (at ~75% RAM each) risk
+  // OOM — sequential-but-parallel-internally is the faster, safer shape.
   for (const lang of langs) {
     const dbPath = join(store.codeqlDbDir, lang);
     if (existsSync(dbPath) && !force) { results.push({ tool: "codeql", language: lang, ok: true, skipped: "db already present", path: dbPath }); continue; }
     mkdirSync(store.codeqlDbDir, { recursive: true });
-    const args = ["database", "create", dbPath, `--language=${lang}`, `--source-root=${target}`, "--overwrite"];
+    const args = ["database", "create", dbPath, `--language=${lang}`, `--source-root=${target}`, "--overwrite", ...codeqlPerfArgs()];
     if (BUILD_MODE_NONE.has(lang)) args.push("--build-mode=none");
     const status = runLogged(store, "codeql", args);
     results.push(status === 0 && existsSync(dbPath)

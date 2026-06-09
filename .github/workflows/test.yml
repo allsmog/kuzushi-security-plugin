@@ -50,6 +50,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Cache CodeQL's package cache + compiled-query cache across runs so the
+      # compile step (the bulk of this job's ~10 min) is paid once, not every run.
+      - name: Cache CodeQL packages + compilation cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.codeql
+          key: codeql-cache-${{ runner.os }}-${{ hashFiles('packs/starter/**/*.ql') }}
+          restore-keys: |
+            codeql-cache-${{ runner.os }}-
       - name: Install CodeQL bundle
         run: |
           set -euo pipefail
