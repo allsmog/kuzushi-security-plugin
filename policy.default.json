@@ -7,6 +7,7 @@
       "mcp": { "rawQuery": "allow" },
       "git": { "apply": "require-approval" },
       "guardrails": { "onHookError": "allow" },
+      "analysis": { "autoBuildDatabases": "when-installed" },
       "install": {
         "autoInstallLightTools": true,
         "allowNetworkInstall": "approval-only",
@@ -17,6 +18,7 @@
       "mcp": { "rawQuery": "require-approval" },
       "git": { "apply": "require-approval" },
       "guardrails": { "onHookError": "require-approval" },
+      "analysis": { "autoBuildDatabases": "when-installed" },
       "install": {
         "autoInstallLightTools": false,
         "allowNetworkInstall": "approval-only",
@@ -28,6 +30,7 @@
       "git": { "apply": "deny" },
       "network": { "default": "deny", "allow": [] },
       "guardrails": { "onHookError": "deny" },
+      "analysis": { "autoBuildDatabases": "off" },
       "install": {
         "autoInstallLightTools": false,
         "allowNetworkInstall": "deny",

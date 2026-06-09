@@ -42,6 +42,8 @@ import { selectForTarget } from "../scripts/cmd/select-tooling.mjs";
 import { markAutoAttempted } from "../scripts/cmd/install-tooling.mjs";
 import { VENDOR_TOOLS } from "../scripts/lib/vendor-manifest.mjs";
 import { autoInstallAllowed, loadPolicy } from "../scripts/lib/policy.mjs";
+import { commandInstalled } from "../scripts/lib/capabilities.mjs";
+import { autoBuildDecision, effectiveAutoBuildSetting } from "../scripts/lib/auto-build.mjs";
 
 // Absolute paths resolved from this hook's own location so directives Claude
 // runs need no env-var expansion in its shell.
@@ -72,6 +74,46 @@ function autoInstallLightTools(cwd) {
     child.unref();
   } catch {
     // Never let auto-install break the session.
+  }
+}
+
+// Deep-by-default: when the CodeQL/Joern CLI is already installed (so the build
+// is a free, local operation — no network), kick the DB/CPG build in the
+// background at session start instead of waiting for the user to opt in. This is
+// the single biggest recall lever: interprocedural taint needs a built index, and
+// leaving it opt-in means most runs degrade to same-file linking. Policy-gated
+// (ci-locked → off; CLI absent → the offer prompt, since an install needs
+// approval). Spawns at most once per target (db-build.log presence = attempted).
+// Returns the decision so the report can phrase it; never throws.
+function autoBuildDatabases(cwd, byLanguage) {
+  try {
+    const policy = loadPolicy(cwd);
+    const setting = effectiveAutoBuildSetting(policy);
+    const sourcePresent = Object.entries(byLanguage ?? {}).some(([l, c]) => l !== "Other" && Number(c) > 0);
+    const store = storeFor(cwd);
+    const buildLog = join(store.root, "db-build.log");
+    const decision = autoBuildDecision({
+      setting,
+      sourcePresent,
+      dbBuilding: existsSync(buildLog),
+      codeqlCli: commandInstalled("codeql"),
+      codeqlDbBuilt: hasCodeqlDb(cwd).built,
+      joernCli: commandInstalled("joern"),
+      joernCpgBuilt: hasJoernCpg(cwd).built
+    });
+    if (!decision.anyBuild) return decision;
+    // Local-only build (CLIs are present): no --include-install, so no network.
+    mkdirSync(store.root, { recursive: true });
+    const log = openSync(buildLog, "a");
+    const child = spawn(
+      process.execPath,
+      [BUILD_DATABASES, "--target", cwd, "--which", decision.which, "--background"],
+      { detached: true, stdio: ["ignore", log, log] }
+    );
+    child.unref();
+    return { ...decision, started: true };
+  } catch {
+    return null; // never let auto-build break the session
   }
 }
 
@@ -167,6 +209,10 @@ async function run() {
 
   // One-time background install of the light, language-relevant tools.
   autoInstallLightTools(cwd);
+  // Deep-by-default: auto-build the CodeQL DB / Joern CPG when the CLI is already
+  // present and policy permits, so deep interprocedural queries are ready without
+  // an opt-in. Writes .kuzushi/db-build.log, which the report keys on below.
+  autoBuildDatabases(cwd, result.inventory?.byLanguage ?? {});
 
   reportState(cwd, result, {
     alreadyBuilt: status.built,

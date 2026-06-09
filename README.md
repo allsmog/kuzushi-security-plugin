@@ -205,6 +205,11 @@ The plugin only spins up what your repo needs, and installs what it can.
   Install state records source URLs and digests where available.
 - **Databases**: `/build-databases` creates the CodeQL DB + Joern CPG **asynchronously** (logs
   to `.kuzushi/db-build.log`) so deep semantic queries work without blocking your session.
+  **Deep-by-default**: when the CodeQL/Joern CLI is already installed (a local build, no network),
+  the SessionStart hook kicks this off automatically so interprocedural taint is ready in minute one
+  rather than degrading to same-file linking — governed by `policy.analysis.autoBuildDatabases`
+  (`when-installed` for developer/review profiles, `off` for `ci-locked`; CLI absent → it still just
+  *offers*, since an install needs approval).
 
 Run `/doctor` any time to see exactly what's available — including the effective
 **tool-boundary policy**.
