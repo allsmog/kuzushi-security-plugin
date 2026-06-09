@@ -1,6 +1,6 @@
 {
   "schemaVersion": "starter-pack.v1",
-  "description": "Curated, deep starter queries so the first interprocedural taint query needs no agent synthesis. Maintainer-validated; CI re-validates against the engine. install-starter-pack copies these into <target>/.kuzushi/rules/ and registers them in the digest-attested pack so the codeql/joern MCP servers will run them.",
+  "description": "Curated, deep starter queries so the first interprocedural taint query needs no agent synthesis. Maintainer-authored; the CodeQL queries use the standard-library security flow modules and the Joern queries follow the KUZUSHI_CPG convention. install-starter-pack copies these into <target>/.kuzushi/rules/ and registers them in the digest-attested pack so the codeql/joern MCP servers will run them. validated.compileVerified is false for shipped queries — they are curated, not machine-compiled at install; run the engine compile check (or CI with the engine present) to verify against a specific CodeQL/Joern version.",
   "rules": [
     {
       "ruleId": "kuzushi/starter/js-command-injection",
@@ -11,6 +11,54 @@
       "title": "Command injection from user input (JS)"
     },
     {
+      "ruleId": "kuzushi/starter/js-sql-injection",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-89",
+      "file": "codeql/javascript/sql-injection.ql",
+      "title": "SQL injection from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/js-tainted-path",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-22",
+      "file": "codeql/javascript/tainted-path.ql",
+      "title": "Path traversal from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/js-code-injection",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-94",
+      "file": "codeql/javascript/code-injection.ql",
+      "title": "Code injection from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/js-unsafe-deserialization",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-502",
+      "file": "codeql/javascript/unsafe-deserialization.ql",
+      "title": "Unsafe deserialization of user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/py-command-injection",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-78",
+      "file": "codeql/python/command-injection.ql",
+      "title": "Command injection from user input (Python)"
+    },
+    {
+      "ruleId": "kuzushi/starter/py-sql-injection",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-89",
+      "file": "codeql/python/sql-injection.ql",
+      "title": "SQL injection from user input (Python)"
+    },
+    {
       "ruleId": "kuzushi/starter/py-path-injection",
       "engine": "codeql",
       "language": "python",
@@ -19,12 +67,60 @@
       "title": "Path traversal from user input (Python)"
     },
     {
+      "ruleId": "kuzushi/starter/py-code-injection",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-94",
+      "file": "codeql/python/code-injection.ql",
+      "title": "Code injection from user input (Python)"
+    },
+    {
       "ruleId": "kuzushi/starter/joern-command-injection",
       "engine": "joern",
       "language": "any",
       "cwe": "CWE-78",
       "file": "joern/command-injection.sc",
       "title": "Command injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-sql-injection",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-89",
+      "file": "joern/sql-injection.sc",
+      "title": "SQL injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-ssrf",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-918",
+      "file": "joern/ssrf.sc",
+      "title": "Server-side request forgery from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-code-injection",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-94",
+      "file": "joern/code-injection.sc",
+      "title": "Code injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-deserialization",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-502",
+      "file": "joern/deserialization.sc",
+      "title": "Unsafe deserialization from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-xxe",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-611",
+      "file": "joern/xxe.sc",
+      "title": "XML external entity injection from user input (Joern/CPG)"
     }
   ]
 }

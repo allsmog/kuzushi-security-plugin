@@ -211,7 +211,9 @@ The plugin only spins up what your repo needs, and installs what it can.
   (`when-installed` for developer/review profiles, `off` for `ci-locked`; CLI absent → it still just
   *offers*, since an install needs approval). The build also installs a **curated starter query pack**
   (`packs/starter/` → `.kuzushi/rules/`, digest-attested) so the first interprocedural CodeQL/Joern
-  query runs without on-the-fly agent synthesis; `/rule-synth` adds repo-specific rules alongside it.
+  query runs without on-the-fly agent synthesis. It ships 15 queries spanning CWE-22/78/89/94/502/611/918
+  — CodeQL standard-library security flows for JavaScript and Python, plus language-agnostic Joern CPG
+  dataflow queries; `/rule-synth` adds repo-specific rules alongside it.
 
 Run `/doctor` any time to see exactly what's available — including the effective
 **tool-boundary policy**.

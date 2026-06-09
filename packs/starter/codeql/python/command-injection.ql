@@ -5,16 +5,16 @@
  * @kind path-problem
  * @problem.severity error
  * @security-severity 9.8
- * @id kuzushi/starter/js-command-injection
+ * @id kuzushi/starter/py-command-injection
  * @tags security
  *       external/cwe/cwe-078
  */
 
-import javascript
-import semmle.javascript.security.dataflow.CommandInjectionQuery
+import python
+import semmle.python.security.dataflow.CommandInjectionQuery
 import CommandInjectionFlow::PathGraph
 
 from CommandInjectionFlow::PathNode source, CommandInjectionFlow::PathNode sink
 where CommandInjectionFlow::flowPath(source, sink)
-select sink.getNode(), source, sink, "Command line depends on a $@.",
+select sink.getNode(), source, sink, "This command depends on a $@.",
   source.getNode(), "user-provided value"

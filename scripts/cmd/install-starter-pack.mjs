@@ -53,11 +53,14 @@ export function installStarterPack(target) {
       file: fileRel,
       digest: digestBytes(bytes),
       // The execution gate requires validated.compile; for a shipped pack this
-      // attests maintainer + CI validation (the engine isn't required to install).
+      // attests maintainer authorship. compileVerified records that the bytes were
+      // NOT machine-compiled at install (no engine/version assumed) — run the
+      // engine compile check or CI to verify against a concrete CodeQL/Joern build.
       validated: {
         compile: true,
+        compileVerified: false,
         source: "shipped-starter",
-        note: "curated by maintainers; CI re-validates compile/fire against the engine when present"
+        note: "curated by maintainers; run the engine compile check (or CI with the engine present) to verify against a specific CodeQL/Joern version"
       },
       title: rule.title ?? rule.ruleId
     });
