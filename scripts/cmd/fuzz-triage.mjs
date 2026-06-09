@@ -27,6 +27,8 @@ export function fuzzTriage(target) {
       language: r.language,
       proofLevel: r.proofLevel,
       logPath: r.logPath,
+      harnessDir: r.harnessDir ?? null,
+      crashArtifact: r.crashArtifact ?? null,
       crashHash: hashLog(r.logPath) ?? `${r.findingFingerprint}-${r.engine}`,
       minimizable: Boolean(r.harnessDir)
     }));
