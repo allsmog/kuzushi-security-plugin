@@ -124,6 +124,7 @@ claude --plugin-dir .
 /fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
 /chain               # link related findings into higher-impact attack chains (analysis overlay)
 /export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
+/benchmark           # score recall / precision / false-proof against a ground-truth corpus
 /doctor              # what's installed / missing, with install commands
 ```
 
@@ -160,6 +161,7 @@ claude --plugin-dir .
 | `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + functional and semantic checks. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire), the functional check, and the semantic oracle check for supported CWEs — a patch is **`validated`** only if all required gates pass. The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
 | `/chain` | **Cross-finding attack chains.** The chain-finder agent reasons over the findings index for compositions (precondition → pivot → impact) — e.g. an auth bypass that turns a read-only SSRF into internal RCE, or a `/mem-exploitability` info-leak that defeats a canary for a control-flow hijack — and records each chain (ordered narrative + member fingerprints), attaching a `chains` ref onto each member (status unchanged). An analysis overlay, not a combined exploit. | `.kuzushi/chains.json`, `findings.json` |
 | `/code-graph` | Builds a cached **code-graph** — entry points + per-symbol **caller counts** (blast-radius / attack-surface signal) — via a deterministic ripgrep heuristic (no heavy tooling). `/diff-review` reads it for deterministic blast radius; hunters consult it for reachability. | `.kuzushi/code-graph.json` |
+| `/benchmark` | **Recall / precision / false-proof measurement.** Scores a run's `findings.json` against a ground-truth manifest (planted bugs + safe decoys that must *not* be flagged) and reports recall, precision, and false-proof rate. Runs the bundled `bench/cases/` corpus for regression, or a live target with `--ground-truth`. Deterministic, no agent. | — (report) |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "bench-ground-truth.v1",
+  "target": "node-command-injection",
+  "language": "javascript",
+  "notes": "One real OS command injection and one safe execFile decoy that must not be flagged.",
+  "expectations": [
+    {
+      "id": "ping-cmdi",
+      "kind": "vuln",
+      "cwe": "CWE-78",
+      "filePath": "target/server.js",
+      "line": 9,
+      "severity": "high",
+      "note": "req.query.host interpolated into an exec() shell string"
+    },
+    {
+      "id": "lookup-execfile-safe",
+      "kind": "safe",
+      "cwe": "CWE-78",
+      "filePath": "target/server.js",
+      "line": 16,
+      "note": "execFile with an args array spawns no shell; flagging this is a false positive"
+    }
+  ]
+}

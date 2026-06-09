@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "schemaVersion": "findings.v1",
+  "generatedAt": "2026-06-09T00:00:00.000Z",
+  "target": "python-path-traversal",
+  "findings": [
+    {
+      "schemaVersion": "finding.v1",
+      "fingerprint": "benchpathtrav0001",
+      "source": "taint-analysis",
+      "refId": "CWE-22:files.py:13",
+      "title": "Path traversal via request.args name into send_file",
+      "severity": "high",
+      "cwe": "CWE-22",
+      "verdict": "finding",
+      "status": "confirmed",
+      "proofState": "confirmed",
+      "exposure": "unauthenticated",
+      "evidence": [{ "filePath": "target/files.py", "startLine": 13 }],
+      "rationale": "request.args['name'] is os.path.join'd onto BASE and served with no realpath/containment check, so ../ escapes BASE. The safe-download handler guards the same shape, so only this site is flagged.",
+      "nextChecks": []
+    }
+  ],
+  "summary": { "total": 1 }
+}
