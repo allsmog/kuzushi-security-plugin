@@ -23,7 +23,7 @@ test("install copies the starter queries and writes a valid, digest-attested pac
   const t = repo();
   const res = installStarterPack(t);
   assert.equal(res.status, "completed");
-  assert.ok(res.installedCount >= 15, "ships the deepened curated rule set");
+  assert.ok(res.installedCount >= 23, "ships the deepened curated rule set");
   const pack = loadPack(t);
   assertValid("rulePack", pack); // manifest is schema-valid (ruleId/engine/file/digest/validated)
   // The actual query files landed under .kuzushi/rules/.

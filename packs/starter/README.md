@@ -8,28 +8,38 @@ against the recorded digest). The SessionStart auto-build installs the pack when
 
 ## Coverage
 
-| CWE | Class | CodeQL | Joern |
-|-----|-------|--------|-------|
+| CWE | Class | CodeQL | Joern (any language) |
+|-----|-------|--------|----------------------|
 | CWE-22 | Path traversal | JS, Python | — |
-| CWE-78 | Command injection | JS, Python | any |
-| CWE-89 | SQL injection | JS, Python | any |
-| CWE-94 | Code injection | JS, Python | any |
-| CWE-502 | Unsafe deserialization | JS | any |
-| CWE-611 | XXE | — | any |
-| CWE-918 | SSRF | — | any |
+| CWE-78 | Command injection | JS, Python | ✓ |
+| CWE-79 | Reflected XSS | JS, Python | — |
+| CWE-89 | SQL injection | JS, Python | ✓ |
+| CWE-90 | LDAP injection | — | ✓ |
+| CWE-94 | Code injection | JS, Python | ✓ |
+| CWE-502 | Unsafe deserialization | JS | ✓ |
+| CWE-601 | Open redirect | — | ✓ |
+| CWE-611 | XXE | — | ✓ |
+| CWE-918 | SSRF | JS, Python | ✓ |
+| CWE-943 | NoSQL injection | — | ✓ |
+| CWE-1336 | Server-side template injection | — | ✓ |
 
 CodeQL queries use the standard-library security **flow modules** (`<Name>Flow::PathGraph`); Joern
 queries are language-agnostic CPG dataflow (`reachableByFlows`) following the `KUZUSHI_CPG`
-convention (see `scripts/joern/taint-flows.sc`).
+convention (see `scripts/joern/taint-flows.sc`) — so they cover Java/Go/C# targets too, not just
+the languages with a dedicated CodeQL query here.
 
 ## Trust & verification
 
 Shipped entries are marked `validated.compile: true` (curated authorship) with
 `validated.compileVerified: false` — the bytes are **not** machine-compiled at install time, since
-no specific CodeQL/Joern version is assumed. `test/starter-pack-structure.test.mjs` validates the
-queries' structure offline (imports, flow modules, the `KUZUSHI_CPG` convention, manifest↔file
-consistency). To verify against a concrete engine build, run a CodeQL `query compile` / Joern
-script load where the CLI is present.
+no specific CodeQL/Joern version is assumed. Two safety nets back this:
+
+- `test/starter-pack-structure.test.mjs` validates structure offline (imports, flow modules, the
+  `KUZUSHI_CPG` convention, manifest↔file consistency) — runs in every CI job.
+- `test/starter-pack-compile.test.mjs` + the **`codeql-verify` CI job** install the CodeQL bundle
+  and actually compile every CodeQL query against the standard library, so a wrong `*Flow` module
+  name fails CI instead of erroring at query time. (A Joern "compile" needs a built CPG, so Joern
+  is covered structurally.)
 
 ## Adding a query
 

@@ -121,6 +121,70 @@
       "cwe": "CWE-611",
       "file": "joern/xxe.sc",
       "title": "XML external entity injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/js-request-forgery",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-918",
+      "file": "codeql/javascript/request-forgery.ql",
+      "title": "Server-side request forgery from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/js-reflected-xss",
+      "engine": "codeql",
+      "language": "javascript",
+      "cwe": "CWE-79",
+      "file": "codeql/javascript/reflected-xss.ql",
+      "title": "Reflected XSS from user input (JS)"
+    },
+    {
+      "ruleId": "kuzushi/starter/py-request-forgery",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-918",
+      "file": "codeql/python/request-forgery.ql",
+      "title": "Server-side request forgery from user input (Python)"
+    },
+    {
+      "ruleId": "kuzushi/starter/py-reflected-xss",
+      "engine": "codeql",
+      "language": "python",
+      "cwe": "CWE-79",
+      "file": "codeql/python/reflected-xss.ql",
+      "title": "Reflected XSS from user input (Python)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-open-redirect",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-601",
+      "file": "joern/open-redirect.sc",
+      "title": "Open redirect from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-ssti",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-1336",
+      "file": "joern/ssti.sc",
+      "title": "Server-side template injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-ldap-injection",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-90",
+      "file": "joern/ldap-injection.sc",
+      "title": "LDAP injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-nosql-injection",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-943",
+      "file": "joern/nosql-injection.sc",
+      "title": "NoSQL injection from user input (Joern/CPG)"
     }
   ]
 }
