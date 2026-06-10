@@ -74,3 +74,42 @@ jobs:
       - name: Verify starter pack
         run: node --test test/starter-pack-compile.test.mjs test/starter-pack-structure.test.mjs
 
+  # Verifies the SHIPPED Joern starter queries — the PRIMARY backend — by building a
+  # real CPG from a fixture and running each query against it. Stronger than the
+  # CodeQL compile gate: a Joern "compile" needs a CPG, so this executes the scripts
+  # end-to-end. A broken script (bad import, the @main/importCpg pitfall, a wrong
+  # CPG-API call) exits non-zero here instead of failing at query time on a user's
+  # machine. The main `test` job self-skips this (no engine on stock runners).
+  joern-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Cache Joern CLI
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/joern-cli
+            ~/.cache/coursier
+            ~/.m2
+          key: joern-cli-${{ runner.os }}-${{ hashFiles('packs/starter/joern/*.sc') }}
+          restore-keys: |
+            joern-cli-${{ runner.os }}-
+      - name: Install Joern
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/joern-cli/joern" ]; then
+            curl -sSL -o /tmp/joern-cli.zip \
+              "https://github.com/joernio/joern/releases/latest/download/joern-cli.zip"
+            unzip -q /tmp/joern-cli.zip -d "$HOME"
+          fi
+          echo "$HOME/joern-cli" >> "$GITHUB_PATH"
+      - name: Verify Joern starter queries
+        run: node --test test/starter-pack-joern.test.mjs
+

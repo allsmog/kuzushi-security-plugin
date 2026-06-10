@@ -38,8 +38,13 @@ no specific CodeQL/Joern version is assumed. Two safety nets back this:
   `KUZUSHI_CPG` convention, manifest↔file consistency) — runs in every CI job.
 - `test/starter-pack-compile.test.mjs` + the **`codeql-verify` CI job** install the CodeQL bundle
   and actually compile every CodeQL query against the standard library, so a wrong `*Flow` module
-  name fails CI instead of erroring at query time. (A Joern "compile" needs a built CPG, so Joern
-  is covered structurally.)
+  name fails CI instead of erroring at query time.
+- `test/starter-pack-joern.test.mjs` + the **`joern-verify` CI job** (Joern is the primary backend)
+  go further: they build a real CPG from a fixture and *run* every Joern query against it, so a
+  broken script (bad import, the `@main`/`importCpg` pitfall, a wrong CPG-API call) fails CI too.
+
+Both engine jobs self-skip in the normal suite (no engine on stock runners) and run for real in
+their dedicated cached CI jobs.
 
 ## Adding a query
 
