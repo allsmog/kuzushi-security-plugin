@@ -98,7 +98,9 @@ jobs:
             ~/joern-cli
             ~/.cache/coursier
             ~/.m2
-          key: joern-cli-${{ runner.os }}-${{ hashFiles('packs/starter/joern/*.sc') }}
+          # Key on a stable version, not the query files: the Joern BINARY doesn't
+          # change when a .sc edits, so this avoids a ~25s re-download per query tweak.
+          key: joern-cli-${{ runner.os }}-v1
           restore-keys: |
             joern-cli-${{ runner.os }}-
       - name: Install Joern
