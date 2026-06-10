@@ -2,12 +2,13 @@
 //
 // Forward interprocedural dataflow from attacker-controlled sources to process-
 // execution sinks. Run via the joern MCP server, which loads the CPG path from
-// KUZUSHI_CPG (the same convention as scripts/joern/taint-flows.sc) — so this is a
-// top-level script (no @main) that calls importCpg itself. Emits one JSON line per
-// flow on stdout; logs go to stderr.
+// KUZUSHI_CPG (the same convention as scripts/joern/taint-flows.sc). Modern Joern's
+// --script runner requires an @main entrypoint, so the body lives in @main and
+// calls importCpg itself. Emits one JSON line per flow on stdout; logs to stderr.
 import io.shiftleft.semanticcpg.language._
 import io.joern.dataflowengineoss.language._
 
+@main def exec(): Unit = {
 importCpg(sys.env.getOrElse("KUZUSHI_CPG", sys.props.getOrElse("path",
   throw new RuntimeException("kuzushi-starter: missing KUZUSHI_CPG or -Dpath=<cpg>"))))
 
@@ -27,4 +28,5 @@ flows.foreach { p =>
     val file = Option(snk.filename).getOrElse("")
     println(s"""{"cwe":"CWE-78","filePath":"$file","sourceLine":${src.lineNumber.getOrElse(0)},"sinkLine":${snk.lineNumber.getOrElse(0)}}""")
   }
+}
 }

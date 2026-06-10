@@ -65,4 +65,14 @@ test("Joern starter queries run cleanly against a real CPG", { skip: joernPresen
   if (!detectedCmdInjection) {
     console.warn("joern-verify: command-injection query ran clean but did not surface the planted flow on this Joern version");
   }
+
+  // Also exercise the PRODUCT script the joern MCP server runs (taint-flows.sc with
+  // the default empty QUERIES_JSON) — it shares the @main convention, so it must run
+  // clean too. This is what guards the real /taint-analysis Joern path, not just the
+  // starter pack.
+  const taintFlows = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "joern", "taint-flows.sc");
+  const tf = spawnSync("joern", ["--script", taintFlows], {
+    encoding: "utf8", timeout: 600000, env: { ...process.env, KUZUSHI_CPG: cpg }
+  });
+  assert.equal(tf.status, 0, `scripts/joern/taint-flows.sc failed to run:\n--- stderr ---\n${(tf.stderr ?? "").slice(-2000)}`);
 });

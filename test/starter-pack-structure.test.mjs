@@ -53,7 +53,10 @@ test("Joern queries follow the KUZUSHI_CPG convention (and never the @main pitfa
     assert.match(src, /io\.shiftleft\.semanticcpg\.language/, `${r.ruleId}: missing semanticcpg import`);
     assert.match(src, /reachableByFlows/, `${r.ruleId}: not a dataflow query`);
     assert.match(src, /KUZUSHI_CPG/, `${r.ruleId}: must read KUZUSHI_CPG`);
-    assert.doesNotMatch(src, /@main\s+def/, `${r.ruleId}: @main-wrapped scripts don't load the CPG — the original bug`);
+    // Modern Joern's --script runner requires an @main entrypoint that calls
+    // importCpg (the real contract — the original bug was a missing importCpg, not
+    // the @main). joern-verify executes these against a real CPG to confirm.
+    assert.match(src, /@main\s+def/, `${r.ruleId}: needs an @main entrypoint for modern Joern --script`);
   }
 });
 

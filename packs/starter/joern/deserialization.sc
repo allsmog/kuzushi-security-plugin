@@ -5,6 +5,7 @@
 import io.shiftleft.semanticcpg.language._
 import io.joern.dataflowengineoss.language._
 
+@main def exec(): Unit = {
 importCpg(sys.env.getOrElse("KUZUSHI_CPG", sys.props.getOrElse("path",
   throw new RuntimeException("kuzushi-starter: missing KUZUSHI_CPG or -Dpath=<cpg>"))))
 
@@ -24,4 +25,5 @@ flows.foreach { p =>
     val file = Option(snk.filename).getOrElse("")
     println(s"""{"cwe":"CWE-502","filePath":"$file","sourceLine":${src.lineNumber.getOrElse(0)},"sinkLine":${snk.lineNumber.getOrElse(0)}}""")
   }
+}
 }
