@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { patchFindings, pocVerdictToStatus } from "../lib/findings.mjs";
-import { detectBackend, runInSandbox, classifyResult, classifyDifferential } from "../lib/sandbox.mjs";
+import { detectBackend, runInSandbox, classifyResult, classifyDifferential, classifyRuns } from "../lib/sandbox.mjs";
 
 function fail(message) {
   console.error(`poc-assemble: ${message}`);
@@ -44,10 +44,18 @@ export async function assemblePoc(target, runDir, options = {}) {
     if (!existsSync(harnessDir)) fail(`${fp}: harnessDir does not exist: ${harnessDir}`);
 
     const expectedSignal = c.expectedSignal ?? "crash";
-    const run = await runInSandbox({
-      backend, language: c.language, harnessDir,
-      runCommand: c.runCommand, timeoutMs, trustLocal
-    });
+    // Reproducibility: run the attack N times (default 1) so a flaky 1-in-N crash
+    // doesn't score like a reliable one. The candidate may request a count; the
+    // run-wide option caps it.
+    const reproductions = Math.max(1, Math.min(Number(options.reproductions ?? c.reproductions ?? 1), 10));
+    const attackRuns = [];
+    for (let i = 0; i < reproductions; i += 1) {
+      attackRuns.push(await runInSandbox({
+        backend, language: c.language, harnessDir,
+        runCommand: c.runCommand, timeoutMs, trustLocal
+      }));
+    }
+    const run = attackRuns[0];
 
     // Differential proof: if the builder wired a negative-control run (the
     // verifier's negativePoc — an in-spec input that must be handled safely), run
@@ -61,6 +69,11 @@ export async function assemblePoc(target, runDir, options = {}) {
         backend, language: c.language, harnessDir,
         runCommand: c.negativeRunCommand, timeoutMs, trustLocal
       });
+    }
+    if (reproductions > 1) {
+      // Reproducibility-aware gate (also folds in the negative control if present).
+      verdict = classifyRuns({ attackResults: attackRuns, benignResult: benignRun, expectedSignal });
+    } else if (benignRun) {
       verdict = classifyDifferential(run, benignRun, expectedSignal);
     } else {
       verdict = { ...classifyResult(run, expectedSignal), differential: "not-tested" };
@@ -71,7 +84,7 @@ export async function assemblePoc(target, runDir, options = {}) {
     logsRun.writeText(logName, [
       `# poc ${fp}`, `backend: ${run.backend}`, `runCommand: ${c.runCommand}`,
       `exitCode: ${run.exitCode ?? ""}  signal: ${run.signal ?? ""}  timedOut: ${run.timedOut ?? false}`,
-      `proofLevel: ${verdict.proofLevel}  proofVerdict: ${verdict.proofVerdict}  differential: ${verdict.differential}`,
+      `proofLevel: ${verdict.proofLevel}  proofVerdict: ${verdict.proofVerdict}  differential: ${verdict.differential}` + (verdict.reproductions ? `  reproductions: ${verdict.reproductions.fired}/${verdict.reproductions.total}` : ""),
       "", "## attack stdout", run.stdout ?? "", "## attack stderr", run.stderr ?? "",
       ...(benignRun ? [
         "", `## negative control (negativePoc) — runCommand: ${c.negativeRunCommand}`,
@@ -91,6 +104,7 @@ export async function assemblePoc(target, runDir, options = {}) {
       harnessDir,
       runCommand: c.runCommand,
       negativeRunCommand: c.negativeRunCommand ?? null,
+      reproductions: verdict.reproductions ?? null,
       logPath: join(logsRun.runDir, logName),
       note: verdict.note ?? (run.skipped ? reason : undefined)
     });
@@ -110,6 +124,7 @@ export async function assemblePoc(target, runDir, options = {}) {
       proofLevel: r.proofLevel,
       proofVerdict: r.proofVerdict,
       differential: r.differential,
+      ...(r.reproductions ? { reproductions: r.reproductions } : {}),
       backend: r.backend,
       durationMs: r.durationMs,
       harnessDir: r.harnessDir,
@@ -140,14 +155,15 @@ export async function assemblePoc(target, runDir, options = {}) {
 
 async function main() {
   if (process.argv.includes("--help")) {
-    console.log("poc-assemble --target <path> --run-dir <dir> [--trust-local] [--timeout-ms 60000]");
+    console.log("poc-assemble --target <path> --run-dir <dir> [--trust-local] [--timeout-ms 60000] [--reproductions 3]");
     process.exit(0);
   }
-  const { flags } = parseFlags(process.argv.slice(2), { boolean: ["help", "trust-local"], value: ["target", "run-dir", "timeout-ms"] });
+  const { flags } = parseFlags(process.argv.slice(2), { boolean: ["help", "trust-local"], value: ["target", "run-dir", "timeout-ms", "reproductions"] });
   if (!flags.target || !flags["run-dir"]) fail("--target and --run-dir are required");
   const result = await assemblePoc(flags.target, flags["run-dir"], {
     trustLocal: Boolean(flags["trust-local"]),
-    timeoutMs: flags["timeout-ms"] ? Number(flags["timeout-ms"]) : undefined
+    timeoutMs: flags["timeout-ms"] ? Number(flags["timeout-ms"]) : undefined,
+    reproductions: flags.reproductions ? Number(flags.reproductions) : undefined
   });
   emitResult(result);
 }
