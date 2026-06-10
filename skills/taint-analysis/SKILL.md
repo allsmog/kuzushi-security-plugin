@@ -11,8 +11,11 @@ prepare step, then spawn the phase subagents and thread their staged JSON drafts
 subagents do the LLM labeling and triage; you sequence them and report. Run these steps in order.
 
 > **Parallel fan-out (optional).** When `.kuzushi/partitions.json` exists (from `/partition`), run
-> the label→trace→triage phases **per partition in parallel**, each scoped to its `attackSurface`,
-> so the hunt covers different subsystems concurrently instead of one serial pass over everything.
+> the prepare step **once per partition** with `--partition <id>` (e.g. `taint-analysis-prepare
+> --target <repo> --partition p1`) — each scopes its candidate files to that subsystem — and spawn
+> the label→trace→triage subagents for each partition **in parallel**. Concurrent partition runs
+> cover different components instead of one serial pass, and the findings fingerprint dedupes any
+> boundary a sink and source share. The prep's `partition` + a `warnings` line confirm the scope.
 
 ## 1. Prepare (deterministic)
 
