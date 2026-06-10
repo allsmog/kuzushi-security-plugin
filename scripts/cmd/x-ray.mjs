@@ -317,6 +317,9 @@ export function runXray(target, input = {}) {
   atomicWrite(join(store.xRayDir, "entry-points.md"), entryPointsMarkdown({ entryPoints }));
   atomicWrite(join(store.xRayDir, "invariants.md"), invariantsMarkdown({ entryPoints, artifacts }));
   atomicWrite(join(store.xRayDir, "architecture.svg"), architectureSvg({ entryPoints }));
+  // Stable JSON of the entry points so /partition (and other steps) can consume the
+  // attack surface without re-parsing the markdown.
+  atomicWrite(join(store.xRayDir, "entry-points.json"), `${JSON.stringify(entryPoints, null, 2)}\n`);
   run.writeJson("input.json", input);
   run.writeJson("artifact-context.json", artifacts);
   run.writeJson("inventory.json", { ...inventory, relativeRunDir: relative(resolved, run.runDir) });
