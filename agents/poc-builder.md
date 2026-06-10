@@ -42,6 +42,13 @@ allocated `harnessDir`. If prepare errors "run /verify first", tell the user and
 3. **Decide the success signal.** `expectedSignal`: `"crash"` (default — a signal/panic/sanitizer
    report/non-zero-from-abort proves it) or `"nonzero"` (a clean non-zero exit is the proof).
    Make the harness *assert* the exploited condition so success is unambiguous.
+4. **Wire the negative control.** The `verification` block carries a **`negativePoc`** — an in-spec
+   input that must be handled *safely*. Make your harness accept the input (env var, argv, or stdin)
+   and emit a `negativeRunCommand` that drives the **same harness** with the negativePoc instead of
+   the attack payload. The host runs both: the attack must fire and the negative control must stay
+   clean. A harness that fires on *both* is scored `non-discriminating` (NOT a proof) — that's the
+   point: it forces your harness to discriminate the bug, not just abort on any input. Skipping the
+   negative control caps your proof at level 4; passing it earns level 5.
 
 ## Output + assemble
 
@@ -51,7 +58,8 @@ Write to the prep's `draftPath` (`draft.poc.json`):
   "findingFingerprint": "…",
   "language": "rust | python | javascript | c | …",
   "harnessDir": "<the harnessDir from prep for this finding>",
-  "runCommand": "the shell line that builds + runs the harness, cwd = harnessDir",
+  "runCommand": "the shell line that builds + runs the harness with the ATTACK payload, cwd = harnessDir",
+  "negativeRunCommand": "the same harness driven with verification.negativePoc (the benign control); omit only if no negativePoc exists",
   "expectedSignal": "crash | nonzero",
   "notes": "what the harness does and why a positive result proves the finding"
 }] }
@@ -80,3 +88,6 @@ harnesses were written but not executed and how to run them.
   payload, wrong entry) — re-read the pocSketch before doubting the finding.
 - *"A quick network call makes it work."* → The sandbox is offline by design; a PoC needing the
   network is exercising the wrong path.
+- *"It crashed on the attack input, that's proof enough — skip the negative control."* → A harness
+  that also aborts on the benign `negativePoc` proves nothing (it's `non-discriminating`). Always
+  wire `negativeRunCommand` when a negativePoc exists; the discriminated level-5 verdict is the bar.

@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { patchFindings, pocVerdictToStatus } from "../lib/findings.mjs";
-import { detectBackend, runInSandbox, classifyResult } from "../lib/sandbox.mjs";
+import { detectBackend, runInSandbox, classifyResult, classifyDifferential } from "../lib/sandbox.mjs";
 
 function fail(message) {
   console.error(`poc-assemble: ${message}`);
@@ -43,19 +43,41 @@ export async function assemblePoc(target, runDir, options = {}) {
     const harnessDir = isAbsolute(c.harnessDir ?? "") ? c.harnessDir : join(resolvedRunDir, c.harnessDir ?? "");
     if (!existsSync(harnessDir)) fail(`${fp}: harnessDir does not exist: ${harnessDir}`);
 
+    const expectedSignal = c.expectedSignal ?? "crash";
     const run = await runInSandbox({
       backend, language: c.language, harnessDir,
       runCommand: c.runCommand, timeoutMs, trustLocal
     });
-    const verdict = classifyResult(run, c.expectedSignal ?? "crash");
+
+    // Differential proof: if the builder wired a negative-control run (the
+    // verifier's negativePoc — an in-spec input that must be handled safely), run
+    // it too and demand it stays clean while the attack fires. This is what
+    // separates a harness that discriminates the bug from one that aborts on any
+    // input. Without a negative control we fall back to the single-run classifier.
+    let benignRun = null;
+    let verdict;
+    if (c.negativeRunCommand) {
+      benignRun = await runInSandbox({
+        backend, language: c.language, harnessDir,
+        runCommand: c.negativeRunCommand, timeoutMs, trustLocal
+      });
+      verdict = classifyDifferential(run, benignRun, expectedSignal);
+    } else {
+      verdict = { ...classifyResult(run, expectedSignal), differential: "not-tested" };
+    }
 
     // Persist the run log next to the canonical artifact for inspection.
     const logName = `poc-${fp}.log`;
     logsRun.writeText(logName, [
       `# poc ${fp}`, `backend: ${run.backend}`, `runCommand: ${c.runCommand}`,
       `exitCode: ${run.exitCode ?? ""}  signal: ${run.signal ?? ""}  timedOut: ${run.timedOut ?? false}`,
-      `proofLevel: ${verdict.proofLevel}  proofVerdict: ${verdict.proofVerdict}`,
-      "", "## stdout", run.stdout ?? "", "## stderr", run.stderr ?? ""
+      `proofLevel: ${verdict.proofLevel}  proofVerdict: ${verdict.proofVerdict}  differential: ${verdict.differential}`,
+      "", "## attack stdout", run.stdout ?? "", "## attack stderr", run.stderr ?? "",
+      ...(benignRun ? [
+        "", `## negative control (negativePoc) — runCommand: ${c.negativeRunCommand}`,
+        `exitCode: ${benignRun.exitCode ?? ""}  signal: ${benignRun.signal ?? ""}  timedOut: ${benignRun.timedOut ?? false}`,
+        "## benign stdout", benignRun.stdout ?? "", "## benign stderr", benignRun.stderr ?? ""
+      ] : [])
     ].join("\n"));
 
     results.push({
@@ -63,10 +85,12 @@ export async function assemblePoc(target, runDir, options = {}) {
       language: c.language ?? null,
       proofLevel: verdict.proofLevel,
       proofVerdict: verdict.proofVerdict,
+      differential: verdict.differential,
       backend: run.backend,
       durationMs: run.durationMs ?? null,
       harnessDir,
       runCommand: c.runCommand,
+      negativeRunCommand: c.negativeRunCommand ?? null,
       logPath: join(logsRun.runDir, logName),
       note: verdict.note ?? (run.skipped ? reason : undefined)
     });
@@ -85,6 +109,7 @@ export async function assemblePoc(target, runDir, options = {}) {
       schemaVersion: "poc.v1",
       proofLevel: r.proofLevel,
       proofVerdict: r.proofVerdict,
+      differential: r.differential,
       backend: r.backend,
       durationMs: r.durationMs,
       harnessDir: r.harnessDir,

@@ -60,8 +60,13 @@ a fresh harness (steps below) only when no detected harness fits the target.
    `len > 64 && magic == 0x7f`, every seed should carry that magic byte and exceed 64 — don't make
    the fuzzer rediscover the header.
 5. **Set the real `runCommand`** (build **and** run, cwd = `harnessDir`, time-boxed) + `expectedSignal`
-   (`crash` for sanitizer/abort; `nonzero` only if a clean non-zero exit is the proof). Examples:
-   - libfuzzer: `clang -g -fsanitize=address,fuzzer harness.c <target.c> -o fuzz_target && ./fuzz_target -max_total_time=60 corpus`
+   (`crash` for sanitizer/abort; `nonzero` only if a clean non-zero exit is the proof). Build with
+   **coverage instrumentation** (the `fuzzer` sanitizer / native fuzz mode already gives it) and keep
+   libFuzzer's default status output on — `fuzz-run` parses `cov:`/`ft:`/`NEW`/`DONE` and the
+   `Test unit written to …` artifact line, so the loop can see whether coverage was still growing
+   (extend the budget) or saturated (stop), and can minimize the crash. Don't pass `-close_fd_mask`
+   or silence stats. Examples:
+   - libfuzzer: `clang -g -fsanitize=address,fuzzer harness.c <target.c> -o fuzz_target && ./fuzz_target -max_total_time=60 -print_final_stats=1 corpus`
    - cargo-fuzz: `cargo fuzz run fuzz_target -- -max_total_time=60`
    - atheris: `python3 fuzz.py -max_total_time=60` · go: `go test -run=^$ -fuzz=FuzzXxx -fuzztime=60s`
 6. **Update the plan.** Rewrite the candidate's `runCommand` and add `expectedSignal`, **keeping every

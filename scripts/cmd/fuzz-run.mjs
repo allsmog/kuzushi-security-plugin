@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { detectBackend, runInSandbox, classifyResult } from "../lib/sandbox.mjs";
+import { parseFuzzTelemetry, coverageRecommendation } from "../lib/fuzz-telemetry.mjs";
 
 export async function fuzzRun(target, options = {}) {
   const resolvedTarget = resolve(target);
@@ -42,6 +43,11 @@ export async function fuzzRun(target, options = {}) {
       trustLocal
     });
     const classified = classifyResult(fuzzResult, c.expectedSignal ?? "crash");
+    // Read the coverage/telemetry the engine printed so the loop isn't blind to
+    // whether the campaign was still growing coverage or had saturated, and so the
+    // crash artifact is captured for minimization.
+    const telemetry = parseFuzzTelemetry(`${fuzzResult.stdout ?? ""}\n${fuzzResult.stderr ?? ""}`, c.engine);
+    const coverage = coverageRecommendation(telemetry);
     const logName = `fuzz-${c.findingFingerprint}.log`;
     run.writeText(logName, [
       `# fuzz ${c.findingFingerprint}`,
@@ -50,6 +56,9 @@ export async function fuzzRun(target, options = {}) {
       `runCommand: ${c.runCommand}`,
       `proofLevel: ${classified.proofLevel}`,
       `proofVerdict: ${classified.proofVerdict}`,
+      `coverage: cov=${telemetry.peakCov ?? "?"} ft=${telemetry.peakFeatures ?? "?"} execs=${telemetry.execs ?? "?"} newCovEvents=${telemetry.newCoverageEvents} ended=${telemetry.endedWith}`,
+      `coverageAdvice: ${coverage.signal} — ${coverage.advice}`,
+      telemetry.crashArtifact ? `crashArtifact: ${telemetry.crashArtifact}` : "",
       "",
       "## stdout",
       fuzzResult.stdout ?? "",
@@ -66,6 +75,9 @@ export async function fuzzRun(target, options = {}) {
       durationMs: fuzzResult.durationMs ?? null,
       proofLevel: classified.proofLevel,
       proofVerdict: classified.proofVerdict,
+      telemetry,
+      coverageSignal: coverage.signal,
+      crashArtifact: telemetry.crashArtifact,
       logPath: `${run.runDir}/${logName}`,
       note: classified.note ?? fuzzResult.reason ?? null
     });

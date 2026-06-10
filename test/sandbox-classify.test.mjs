@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyResult } from "../scripts/lib/sandbox.mjs";
+import { classifyResult, classifyDifferential } from "../scripts/lib/sandbox.mjs";
 
 const MODULE_NOT_FOUND =
   "Error: Cannot find module '/work/harness.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader)\n  code: 'MODULE_NOT_FOUND'";
@@ -56,4 +56,38 @@ test("timeout and spawn errors stay level-1 errors, never exploited", () => {
   assert.equal(classifyResult({ timedOut: true }).proofVerdict, "timeout");
   assert.equal(classifyResult({ spawnError: true, exitCode: null }).proofVerdict, "error");
   assert.equal(classifyResult({ skipped: true, reason: "no backend" }).proofVerdict, "error");
+});
+
+// classifyDifferential is the negative-control gate: a harness that fires on the
+// attack AND on the benign negativePoc is NOT a proof. These pin that the strongest
+// rung (level 5) requires the negative control to stay clean.
+const FIRES = { exitCode: null, signal: "SIGABRT", stdout: "", stderr: "" };
+const CLEAN = { exitCode: 0, signal: null, stdout: "ok", stderr: "" };
+
+test("attack fires + benign clean → discriminated proof at level 5", () => {
+  const r = classifyDifferential(FIRES, CLEAN, "crash");
+  assert.equal(r.proofVerdict, "exploited");
+  assert.equal(r.proofLevel, 5);
+  assert.equal(r.differential, "discriminated");
+});
+
+test("attack fires + benign ALSO fires → non-discriminating, NOT a proof", () => {
+  const r = classifyDifferential(FIRES, FIRES, "crash");
+  assert.equal(r.proofVerdict, "non-discriminating");
+  assert.equal(r.proofLevel, 2);
+  assert.equal(r.differential, "benign-also-fired");
+});
+
+test("attack fires + benign couldn't run cleanly → attack level kept, flagged inconclusive", () => {
+  const benignBuildFail = { exitCode: 1, signal: null, stdout: "", stderr: "SyntaxError: Unexpected token" };
+  const r = classifyDifferential(FIRES, benignBuildFail, "crash");
+  assert.equal(r.proofVerdict, "exploited");
+  assert.equal(r.proofLevel, 4); // attack's own signal-death level, not promoted to 5
+  assert.equal(r.differential, "benign-inconclusive");
+});
+
+test("attack did not fire → the attack verdict is returned unchanged (no false promotion)", () => {
+  const r = classifyDifferential(CLEAN, CLEAN, "nonzero");
+  assert.equal(r.proofVerdict, "not-reproduced");
+  assert.equal(r.differential, "attack-did-not-fire");
 });

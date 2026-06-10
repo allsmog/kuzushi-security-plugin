@@ -35,3 +35,83 @@ jobs:
       # plugin's heavy optional deps churn). Engine-backed tests (a real Joern
       # /rule-synth run) still self-skip when joern/codeql aren't on PATH.
       - run: npm test
+
+  # Verifies the SHIPPED starter query pack actually compiles against the CodeQL
+  # standard library — the safety net that makes packs/starter trustworthy. The
+  # main `test` job above self-skips the compile check (no engine on stock
+  # runners); this job installs the CodeQL bundle (which includes the std-lib
+  # packs) and runs it for real, so a wrong *Flow module name fails CI instead of
+  # erroring at query time on a user's machine. Joern queries are validated
+  # structurally in the main suite (a Joern "compile" needs a built CPG).
+  codeql-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Cache CodeQL's package cache + compiled-query cache across runs so the
+      # compile step (the bulk of this job's ~10 min) is paid once, not every run.
+      - name: Cache CodeQL packages + compilation cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.codeql
+          key: codeql-cache-${{ runner.os }}-${{ hashFiles('packs/starter/**/*.ql') }}
+          restore-keys: |
+            codeql-cache-${{ runner.os }}-
+      - name: Install CodeQL bundle
+        run: |
+          set -euo pipefail
+          tag=$(curl -sSL https://api.github.com/repos/github/codeql-action/releases/latest \
+            | grep -oP '"tag_name":\s*"\K[^"]+')
+          echo "Using CodeQL bundle: $tag"
+          curl -sSL -o /tmp/codeql-bundle.tar.gz \
+            "https://github.com/github/codeql-action/releases/download/${tag}/codeql-bundle-linux64.tar.gz"
+          mkdir -p "$HOME/codeql-bundle"
+          tar -xzf /tmp/codeql-bundle.tar.gz -C "$HOME/codeql-bundle"
+          echo "$HOME/codeql-bundle/codeql" >> "$GITHUB_PATH"
+      - name: Verify starter pack
+        run: node --test test/starter-pack-compile.test.mjs test/starter-pack-structure.test.mjs
+
+  # Verifies the SHIPPED Joern starter queries — the PRIMARY backend — by building a
+  # real CPG from a fixture and running each query against it. Stronger than the
+  # CodeQL compile gate: a Joern "compile" needs a CPG, so this executes the scripts
+  # end-to-end. A broken script (bad import, the @main/importCpg pitfall, a wrong
+  # CPG-API call) exits non-zero here instead of failing at query time on a user's
+  # machine. The main `test` job self-skips this (no engine on stock runners).
+  joern-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Cache Joern CLI
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/joern-cli
+            ~/.cache/coursier
+            ~/.m2
+          # Key on a stable version, not the query files: the Joern BINARY doesn't
+          # change when a .sc edits, so this avoids a ~25s re-download per query tweak.
+          key: joern-cli-${{ runner.os }}-v1
+          restore-keys: |
+            joern-cli-${{ runner.os }}-
+      - name: Install Joern
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/joern-cli/joern" ]; then
+            curl -sSL -o /tmp/joern-cli.zip \
+              "https://github.com/joernio/joern/releases/latest/download/joern-cli.zip"
+            unzip -q /tmp/joern-cli.zip -d "$HOME"
+          fi
+          echo "$HOME/joern-cli" >> "$GITHUB_PATH"
+      - name: Verify Joern starter queries
+        run: node --test test/starter-pack-joern.test.mjs
+

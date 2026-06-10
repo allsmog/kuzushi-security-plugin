@@ -109,6 +109,7 @@ claude --plugin-dir .
 /taint-analysis      # IRIS-style source→sink taint hunt (label sinks/sources → trace → triage)
 /sast                # semgrep scan → triage hits into findings.json
 /sharp-edges         # footgun APIs / dangerous defaults (misuse-resistance review) → findings
+/logic-hunt          # business-logic & invariant violations (atomicity, ordering, replay, authz-omission) → findings
 /crypto-review       # timing side-channels, missing zeroization, weak crypto RNG → findings
 /authz               # authorization-model review: missing authz, IDOR, privilege escalation → findings
 /iac                 # config & container security: Dockerfile/k8s/Terraform misconfig → findings
@@ -124,6 +125,7 @@ claude --plugin-dir .
 /fix                 # generate + PoC⁺-validate a patch per finding; apply behind explicit approval
 /chain               # link related findings into higher-impact attack chains (analysis overlay)
 /export-sarif        # export findings.json as SARIF 2.1.0 for CI / IDE code-scanning
+/benchmark           # score recall / precision / false-proof against a ground-truth corpus
 /doctor              # what's installed / missing, with install commands
 ```
 
@@ -143,6 +145,7 @@ claude --plugin-dir .
 | `/supply-chain` | **Dependency takeover/abandonment risk.** Parses manifests for direct deps, then the supply-chain-auditor agent rates each by maintainer count, popularity, CVE history, and release cadence (via `gh` + web), promoting high→finding / medium→candidate (`source: supply-chain`). Complements `/threat-intel` (CVEs). *Uses the network — asks first.* | `.kuzushi/supply-chain.json`, `findings.json` |
 | `/diff-review` | **Change-focused security review.** Resolves a base ref, risk-scores changed files, then the diff-reviewer agent walks source→sink on the new code, uses `git blame` to catch **regressions**, and estimates **blast radius** by caller count. Threat-hunt verdict set. Needs git. | `.kuzushi/diff-review.json`, `findings.json` |
 | `/sharp-edges` | **Misuse-resistance review.** Scans for footgun APIs / dangerous defaults, then the sharp-edges-analyzer agent reasons through three adversaries (scoundrel / lazy / confused dev) across six categories (e.g. JWT `alg:none`, TLS verify off, stringly-typed auth). Distinct from `/sast` (injection). | `.kuzushi/sharp-edges.json`, `findings.json` |
+| `/logic-hunt` | **Business-logic & invariant-violation hunt** — the bugs taint/SAST structurally miss (no injection token; the code does the wrong *thing*). Seeds from `/deep-context` system invariants + probes for logic-prone shapes, then the logic-hunter agent adversarially tries to *violate* each property: broken atomicity, skippable state transitions, authorization-by-omission, replay, business-rule abuse (negative amounts, rounding theft). Closed verdict set; `violation` requires the ordered break scenario + evidence. Strongest after `/deep-context`. | `.kuzushi/logic-hunt.json`, `findings.json` |
 | `/sast` | **Semgrep SAST pass.** The sast-triager agent runs `semgrep:scan`, then reads the source behind each hit to classify it `finding`/`candidate`/`rejected` (scanner hits are leads, not findings). Promotes the kept ones into findings. Needs semgrep installed. | `.kuzushi/sast.json`, `findings.json` |
 | `/crypto-review` | **Crypto-misuse review.** The crypto-reviewer agent confirms each candidate handles a secret, then flags timing side-channels (variable-time compare of a MAC/token, CWE-208), missing/elidable zeroization (CWE-226/14), and non-cryptographic RNG minting secrets (CWE-338). Distinct from `/sast` and `/sharp-edges`. | `.kuzushi/crypto-review.json`, `findings.json` |
 | `/authz` | **Authorization-model review.** Scans endpoints + object-access-by-id sites; the authz-reviewer agent finds missing authz (CWE-862), IDOR / broken object-level authz (CWE-639), privilege escalation, and broken ownership. | `.kuzushi/authz.json`, `findings.json` |
@@ -160,6 +163,7 @@ claude --plugin-dir .
 | `/fix` | **Patch generation + PoC⁺ validation.** For each confirmed/proven finding, an agent root-causes the bug and writes a minimal **defensive** unified-diff patch + functional and semantic checks. The host applies it to a **sandbox copy**, re-runs the existing PoC harness (must no longer fire), the functional check, and the semantic oracle check for supported CWEs — a patch is **`validated`** only if all required gates pass. The working tree is never modified until you **explicitly approve** the apply step (one finding at a time; native Allow/Deny + a rollback command). Status advances `patched` → `remediated` on apply. | `.kuzushi/fix.json`, `findings.json` |
 | `/chain` | **Cross-finding attack chains.** The chain-finder agent reasons over the findings index for compositions (precondition → pivot → impact) — e.g. an auth bypass that turns a read-only SSRF into internal RCE, or a `/mem-exploitability` info-leak that defeats a canary for a control-flow hijack — and records each chain (ordered narrative + member fingerprints), attaching a `chains` ref onto each member (status unchanged). An analysis overlay, not a combined exploit. | `.kuzushi/chains.json`, `findings.json` |
 | `/code-graph` | Builds a cached **code-graph** — entry points + per-symbol **caller counts** (blast-radius / attack-surface signal) — via a deterministic ripgrep heuristic (no heavy tooling). `/diff-review` reads it for deterministic blast radius; hunters consult it for reachability. | `.kuzushi/code-graph.json` |
+| `/benchmark` | **Recall / precision / false-proof measurement.** Scores a run's `findings.json` against a ground-truth manifest (planted bugs + safe decoys that must *not* be flagged) and reports recall, precision, and false-proof rate. Runs the bundled `bench/cases/` corpus for regression, or a live target with `--ground-truth`. Deterministic, no agent. | — (report) |
 | `/build-databases` | Builds the **CodeQL database** + **Joern CPG** (async, in the background) that power the deep-query backends. | `.kuzushi/codeql-db/`, `joern/cpg.bin.zip` |
 | `/install` | Vendors / installs the tooling relevant to the repo's languages. | `vendor/` |
 | `/doctor` | Preflight: Node deps, MCP server health, CLI/LSP install status + install hints. | — |
@@ -167,7 +171,7 @@ claude --plugin-dir .
 Skills are backed by purpose-built subagents (`context-analyst`, `threat-modeler`, `threat-intel-researcher`,
 `threat-hunter`, `systems-hunter`, `invariant-tester`, `verifier`, `poc-builder`,
 `mem-exploit-analyst`, `variant-hunter`, `sast-triager`, `semgrep-rule-author`, `supply-chain-auditor`,
-`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `fuzz-harness-author`, `path-solver`,
+`diff-reviewer`, `sharp-edges-analyzer`, `crypto-reviewer`, `logic-hunter`, `fuzz-harness-author`, `path-solver`,
 `iac-reviewer`, `authz-reviewer`, `traffic-mapper`, `rule-synthesist`,
 `fixer`, `chain-finder`) that run in isolated context and
 inherit the plugin's MCP tools. `/taint-analysis` is a **coordinator** that sequences four of
@@ -197,10 +201,27 @@ The plugin only spins up what your repo needs, and installs what it can.
   CLI is present.
 - **Vendoring**: light tools (rust-analyzer, clangd, jdtls, codegraph) can auto-install in the
   background on first session in `developer-fast`; `review-safe` and `ci-locked` disable surprise
-  downloads. Heavy ones (CodeQL ~1 GB, Joern ~2 GB) are opt-in via `/install codeql|joern`.
+  downloads. Heavy ones (Joern ~2 GB, CodeQL ~1 GB) are opt-in via `/install joern|codeql`.
   Install state records source URLs and digests where available.
+- **Deep backend — Joern is primary, CodeQL is the optional accelerator.** **Joern** (Apache-2.0,
+  language-agnostic, works on private code, no build required) is the default interprocedural engine
+  the pipeline auto-builds and recommends — `policy.analysis.primaryBackend` is `joern`. **CodeQL**
+  has higher dataflow precision but is **proprietary and only licensed for public repos / GitHub
+  Advanced Security**, so it's layered on as an opt-in accelerator when you legitimately have it
+  (public repo or GHAS); the plugin never requires it. When both are built, queries can use either;
+  Joern guarantees the floor, CodeQL raises the ceiling.
 - **Databases**: `/build-databases` creates the CodeQL DB + Joern CPG **asynchronously** (logs
   to `.kuzushi/db-build.log`) so deep semantic queries work without blocking your session.
+  **Deep-by-default**: when the Joern/CodeQL CLI is already installed (a local build, no network),
+  the SessionStart hook kicks this off automatically — **Joern first** as the primary backend — so
+  interprocedural taint is ready in minute one rather than degrading to same-file linking. Governed by
+  `policy.analysis.autoBuildDatabases` (`when-installed` for developer/review profiles, `off` for
+  `ci-locked`; CLI absent → it *offers* Joern first, since an install needs approval). The build also
+  installs a **curated starter query pack**
+  (`packs/starter/` → `.kuzushi/rules/`, digest-attested) so the first interprocedural CodeQL/Joern
+  query runs without on-the-fly agent synthesis. It ships 23 queries spanning a dozen CWE classes (CWE-22/78/79/89/90/94/502/601/611/918/943/1336)
+  — CodeQL standard-library security flows for JavaScript and Python, plus language-agnostic Joern CPG
+  dataflow queries; `/rule-synth` adds repo-specific rules alongside it.
 
 Run `/doctor` any time to see exactly what's available — including the effective
 **tool-boundary policy**.

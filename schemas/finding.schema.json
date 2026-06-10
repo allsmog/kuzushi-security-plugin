@@ -37,7 +37,31 @@
     "fuzz": { "type": "object" },
     "fix": { "$ref": "fix.schema.json" },
     "rationale": { "type": "string" },
+    "remediation": { "type": "string", "description": "Concrete fix guidance; agent-supplied or a deterministic CWE-class floor." },
     "nextChecks": { "type": "array" },
+    "exposure": {
+      "type": "string",
+      "description": "Attacker reachability class, set by producers; feeds priority ranking.",
+      "enum": ["unauthenticated", "pre-auth", "public", "cross-tenant", "tenant", "authenticated", "adjacent", "local", "internal", "unknown"]
+    },
+    "reach": {
+      "type": "object",
+      "description": "Optional blast-radius / reachability hint feeding priority ranking.",
+      "properties": {
+        "entryReachable": { "type": "boolean" },
+        "callerCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "priority": {
+      "type": "object",
+      "description": "Deterministic triage ranking, recomputed on every normalize.",
+      "required": ["score", "tier", "factors"],
+      "properties": {
+        "score": { "type": "number" },
+        "tier": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+        "factors": { "type": "object" }
+      }
+    },
     "updatedAt": { "type": "string" }
   },
   "$defs": {

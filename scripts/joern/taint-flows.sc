@@ -29,6 +29,11 @@ import io.joern.dataflowengineoss.language._
 import scala.util.Try
 import java.util.concurrent.{Callable, Executors, TimeUnit, TimeoutException}
 
+// Modern Joern's --script runner requires an @main entrypoint; the executable body
+// lives here while the helper defs + case class stay top-level (below). Token
+// replacement (QUERIES_JSON / DIRECTION) is textual, so it is unaffected. The name
+// must NOT be `run` — Joern's ScalaReplPP wrapper already defines a `run` member.
+@main def exec(): Unit = {
 // === REPLACE THE [] BELOW WITH THE PER-CWE QUERIES ARRAY ===================
 val QUERIES_JSON: String = """[]"""
 // Flow direction. "forward" (default): sinks.reachableByFlows(sources) — for the
@@ -91,6 +96,7 @@ try {
 } finally {
   executor.shutdownNow()
 }
+} // end @main exec()
 
 case class CweQuery(cwe: String, taintClass: String, sourceRegex: String, sinkRegex: String)
 

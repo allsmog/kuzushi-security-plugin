@@ -9,6 +9,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { remediationFor } from "../lib/remediation.mjs";
+
+const ACTIONABLE = new Set(["open", "confirmed", "proven", "needs-evidence", "needs-trace"]);
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const EVIDENCE_RANK = { candidate: 0, linked: 1, path: 2 };
@@ -104,6 +107,8 @@ export function assembleTaintAnalysis(target, runDir) {
       evidenceLevel: f.evidenceLevel,
       evidence,
       rationale: String(f.rationale ?? ""),
+      // Actionable taint findings carry a concrete fix (agent's, else CWE floor).
+      ...(ACTIONABLE.has(verdictToStatus(f.verdict)) ? { remediation: String(f.remediation ?? "").trim() || remediationFor(f.cwe) } : {}),
       nextChecks: Array.isArray(f.nextChecks) ? f.nextChecks : []
     };
   });

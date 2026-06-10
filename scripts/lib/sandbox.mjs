@@ -149,3 +149,37 @@ export function classifyResult(result, expectedSignal = "crash") {
   }
   return { proofLevel: 2, proofVerdict: "not-reproduced" };
 }
+
+// Differential proof gate. A single attack run that fires only proves the harness
+// exits with the success signal — NOT that it discriminates the vulnerability. A
+// harness that aborts on *any* input (attack or benign) is a false proof. The
+// verifier always drafts a `negativePoc` (an in-spec input that must be handled
+// safely); when the builder wires it as a second run, this gate demands the
+// negative control STAY CLEAN while the attack fires. Outcomes:
+//   - attack fires + benign clean        → proofLevel 5 "exploited" (discriminated)
+//   - attack fires + benign ALSO fires   → proofLevel 2 "non-discriminating" (NOT a proof)
+//   - attack fires + benign couldn't run → attack's own level, differential inconclusive
+//   - attack didn't fire                 → the attack verdict unchanged
+// proofLevel 5 is the only rung that survives an executed negative control, so it
+// is strictly stronger than a level-4 attack-only crash.
+export function classifyDifferential(attackResult, benignResult, expectedSignal = "crash") {
+  const attack = classifyResult(attackResult, expectedSignal);
+  if (attack.proofVerdict !== "exploited") {
+    return { ...attack, differential: "attack-did-not-fire" };
+  }
+  const benign = classifyResult(benignResult, expectedSignal);
+  if (benign.proofVerdict === "exploited") {
+    return {
+      proofLevel: 2,
+      proofVerdict: "non-discriminating",
+      differential: "benign-also-fired",
+      note: "negative control (negativePoc) also fired — the harness does not discriminate the vulnerability, so the attack run is not a proof"
+    };
+  }
+  if (benign.proofVerdict === "not-reproduced") {
+    return { proofLevel: 5, proofVerdict: "exploited", differential: "discriminated" };
+  }
+  // Benign run errored / failed to build / timed out — we can't confirm the
+  // control is clean, so we keep the attack's level but flag it as untested.
+  return { ...attack, differential: "benign-inconclusive", note: `negative control did not run cleanly (${benign.proofVerdict})` };
+}

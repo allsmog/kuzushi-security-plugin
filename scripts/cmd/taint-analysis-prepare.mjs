@@ -80,9 +80,12 @@ export function prepareTaintAnalysis(target, input = {}) {
   const ctxLangs = contextLanguages(store);
   const languages = ctxLangs?.languages?.length ? ctxLangs.languages : inferLanguages(resolvedTarget);
   const threatModel = readJsonIfPresent(store.threatModelPath);
+  // /threat-intel CVEs for this stack are empirical evidence a bug class is live —
+  // feed them into ranking so taint-analysis hunts those CWEs first.
+  const threatIntel = readJsonIfPresent(store.threatIntelPath);
 
   const context = ctxLangs?.raw ? { languages, ...ctxLangs.raw } : { languages };
-  const ranked = rankCatalog({ context, threatModel, languages }).slice(0, maxCatalogEntries);
+  const ranked = rankCatalog({ context, threatModel, threatIntel, languages }).slice(0, maxCatalogEntries);
   const structuralQueries = buildStructuralQueries(ranked);
 
   // Candidate files: sink/source-bearing tokens narrow where labelers look.
@@ -104,6 +107,7 @@ export function prepareTaintAnalysis(target, input = {}) {
   const warnings = [];
   if (!ctxState.built) warnings.push("no context run found — languages inferred from file extensions; run /context-build (or restart the session) for richer ranking");
   if (!threatModel) warnings.push("no threat-model.json — ranking proceeds without threat-model CWE boost; /threat-model improves it");
+  if (!threatIntel) warnings.push("no threat-intel.json — ranking proceeds without live-CVE CWE boost; /threat-intel ranks bug classes seen in recent CVEs for this stack first");
   if (!backends.codeql.available && !backends.joern.available) warnings.push("no CodeQL DB or Joern CPG present — flow tracing will degrade to tree-sitter + same-file linking (linked/candidate evidence, no path evidence)");
 
   run.writeJson("prep.json", {
