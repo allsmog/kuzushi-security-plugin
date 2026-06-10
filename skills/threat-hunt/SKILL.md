@@ -10,6 +10,11 @@ user-invocable: true
 
 Run the adversarial per-threat review for the current repository.
 
+> **Parallel fan-out (optional).** If `.kuzushi/partitions.json` exists (from `/partition`),
+> spawn one threat-hunter subagent **per partition in parallel**, each scoped to that partition's
+> `attackSurface` and `focusHint`, so hunters cover different subsystems instead of converging on
+> the same shallow finding. The fingerprint dedupes anything two partitions both surface.
+
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/threat-hunt-prepare.mjs" --target "<repo root>"`.
    If it reports no threat model, tell the user to run `/threat-model` first and stop.
 2. Read the prep's `prepPath`. For **each** candidate threat, do the full 6-step walk

@@ -24,6 +24,10 @@ Build and empirically run proof-of-concepts for the PoC-ready findings.
    `assembleCommand`. The host script (not you) runs each harness in the sandbox, classifies the
    result (differentially when a negative control is present), persists `.kuzushi/poc.json` with
    run logs, and attaches a `poc` block onto each finding.
+   For a stronger, reproducibility-aware proof (the "3/3" standard — a flaky 1-in-N crash is weak
+   evidence), pass `--reproductions 3` to the assemble step: the host runs the attack N times and
+   only a fully-reproducible, discriminated crash earns the top proof level (5); a flaky one still
+   counts as `exploited` but caps lower and records the rate.
 4. Report the proof verdict + level per finding (and which were `exploited`). If `sandbox` was
    `none`, note the harnesses were written but not executed — the user can run them manually, or
    re-run with Docker available.

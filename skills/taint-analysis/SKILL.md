@@ -10,6 +10,10 @@ Run a whole-repo source→sink taint hunt. You are the **coordinator**: you run 
 prepare step, then spawn the phase subagents and thread their staged JSON drafts together. The
 subagents do the LLM labeling and triage; you sequence them and report. Run these steps in order.
 
+> **Parallel fan-out (optional).** When `.kuzushi/partitions.json` exists (from `/partition`), run
+> the label→trace→triage phases **per partition in parallel**, each scoped to its `attackSurface`,
+> so the hunt covers different subsystems concurrently instead of one serial pass over everything.
+
 ## 1. Prepare (deterministic)
 
 ```bash
