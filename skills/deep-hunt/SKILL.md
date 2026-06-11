@@ -1,8 +1,8 @@
 ---
 name: deep-hunt
 description: Interprocedural, hypothesis-driven hunt — finds the multi-file source→sink bugs that pattern-gating and same-file taint miss. Ranks trace anchors (entry points + dangerous sinks), then the deep-hunter agent walks each flow ACROSS files (forward/backward call-graph CLIs) over multiple rounds, confirming propagation and defeating guards, and promotes confirmed cross-file flows into findings.json with the path stored as evidenceGraph. Token-expensive, budget-bounded. Part of the HUNT phase (run via /sweep --deep, or ask for it); leads flow to /verify (panel).
-context: fork
-agent: deep-hunter
+context: command
+runner: scripts/cmd/deep-hunt-run.mjs
 user-invocable: false
 ---
 
@@ -13,19 +13,15 @@ traces labeled source→sink, sound only with a CPG): walk a flow **across files
 hypothesis at an anchor and following the data hop by hop. This is how the multi-file bugs —
 input in one file, sink in a third — get caught without a 2 GB CPG.
 
-1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/deep-hunt-prepare.mjs" --target "<repo root>"`
-   (add `--input '{"scopeDir":"<dir>","maxAnchors":24}'` to scope/bound it). It ranks **trace
-   anchors** from four sources so a bug isn't missed just because it sits on no source/sink token:
-   existing **findings** (walk from a real lead), the risk-ranked **files** (the routing backbone —
-   covers tokenless classes like prototype-pollution / logic / broken-tenant), and precise
-   **source** / **sink** sites. It attaches each anchor's enclosing function and surfaces the
-   `callees`/`callers` walk CLIs. If it reports `no-anchors`, say so and stop.
-2. Read `prepPath`. For each anchor, run the **hypothesis loop** (see the deep-hunter agent):
-   read the enclosing function → hypothesize a source→sink flow → walk it across files with
-   `callees` (forward) / `callers` (backward), **reading each hop** to confirm the tainted value
-   propagates → attempt every guard → **self-falsify** → emit. Respect the `budget`
-   (`maxAnchors`/`maxHops`/`rounds`) and report what you didn't reach.
-3. Write `{ candidates: [...] }` to the prep's `draftPath`, then run the `assembleCommand`. The
+1. Prefer the provider-neutral command:
+   `KUZUSHI_MODEL="${KUZUSHI_MODEL:-openai-codex:gpt-5.5}" node "<plugin root>/scripts/cmd/deep-hunt-run.mjs" --target "<repo root>"`.
+   Add `--input '{"scopeDir":"<dir>","maxAnchors":24}'` to scope/bound it. The runner performs
+   prepare -> configured LLM bridge -> finalize without depending on a Claude subagent runtime.
+2. Manual fallback only when the runner is unavailable: run
+   `node "<plugin root>/scripts/cmd/deep-hunt-prepare.mjs" --target "<repo root>"`, read
+   `prepPath`, walk each anchor with the listed `callees`/`callers` CLIs, write
+   `{ candidates: [...] }` to `draftPath`, then run the returned `assembleCommand`.
+3. The
    finalizer enforces that a `finding` carries a **confirmed cross-file path** (≥2 hops, ≥2
    files), stores it as the finding's `evidenceGraph`, and promotes under source `deep-hunt`.
    Report the flows found + evidence levels, and note they should go through `/verify` (panel).

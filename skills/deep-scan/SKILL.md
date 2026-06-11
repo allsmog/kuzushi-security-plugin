@@ -1,8 +1,8 @@
 ---
 name: deep-scan
 description: Whole-file deep reader — finds bugs by READING risk-ranked files in full and reasoning from first principles, not by grepping for known patterns. Catches the long tail (project-specific wrappers, business logic, cross-function flaws) that pattern-gated producers structurally miss. Token-expensive; budget-bounded and risk-ranked. Promotes leads into .kuzushi/findings.json (source "deep-scan").
-context: fork
-agent: deep-scanner
+context: command
+runner: scripts/cmd/deep-scan-run.mjs
 user-invocable: false
 ---
 
@@ -13,19 +13,18 @@ ripgrep hit; this one starts from the *files*. It reads the highest-risk files i
 full and reasons about what could actually go wrong — the way a human auditor finds
 the bug that doesn't look like any CVE.
 
-1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/deep-scan-prepare.mjs" --target "<repo root>"`.
-   It risk-ranks the repo (entry points, trust boundaries, blast radius, churn,
-   security-relevant paths) and selects the top `maxFiles` within a budget. To go
-   wider, pass `--input '{"maxFiles":50}'`; to scope a subtree, `'{"scopeDir":"src/api"}'`.
-2. Read the prep's `prepPath`. It lists `files` (with the `reasons` each was ranked)
-   and an honest `unreadCount` (files left for a later pass). **Read each listed file
-   in full** — use `tree_sitter:node_at` for exact spans and `tree_sitter:callers` /
-   `query` to follow values across functions; open callees and neighbor files when a
-   flow crosses them. Do not stop at a few lines.
+1. Prefer the provider-neutral command:
+   `KUZUSHI_MODEL="${KUZUSHI_MODEL:-openai-codex:gpt-5.5}" node "<plugin root>/scripts/cmd/deep-scan-run.mjs" --target "<repo root>"`.
+   It performs prepare -> configured LLM bridge -> finalize without depending on a
+   Claude subagent runtime. To go wider, pass `--input '{"maxFiles":50}'`; to scope a
+   subtree, `'{"scopeDir":"src/api"}'`.
+2. Manual fallback only when the runner is unavailable: run
+   `node "<plugin root>/scripts/cmd/deep-scan-prepare.mjs" --target "<repo root>"`,
+   read each listed file in full, write `{ candidates: [...] }` to `draftPath`, then
+   run the returned `assembleCommand`.
 3. For each file, emit hypotheses: `verdict` (finding / candidate / rejected), a
    `rationale` (the trusted assumption that breaks + the attacker path), `cwe`, and
-   `evidenceAnchors`. Write `{ candidates: [...] }` to the `draftPath`, then run the
-   `assembleCommand`.
+   `evidenceAnchors`.
 4. **Pipeline to verification — use the panel by default.** Deep-read `finding`s are
    strong leads but were *not* gated by a deterministic rule, so they carry the highest
    false-positive risk. Run `/verify --input '{"panel":3}'` on them: the multi-lens
