@@ -42,6 +42,9 @@ import { selectForTarget } from "../scripts/cmd/select-tooling.mjs";
 import { markAutoAttempted } from "../scripts/cmd/install-tooling.mjs";
 import { VENDOR_TOOLS } from "../scripts/lib/vendor-manifest.mjs";
 import { autoInstallAllowed, loadPolicy } from "../scripts/lib/policy.mjs";
+import { commandInstalled } from "../scripts/lib/capabilities.mjs";
+import { autoBuildDecision, effectiveAutoBuildSetting } from "../scripts/lib/auto-build.mjs";
+import { installStarterPack } from "../scripts/cmd/install-starter-pack.mjs";
 
 // Absolute paths resolved from this hook's own location so directives Claude
 // runs need no env-var expansion in its shell.
@@ -72,6 +75,50 @@ function autoInstallLightTools(cwd) {
     child.unref();
   } catch {
     // Never let auto-install break the session.
+  }
+}
+
+// Deep-by-default: when the CodeQL/Joern CLI is already installed (so the build
+// is a free, local operation — no network), kick the DB/CPG build in the
+// background at session start instead of waiting for the user to opt in. This is
+// the single biggest recall lever: interprocedural taint needs a built index, and
+// leaving it opt-in means most runs degrade to same-file linking. Policy-gated
+// (ci-locked → off; CLI absent → the offer prompt, since an install needs
+// approval). Spawns at most once per target (db-build.log presence = attempted).
+// Returns the decision so the report can phrase it; never throws.
+function autoBuildDatabases(cwd, byLanguage) {
+  try {
+    const policy = loadPolicy(cwd);
+    const setting = effectiveAutoBuildSetting(policy);
+    const sourcePresent = Object.entries(byLanguage ?? {}).some(([l, c]) => l !== "Other" && Number(c) > 0);
+    const store = storeFor(cwd);
+    const buildLog = join(store.root, "db-build.log");
+    const decision = autoBuildDecision({
+      setting,
+      sourcePresent,
+      dbBuilding: existsSync(buildLog),
+      codeqlCli: commandInstalled("codeql"),
+      codeqlDbBuilt: hasCodeqlDb(cwd).built,
+      joernCli: commandInstalled("joern"),
+      joernCpgBuilt: hasJoernCpg(cwd).built
+    });
+    if (!decision.anyBuild) return decision;
+    // Local-only build (CLIs are present): no --include-install, so no network.
+    mkdirSync(store.root, { recursive: true });
+    const log = openSync(buildLog, "a");
+    const child = spawn(
+      process.execPath,
+      [BUILD_DATABASES, "--target", cwd, "--which", decision.which, "--background"],
+      { detached: true, stdio: ["ignore", log, log] }
+    );
+    child.unref();
+    // Install the curated starter queries so they're ready when the DB/CPG is —
+    // the other half of deep-by-default. Idempotent (upserts by ruleId); never
+    // let it break the session.
+    try { installStarterPack(cwd); } catch { /* starter pack is best-effort */ }
+    return { ...decision, started: true };
+  } catch {
+    return null; // never let auto-build break the session
   }
 }
 
@@ -167,6 +214,10 @@ async function run() {
 
   // One-time background install of the light, language-relevant tools.
   autoInstallLightTools(cwd);
+  // Deep-by-default: auto-build the CodeQL DB / Joern CPG when the CLI is already
+  // present and policy permits, so deep interprocedural queries are ready without
+  // an opt-in. Writes .kuzushi/db-build.log, which the report keys on below.
+  autoBuildDatabases(cwd, result.inventory?.byLanguage ?? {});
 
   reportState(cwd, result, {
     alreadyBuilt: status.built,
@@ -502,16 +553,17 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
   // in the BACKGROUND (never block the session). Offer once, before a build is
   // attempted (db-build.log present = attempted/in-progress).
   const hasSource = Object.entries(byLanguage).some(([l, c]) => l !== "Other" && Number(c) > 0);
-  if (hasSource && !(codeqlDb.built && joernCpg.built) && !dbBuilding) {
+  if (hasSource && !joernCpg.built && !dbBuilding) {
     additionalContext +=
-      `\n\nNo codeql database / joern CPG is built yet — these power deep semantic queries for ` +
-      `/threat-hunt and /invariant-test. They're large and slow, so they build in the BACKGROUND ` +
-      `(the session is NOT blocked). Ask the user with AskUserQuestion whether to build them now ` +
-      `("Yes, build in background" / "No"). If Yes, run exactly:\n` +
-      `    node "${BUILD_DATABASES}" --target "${cwd}" --which both --background --include-install\n` +
-      `It returns immediately ({status:"started", logPath}); it installs the codeql/joern CLI first ` +
-      `if missing (~1–3 GB) and writes progress to .kuzushi/db-build.log. Tell the user it's building ` +
-      `and will be ready for codeql/joern queries once it finishes. If No, note /build-databases is available later.`;
+      `\n\nNo deep semantic index is built yet — these power interprocedural queries for /threat-hunt, ` +
+      `/taint-analysis and /invariant-test. **Joern is the primary backend** (Apache-2.0, works on private ` +
+      `code, language-agnostic). It's large/slow so it builds in the BACKGROUND (the session is NOT blocked). ` +
+      `Ask the user with AskUserQuestion whether to build it now ("Yes, build in background" / "No"). If Yes, run exactly:\n` +
+      `    node "${BUILD_DATABASES}" --target "${cwd}" --which joern --background --include-install\n` +
+      `It returns immediately ({status:"started", logPath}) and writes progress to .kuzushi/db-build.log. ` +
+      `CodeQL is an OPTIONAL accelerator (higher precision, but proprietary — only licensed for public repos / ` +
+      `GitHub Advanced Security); if this is a public repo or you have GHAS, add it with ` +
+      `\`--which both\` instead. If No, note /build-databases is available later.`;
   }
 
   // Tooling notes. Light, language-relevant tools (rust-analyzer/clangd/jdtls +
@@ -529,13 +581,18 @@ function reportState(cwd, result, { alreadyBuilt, builtAt, xray, threatModel, th
         : `. Auto-install is disabled by the active policy profile; run /install explicitly if needed.`) +
       ` Mention only if the user asks about code intelligence.`;
   }
-  const heavyMissing = relevantHeavyMissing(byLanguage);
+  // Surface heavy backends Joern-first: it's the primary (open, unconditional);
+  // CodeQL is an opt-in accelerator with a license caveat.
+  const heavyMissing = relevantHeavyMissing(byLanguage)
+    .sort((a, b) => (a === "joern" ? -1 : b === "joern" ? 1 : 0));
   if (heavyMissing.length) {
+    const primary = heavyMissing.includes("joern") ? "joern" : heavyMissing[0];
     additionalContext +=
-      `\n\nOptional analysis backends relevant to this repo are NOT installed (opt-in, not ` +
-      `auto-installed): ${heavyMissing.join(", ")}. Run /install ${heavyMissing[0]} to add it ` +
-      `(codeql ~1GB / joern ~2GB for deeper semantic queries; z3 / crosshair are small concolic ` +
-      `solvers for /path-solve).`;
+      `\n\nOptional analysis backends relevant to this repo are NOT installed (opt-in): ` +
+      `${heavyMissing.join(", ")}. **Joern is the recommended primary** (Apache-2.0, ~2GB, works on ` +
+      `private code) — run /install ${primary} to add it. CodeQL (~1GB) gives higher-precision flows ` +
+      `but is proprietary and only licensed for public repos / GitHub Advanced Security, so add it only ` +
+      `if that applies. (z3 / crosshair are small concolic solvers for /path-solve.)`;
   }
   // Phase map — the antidote to "40 commands". Only the 8 tier-1 commands are typeable
   // (in the / menu); the "+" items are NOT separate commands — they run inside their

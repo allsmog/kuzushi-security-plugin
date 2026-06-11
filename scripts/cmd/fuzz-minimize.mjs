@@ -6,19 +6,36 @@
 import { resolve } from "node:path";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
+import { minimizeCommandFor } from "../lib/fuzz-telemetry.mjs";
 
 export function fuzzMinimize(target) {
   const resolvedTarget = resolve(target);
   const store = storeFor(resolvedTarget);
   const triage = readJsonIfPresent(store.fuzzTriagePath);
   if (!triage) throw new Error(`${store.fuzzTriagePath} not found — run /fuzz-triage first`);
-  const results = (triage.groups ?? []).map((group) => ({
-    crashHash: group.crashHash,
-    findingFingerprints: [...new Set((group.crashes ?? []).map((c) => c.findingFingerprint))],
-    status: "not-minimized",
-    minimizedInputPath: null,
-    note: "No engine-specific minimizer command was supplied; crash group is preserved for manual minimization."
-  }));
+  const results = (triage.groups ?? []).map((group) => {
+    // Build the engine-specific minimizer command from the crash artifact the
+    // run captured. We surface the exact command rather than running it inline:
+    // minimization re-executes the harness many times and belongs in the same
+    // gated sandbox as the run, but exposing it removes the "no command supplied"
+    // dead end the MVP had.
+    const sample = (group.crashes ?? []).find((c) => c.crashArtifact) ?? (group.crashes ?? [])[0] ?? {};
+    const command = minimizeCommandFor(sample.engine, { crashArtifact: sample.crashArtifact, target: undefined });
+    return {
+      crashHash: group.crashHash,
+      findingFingerprints: [...new Set((group.crashes ?? []).map((c) => c.findingFingerprint))],
+      engine: sample.engine ?? null,
+      crashArtifact: sample.crashArtifact ?? null,
+      status: "not-minimized",
+      minimizedInputPath: null,
+      minimizeCommand: command,
+      note: command
+        ? "Minimizer command available — run it in the gated sandbox, then record the minimized input."
+        : sample.engine === "go-fuzz"
+          ? "go-fuzz minimizes automatically into testdata/fuzz/; no separate command."
+          : "No crash artifact captured or engine has no first-class minimizer; preserved for manual minimization."
+    };
+  });
   const doc = {
     version: "1.0",
     schemaVersion: "fuzz-minimize.v1",

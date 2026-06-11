@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Repository X-Ray: a deterministic static pass (ripgrep + fs, no LLM/MCP). It
-// builds a file inventory, collects entry-point boundaries via pattern search,
-// and writes <target>/x-ray/{x-ray.md,entry-points.md,invariants.md,architecture.svg}
-// plus the run JSONs. Faithful port of kuzushi's host-x-ray.
+// builds a file inventory, collects entry-point boundaries — declared OpenAPI/
+// Swagger endpoints, web-framework route registrations (Express/Flask/Django/
+// FastAPI/Spring/Go/Rails/ASP.NET), and native/Android/payment shapes — and writes
+// <target>/x-ray/{x-ray.md,entry-points.md,invariants.md,architecture.svg} plus the
+// run JSONs. Faithful port of kuzushi's host-x-ray, widened for web routing.
 //
 // Importable: call runXray(target, input) directly. Runnable:
 // `x-ray --target <path> [--input <json>]`.
 
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import {
@@ -18,6 +20,7 @@ import {
   emitResult
 } from "../lib/artifact-store.mjs";
 import { listFiles, runRg, parseJsonMatches, rankHit } from "../lib/ripgrep.mjs";
+import { FRAMEWORK_ROUTE_PATTERNS, OPENAPI_FILE_GLOBS, extractOpenApiOperations } from "../lib/routes.mjs";
 
 // Cap evidence-line length. Decompiled / minified targets (jadx, RN bundles)
 // have "lines" that are hundreds of KB (e.g. a Kotlin `@Metadata(...)` blob), and
@@ -96,7 +99,10 @@ const ENTRY_POINT_PATTERNS = [
 
 const ENTRY_POINT_GLOBS = [
   "*.java", "*.kt", "*.kts", "*.js", "*.ts", "*.tsx", "*.jsx", "*.rb", "*.erb",
-  "*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.smali"
+  "*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.smali",
+  // Web-framework languages the route patterns target (was missing — the gap that
+  // left Python/Go/PHP/C# handlers undetected).
+  "*.py", "*.go", "*.php", "*.cs", "*.mjs", "*.cjs"
 ];
 
 const ENTRY_POINT_EXCLUDES = [
@@ -111,7 +117,9 @@ function collectEntryPoints(target, maxHits) {
   for (const glob of ENTRY_POINT_EXCLUDES) globArgs.push("-g", glob);
 
   const hits = [];
-  for (const pattern of ENTRY_POINT_PATTERNS) {
+  // Native/Android/payment shapes PLUS the web-framework route registrations —
+  // so a web app's handlers are enumerated, not just native boundaries.
+  for (const pattern of [...ENTRY_POINT_PATTERNS, ...FRAMEWORK_ROUTE_PATTERNS]) {
     const result = runRg(target, [
       "--json", "-n", "-S", "--max-count", "5",
       "-e", pattern.query,
@@ -130,6 +138,35 @@ function collectEntryPoints(target, maxHits) {
   return hits
     .sort((left, right) => rankHit(right, "payment-android") - rankHit(left, "payment-android"))
     .slice(0, maxHits);
+}
+
+// Declared HTTP endpoints from an OpenAPI/Swagger spec — the authoritative
+// endpoint list when one exists, catching routes that dynamic registration or
+// codegen would hide from the regex patterns. Each operation becomes an entry
+// point anchored at the spec file.
+function collectRouteEndpoints(target, maxHits) {
+  const globArgs = [];
+  for (const glob of OPENAPI_FILE_GLOBS) globArgs.push("-g", glob);
+  const found = runRg(target, ["--files", ...globArgs, "."]);
+  if (!found.ok) return [];
+  const specFiles = found.stdout.split(/\r?\n/).filter(Boolean).slice(0, 10);
+  const hits = [];
+  for (const rel of specFiles) {
+    const abs = resolve(target, rel);
+    let text;
+    try { text = readFileSync(abs, "utf8"); } catch { continue; }
+    for (const op of extractOpenApiOperations(text)) {
+      hits.push({
+        filePath: rel,
+        line: 1,
+        text: `${op.method} ${op.path}`,
+        kind: "openapi-route",
+        boundary: "Declared HTTP endpoint (OpenAPI/Swagger)"
+      });
+      if (hits.length >= maxHits) return hits;
+    }
+  }
+  return hits;
 }
 
 function attackSurfaceAndContextPaths(target) {
@@ -247,7 +284,12 @@ export function runXray(target, input = {}) {
   mkdirSync(store.xRayDir, { recursive: true });
 
   const inventory = collectInventory(resolved, Number(input.inventoryLimit ?? 200));
-  const entryPoints = collectEntryPoints(resolved, Number(input.maxEntryPoints ?? 80));
+  const maxEntryPoints = Number(input.maxEntryPoints ?? 80);
+  // Declared API endpoints (OpenAPI) lead — they're the authoritative surface —
+  // then the pattern-matched framework/native boundaries fill the rest.
+  const routeEndpoints = collectRouteEndpoints(resolved, maxEntryPoints);
+  const patternEntryPoints = collectEntryPoints(resolved, maxEntryPoints);
+  const entryPoints = [...routeEndpoints, ...patternEntryPoints].slice(0, maxEntryPoints);
   const baseSnapshot = artifactSnapshot(resolved);
   const extra = attackSurfaceAndContextPaths(resolved);
   const artifacts = { ...baseSnapshot, ...extra };
@@ -275,6 +317,9 @@ export function runXray(target, input = {}) {
   atomicWrite(join(store.xRayDir, "entry-points.md"), entryPointsMarkdown({ entryPoints }));
   atomicWrite(join(store.xRayDir, "invariants.md"), invariantsMarkdown({ entryPoints, artifacts }));
   atomicWrite(join(store.xRayDir, "architecture.svg"), architectureSvg({ entryPoints }));
+  // Stable JSON of the entry points so /partition (and other steps) can consume the
+  // attack surface without re-parsing the markdown.
+  atomicWrite(join(store.xRayDir, "entry-points.json"), `${JSON.stringify(entryPoints, null, 2)}\n`);
   run.writeJson("input.json", input);
   run.writeJson("artifact-context.json", artifacts);
   run.writeJson("inventory.json", { ...inventory, relativeRunDir: relative(resolved, run.runDir) });

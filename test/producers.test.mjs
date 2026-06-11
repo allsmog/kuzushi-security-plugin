@@ -140,6 +140,53 @@ test("authz: rejected verdict must name the protecting check", () => {
   expectReject(() => finalizeAuthz(t, prep.runDir));
 });
 
+// ---- /logic-hunt ------------------------------------------------------------
+test("logic-hunt: prepare seeds from deep-context invariants + probes; finalize promotes a violation", () => {
+  const t = repo(); emptyFindings(t);
+  mkdirSync(join(t, "src"));
+  writeFileSync(join(t, "src/wallet.js"), "function transfer(a,b,amount){ a.balance -= amount; b.balance += amount; }\n");
+  // A deep-context invariant becomes the strongest seed.
+  writeFileSync(join(storeFor(t).root, "deep-context.json"), JSON.stringify({
+    invariants: [{ statement: "a transfer debits and credits atomically", logicClass: "atomicity" }]
+  }));
+  const prep = prepareLogicHunt(t, {});
+  assert.equal(prep.status, "prepared");
+  assert.ok(prep.invariantSeedCount >= 1, "invariant seeded as a candidate");
+  assert.ok(prep.candidateCount >= 1);
+
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l1", logicClass: "atomicity", verdict: "violation", severity: "high", exposure: "authenticated",
+      violationScenario: "crash between the debit and the credit line leaves money destroyed",
+      rationale: `transfer() mutates a.balance then b.balance with no transaction; an interruption between the two writes debits the sender without crediting the recipient. ${LONG}`,
+      evidenceAnchors: [{ filePath: "src/wallet.js", startLine: 1 }] }
+  ] });
+  const res = finalizeLogicHunt(t, prep.runDir);
+  assert.equal(res.status, "completed");
+  const f = findings(t).find((x) => x.source === "logic-hunt");
+  assert.equal(f.status, "open");
+  assert.equal(f.exposure, "authenticated"); // flows into priority ranking
+  assert.equal(f.cwe, "CWE-840"); // business-logic default
+});
+
+test("logic-hunt: a 'holds' verdict must name the enforcement; 'violation' needs a scenario", () => {
+  const t = repo(); emptyFindings(t);
+  const prep = prepareLogicHunt(t, {});
+  // ≥200 chars so the LENGTH gate passes and the verdict-specific gate is what fires.
+  // 'holds' rationale that never names an enforcement (no lock/constraint/check/...).
+  const holdsNoEnforcement = "i read the surrounding handler and its helpers and the property appeared upheld throughout; i could not produce a counterexample in the time spent, so i am recording it as holding for now pending a deeper read of persistence";
+  assert.ok(holdsNoEnforcement.length >= 200);
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l1", logicClass: "atomicity", verdict: "holds", rationale: holdsNoEnforcement }
+  ] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir)); // holds without a named enforcement
+  // 'violation' with a long rationale + evidence but NO violationScenario → rejected.
+  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
+    { logicId: "l2", logicClass: "ordering", verdict: "violation", rationale: `the ordering can be abused ${LONG}`,
+      evidenceAnchors: [{ filePath: "x.js", startLine: 1 }] }
+  ] });
+  expectReject(() => finalizeLogicHunt(t, prep.runDir)); // violation without a violationScenario
+});
+
 // ---- /sharp-edges -----------------------------------------------------------
 test("sharp-edges: prepare flags jwt alg:none; finalize promotes", () => {
   const t = repo(); emptyFindings(t);
@@ -272,37 +319,6 @@ test("composition: multiple producers accrete into one findings.json by source",
   const sources = new Set(doc.findings.map((f) => f.source));
   assert.ok(sources.has("iac") && sources.has("sharp-edges"), "both producers' findings coexist in the shared index");
   assert.equal(doc.findings.length, 2);
-});
-
-// ---- /logic-hunt ------------------------------------------------------------
-test("logic-hunt: prepare detects money/state/idempotency shapes; finalize promotes + gates rejected", () => {
-  const t = repo(); emptyFindings(t);
-  mkdirSync(join(t, "api"));
-  writeFileSync(join(t, "api/pay.py"),
-    "def checkout(request):\n    charge(card, amount)\n    order.status = 'paid'\n    balance -= amount\n");
-  const prep = prepareLogicHunt(t, {});
-  assert.equal(prep.status, "prepared");
-  assert.ok(prep.candidateCount >= 1, "detects a money/state mutation shape");
-
-  // A valid finding promotes.
-  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
-    { logicId: "l1", logicClass: "idempotency", verdict: "finding", cwe: "CWE-837",
-      rationale: `checkout has no idempotency key so a replayed request charges twice ${LONG}`,
-      evidenceAnchors: [{ filePath: "api/pay.py", startLine: 2 }] }
-  ] });
-  const res = finalizeLogicHunt(t, prep.runDir);
-  assert.equal(res.status, "completed");
-  assert.equal(findings(t).filter((f) => f.source === "logic-hunt").length, 1);
-
-  // "rejected" without naming the protecting invariant is refused.
-  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [
-    { logicId: "l2", logicClass: "idempotency", verdict: "rejected", rationale: `looks fine to me ${LONG}` }
-  ] });
-  expectReject(() => finalizeLogicHunt(t, prep.runDir));
-
-  // bad verdict is refused.
-  writeDraft(prep.runDir, "draft.logic-hunt.json", { candidates: [{ logicId: "l3", verdict: "totally-wrong", rationale: LONG }] });
-  expectReject(() => finalizeLogicHunt(t, prep.runDir));
 });
 
 // ---- /binary-recon ----------------------------------------------------------

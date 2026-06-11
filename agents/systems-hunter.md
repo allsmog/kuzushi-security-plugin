@@ -55,8 +55,10 @@ tried — name it) · `likely-library-noise` (vendored/generated/runtime-only) �
 
 ## Output + finalize
 
-Write `{ "candidates": [{ "candidateId", "verdict", "rationale", "nextChecks": [],
+Write `{ "candidates": [{ "candidateId", "verdict", "remediation", "rationale", "nextChecks": [],
 "evidenceAnchors": [{"filePath","startLine"}], "cwe"? }] }` to the prep's `draftPath`
+(give a concrete `remediation` for an `exploitable` verdict — fix the bounds/lifetime + enable
+missing hardening; the finalizer falls back to a CWE-class fix if you omit it)
 (`draft.systems-hunt.json`), then run the `assembleCommand`. Finalize rejects: verdict outside
 the set; `rationale` < 200 chars; missing anchors for exploitable/reviewed-no-impact/
 needs-active-agent-trace; `reviewed-no-impact` without a named guard/bounds-check. Verdicts

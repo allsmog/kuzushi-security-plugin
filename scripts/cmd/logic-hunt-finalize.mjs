@@ -1,34 +1,33 @@
 #!/usr/bin/env node
-// Finalize phase for /logic-hunt. Validates the business-logic verdicts (closed
-// verdict + logicClass sets, rationale depth, evidence anchors, and — for a
-// "rejected" verdict — proof that the protecting invariant was actually named),
+// Finalize phase for /logic-hunt. Validates the logic-hunter's verdicts against a
+// closed set, enforces the anti-rationalization gates (a "holds" must name the
+// enforcement; a "violation" must carry a concrete break sequence + evidence),
 // persists .kuzushi/logic-hunt.json, and promotes verdicts into findings.json
-// (source "logic-hunt").
+// (source "logic-hunt"). The verdict whitelist lives HERE, not in the prose, so
+// it can't be reasoned around.
 
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
-import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
+import { upsertFindings } from "../lib/findings.mjs";
 import { severityFieldsFor } from "../lib/severity.mjs";
 
-const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
-const VALID_CLASSES = new Set(["idempotency", "toctou-race", "transaction-atomicity", "price-quantity", "state-machine"]);
-const MIN_RATIONALE_LENGTH = 150;
+// Closed verdict set for logic hunting. Distinct from the taint triage set: a
+// logic finding is about a property being violable, not a tainted flow.
+const VALID_VERDICTS = new Set(["violation", "holds", "not-an-invariant", "needs-more-evidence"]);
+const VALID_CLASSES = new Set(["atomicity", "ordering", "state-machine", "authz-omission", "business-rule", "replay", "invariant"]);
+const MIN_RATIONALE_LENGTH = 200;
 
-// Default CWE per business-logic class. CWE-840 (Business Logic Errors) is the
-// catch-all; the others map to the closest specific weakness.
-const CLASS_CWE = {
-  idempotency: "CWE-837",            // Improper Enforcement of a Single, Unique Action
-  "toctou-race": "CWE-367",          // TOCTOU race condition
-  "transaction-atomicity": "CWE-362", // Concurrent execution / improper synchronization
-  "price-quantity": "CWE-840",       // Business logic errors
-  "state-machine": "CWE-841"         // Improper enforcement of behavioral workflow
+// verdict → finding status. Only a "violation" is actionable; "holds" /
+// "not-an-invariant" are reviewed (the property is enforced or wasn't required);
+// "needs-more-evidence" parks for follow-up.
+const VERDICT_STATUS = {
+  violation: "open",
+  holds: "reviewed",
+  "not-an-invariant": "reviewed",
+  "needs-more-evidence": "needs-evidence"
 };
-
-// A "rejected" verdict must name the invariant that actually protects the action,
-// not just assert safety — the logic-hunt version of the Carlini doctrine.
-const INVARIANT_RE = /idempoten|lock|mutex|transaction|atomic|for update|serializable|unique constraint|compare-and-swap|cas\b|ownership|tenant|limit|guard|invariant|check/i;
 
 function fail(message) {
   console.error(`logic-hunt-finalize: ${message}`);
@@ -46,17 +45,21 @@ function validate(candidates) {
     }
     const rationale = String(c.rationale ?? "");
     if (rationale.length < MIN_RATIONALE_LENGTH) {
-      fail(`item ${id}: rationale is ${rationale.length} chars (min ${MIN_RATIONALE_LENGTH}). Name the multi-step sequence, the attacker's manipulation, and the missing/broken invariant.`);
+      fail(`item ${id}: rationale is ${rationale.length} chars (min ${MIN_RATIONALE_LENGTH}). State the intended property, the operation sequence that breaks it, and what an attacker gains.`);
     }
-    if (c.verdict === "finding") {
+    // Anti-rationalization gates, mirroring threat-hunt's "name the guard":
+    if (c.verdict === "holds" && !/enforc|guard|check|lock|transaction|constraint|atomic|validate/i.test(rationale)) {
+      fail(`item ${id}: verdict "holds" must name the concrete enforcement (the lock / constraint / check that makes the invariant unbreakable) in the rationale.`);
+    }
+    if (c.verdict === "violation") {
+      if (!c.violationScenario || String(c.violationScenario).trim().length < 20) {
+        fail(`item ${id}: verdict "violation" requires a concrete violationScenario — the ordered operations that break the property.`);
+      }
       const anchors = Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : [];
-      if (!anchors.length) fail(`item ${id}: verdict "finding" requires at least one evidenceAnchor { filePath, startLine }.`);
+      if (!anchors.length) fail(`item ${id}: verdict "violation" requires at least one evidenceAnchor { filePath, startLine }.`);
       for (const a of anchors) {
         if (!a.filePath || a.startLine === undefined) fail(`item ${id}: each evidenceAnchor must be { filePath, startLine }.`);
       }
-    }
-    if (c.verdict === "rejected" && !INVARIANT_RE.test(rationale)) {
-      fail(`item ${id}: verdict "rejected" must name the invariant (idempotency key, lock, transaction, ownership/limit check) that protects this action. If none exists, the verdict is wrong.`);
     }
   }
 }
@@ -74,23 +77,28 @@ export function finalizeLogicHunt(target, runDir) {
 
   validate(draft.candidates);
 
+  const logicHuntPath = join(store.root, "logic-hunt.json");
   const json = `${JSON.stringify(draft, null, 2)}\n`;
-  atomicWrite(store.logicHuntPath, json);
+  atomicWrite(logicHuntPath, json);
   atomicWrite(join(resolvedRunDir, "logic-hunt.json"), json);
 
-  const newFindings = draft.candidates.map((c, i) => ({
-    source: "logic-hunt",
-    refId: c.logicId ?? `${c.logicClass ?? "logic"}-${i + 1}`,
-    title: c.title ?? `Business logic: ${c.logicClass ?? "issue"}`,
-    ...severityFieldsFor(c),
-    cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? CLASS_CWE[c.logicClass] ?? "CWE-840",
-    verdict: c.verdict,
-    status: verdictToStatus(c.verdict),
-    evidence: (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine })),
-    rationale: String(c.rationale ?? ""),
-    nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : [],
-    ...(c.logicClass ? { logicClass: c.logicClass } : {})
-  }));
+  const newFindings = draft.candidates.map((c, i) => {
+    const anchors = (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine }));
+    return {
+      source: "logic-hunt",
+      refId: c.logicId ?? c.id ?? `${c.logicClass ?? "logic"}-${i + 1}`,
+      title: c.title ?? `Logic flaw: ${c.logicClass ?? "invariant violation"}`,
+      ...severityFieldsFor(c),
+      cwe: (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? "CWE-840",
+      verdict: c.verdict,
+      status: VERDICT_STATUS[c.verdict],
+      ...(c.exposure ? { exposure: String(c.exposure) } : {}),
+      ...(c.logicClass ? { logicClass: c.logicClass } : {}),
+      evidence: anchors.length ? anchors : [{ filePath: c.filePath ?? ".", startLine: c.line ?? 1 }],
+      rationale: String(c.rationale ?? ""),
+      nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : []
+    };
+  });
   const findingsDoc = upsertFindings(resolvedTarget, newFindings);
 
   const verdictCounts = draft.candidates.reduce((acc, c) => { acc[c.verdict] = (acc[c.verdict] ?? 0) + 1; return acc; }, {});
@@ -98,7 +106,8 @@ export function finalizeLogicHunt(target, runDir) {
   const result = {
     ok: true, status: "completed", target: resolvedTarget,
     itemCount: draft.candidates.length, verdictCounts,
-    logicHuntPath: store.logicHuntPath, findingsPath: store.findingsPath, findingsSummary: findingsDoc.summary
+    logicHuntPath, findingsPath: store.findingsPath,
+    findingsSummary: findingsDoc.summary
   };
   run.finalize(result);
   return result;

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "bench-ground-truth.v1",
+  "target": "python-path-traversal",
+  "language": "python",
+  "notes": "One real path traversal and one safe realpath-guarded decoy that must not be flagged.",
+  "expectations": [
+    {
+      "id": "download-traversal",
+      "kind": "vuln",
+      "cwe": "CWE-22",
+      "filePath": "target/files.py",
+      "line": 13,
+      "severity": "high",
+      "note": "request.args name joined onto BASE with no containment check"
+    },
+    {
+      "id": "safe-download-guarded",
+      "kind": "safe",
+      "cwe": "CWE-22",
+      "filePath": "target/files.py",
+      "line": 21,
+      "note": "realpath + startswith(BASE) containment check; flagging this is a false positive"
+    }
+  ]
+}

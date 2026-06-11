@@ -149,3 +149,72 @@ export function classifyResult(result, expectedSignal = "crash") {
   }
   return { proofLevel: 2, proofVerdict: "not-reproduced" };
 }
+
+// Differential proof gate. A single attack run that fires only proves the harness
+// exits with the success signal — NOT that it discriminates the vulnerability. A
+// harness that aborts on *any* input (attack or benign) is a false proof. The
+// verifier always drafts a `negativePoc` (an in-spec input that must be handled
+// safely); when the builder wires it as a second run, this gate demands the
+// negative control STAY CLEAN while the attack fires. Outcomes:
+//   - attack fires + benign clean        → proofLevel 5 "exploited" (discriminated)
+//   - attack fires + benign ALSO fires   → proofLevel 2 "non-discriminating" (NOT a proof)
+//   - attack fires + benign couldn't run → attack's own level, differential inconclusive
+//   - attack didn't fire                 → the attack verdict unchanged
+// proofLevel 5 is the only rung that survives an executed negative control, so it
+// is strictly stronger than a level-4 attack-only crash.
+export function classifyDifferential(attackResult, benignResult, expectedSignal = "crash") {
+  const attack = classifyResult(attackResult, expectedSignal);
+  if (attack.proofVerdict !== "exploited") {
+    return { ...attack, differential: "attack-did-not-fire" };
+  }
+  const benign = classifyResult(benignResult, expectedSignal);
+  if (benign.proofVerdict === "exploited") {
+    return {
+      proofLevel: 2,
+      proofVerdict: "non-discriminating",
+      differential: "benign-also-fired",
+      note: "negative control (negativePoc) also fired — the harness does not discriminate the vulnerability, so the attack run is not a proof"
+    };
+  }
+  if (benign.proofVerdict === "not-reproduced") {
+    return { proofLevel: 5, proofVerdict: "exploited", differential: "discriminated" };
+  }
+  // Benign run errored / failed to build / timed out — we can't confirm the
+  // control is clean, so we keep the attack's level but flag it as untested.
+  return { ...attack, differential: "benign-inconclusive", note: `negative control did not run cleanly (${benign.proofVerdict})` };
+}
+
+// Reproducibility-aware proof gate (the harness "3/3" standard). A crash that
+// fires 1-in-10 is far weaker evidence than one that fires every time — models
+// and memory bugs are stochastic, so a single fire can be luck. Run the attack N
+// times and fold the reproduction rate into the verdict: the top tier (5) now
+// requires BOTH a clean negative control AND full reproducibility; a flaky crash
+// (0 < rate < 1) is still a real bug but caps below it and carries the rate.
+//   attackResults: array of N run results; benignResult: optional negative control.
+export function classifyRuns({ attackResults, benignResult = null, expectedSignal = "crash" }) {
+  const runs = (attackResults ?? []).map((r) => classifyResult(r, expectedSignal));
+  const total = runs.length;
+  const fired = runs.filter((v) => v.proofVerdict === "exploited").length;
+  const rate = total ? Number((fired / total).toFixed(3)) : 0;
+  const reproductions = { fired, total, rate };
+
+  if (fired === 0) {
+    // Nothing fired across N runs — report the strongest single verdict (e.g. a
+    // build failure or timeout) so the reason survives, with the repro evidence.
+    const best = runs.reduce((a, b) => (b.proofLevel >= a.proofLevel ? b : a), runs[0] ?? { proofLevel: 1, proofVerdict: "error" });
+    return { ...best, reproductions, differential: "attack-did-not-fire" };
+  }
+  if (benignResult) {
+    const benign = classifyResult(benignResult, expectedSignal);
+    if (benign.proofVerdict === "exploited") {
+      return { proofLevel: 2, proofVerdict: "non-discriminating", differential: "benign-also-fired", reproductions, note: "negative control also fired" };
+    }
+    if (benign.proofVerdict === "not-reproduced") {
+      // Discriminated. proofLevel 5 only when fully reproducible; flaky caps at 4.
+      return { proofLevel: rate === 1 ? 5 : 4, proofVerdict: "exploited", differential: "discriminated", reproductions };
+    }
+    return { proofLevel: rate === 1 ? 4 : 3, proofVerdict: "exploited", differential: "benign-inconclusive", reproductions };
+  }
+  // No negative control: a fire is a proof, level modulated by reproducibility.
+  return { proofLevel: rate === 1 ? 4 : 3, proofVerdict: "exploited", differential: "not-tested", reproductions };
+}

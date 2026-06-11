@@ -78,10 +78,17 @@ Write to the prep's `draftPath` (`draft.verify.json`):
   "pocSketch": { "payload": "…", "howToTrigger": "…", "expectedEffect": "…" },
   "negativePoc": "an input that SHOULD be safely handled/rejected (required for confirmed-exploitable)",
   "devilsAdvocate": "strongest case for the opposite verdict, then why it fails (required for confirmed/​not-exploitable)",
+  "votes": ["optional: run the A–F walk N (≥2) INDEPENDENT times and list each pass's verdict here"],
   "evidenceAnchors": [{ "filePath": "…", "startLine": 1 }],
   "rationale": "A–F written out"
 }] }
 ```
+**Majority voting (recommended for high-stakes findings).** A single pass can let a non-exploitable
+finding through. Run the A–F walk **independently** 3 times (don't anchor on your first answer) and
+put each pass's verdict in `votes`. The **host** — not you — then takes a *conservative* majority:
+`confirmed-exploitable` needs a strict majority, and a split collapses to `inconclusive`. Supply the
+full supporting evidence (pocSketch/anchors/negativePoc/devilsAdvocate) for whichever verdict the
+majority lands; if the votes don't reach a confirmed majority you needn't fabricate a PoC sketch.
 Then run the `assembleCommand`. Assemble **rejects**: verdict outside the set; `rationale` < 150
 chars; `confirmed-exploitable` without a `pocSketch` (`payload`+`howToTrigger`), without an
 `evidenceAnchor`, or without a `negativePoc`; `confirmed-exploitable`/`not-exploitable` without a

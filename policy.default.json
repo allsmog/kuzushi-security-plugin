@@ -4,9 +4,19 @@
   "activeProfile": "developer-fast",
   "profiles": {
     "developer-fast": {
-      "mcp": { "rawQuery": "allow" },
-      "git": { "apply": "require-approval" },
-      "guardrails": { "onHookError": "allow" },
+      "mcp": {
+        "rawQuery": "allow"
+      },
+      "git": {
+        "apply": "require-approval"
+      },
+      "guardrails": {
+        "onHookError": "allow"
+      },
+      "analysis": {
+        "autoBuildDatabases": "when-installed",
+        "primaryBackend": "joern"
+      },
       "install": {
         "autoInstallLightTools": true,
         "allowNetworkInstall": "approval-only",
@@ -14,9 +24,19 @@
       }
     },
     "review-safe": {
-      "mcp": { "rawQuery": "require-approval" },
-      "git": { "apply": "require-approval" },
-      "guardrails": { "onHookError": "require-approval" },
+      "mcp": {
+        "rawQuery": "require-approval"
+      },
+      "git": {
+        "apply": "require-approval"
+      },
+      "guardrails": {
+        "onHookError": "require-approval"
+      },
+      "analysis": {
+        "autoBuildDatabases": "when-installed",
+        "primaryBackend": "joern"
+      },
       "install": {
         "autoInstallLightTools": false,
         "allowNetworkInstall": "approval-only",
@@ -24,10 +44,23 @@
       }
     },
     "ci-locked": {
-      "mcp": { "rawQuery": "deny" },
-      "git": { "apply": "deny" },
-      "network": { "default": "deny", "allow": [] },
-      "guardrails": { "onHookError": "deny" },
+      "mcp": {
+        "rawQuery": "deny"
+      },
+      "git": {
+        "apply": "deny"
+      },
+      "network": {
+        "default": "deny",
+        "allow": []
+      },
+      "guardrails": {
+        "onHookError": "deny"
+      },
+      "analysis": {
+        "autoBuildDatabases": "off",
+        "primaryBackend": "joern"
+      },
       "install": {
         "autoInstallLightTools": false,
         "allowNetworkInstall": "deny",
@@ -36,7 +69,9 @@
     }
   },
   "filesystem": {
-    "writeRoots": [".kuzushi"],
+    "writeRoots": [
+      ".kuzushi"
+    ],
     "denyGlobs": [
       "**/.git/**",
       "**/node_modules/**",
@@ -50,12 +85,30 @@
   },
   "network": {
     "default": "deny",
-    "allow": ["api.osv.dev", "services.nvd.nist.gov", "api.github.com"]
+    "allow": [
+      "api.osv.dev",
+      "services.nvd.nist.gov",
+      "api.github.com"
+    ]
   },
   "exec": {
     "subprocessAllowlist": [
-      "semgrep", "codeql", "joern", "joern-parse", "git",
-      "cc", "clang", "clang++", "gcc", "g++", "node", "python3", "rustc", "cargo", "go", "javac"
+      "semgrep",
+      "codeql",
+      "joern",
+      "joern-parse",
+      "git",
+      "cc",
+      "clang",
+      "clang++",
+      "gcc",
+      "g++",
+      "node",
+      "python3",
+      "rustc",
+      "cargo",
+      "go",
+      "javac"
     ]
   },
   "mcp": {

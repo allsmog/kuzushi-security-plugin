@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "schemaVersion": "findings.v1",
+  "generatedAt": "2026-06-09T00:00:00.000Z",
+  "target": "node-command-injection",
+  "findings": [
+    {
+      "schemaVersion": "finding.v1",
+      "fingerprint": "benchcmdinj000001",
+      "source": "taint-analysis",
+      "refId": "CWE-78:server.js:9",
+      "title": "OS command injection via req.query.host into exec()",
+      "severity": "high",
+      "cwe": "CWE-78",
+      "verdict": "finding",
+      "status": "proven",
+      "proofState": "proven",
+      "exposure": "unauthenticated",
+      "evidence": [{ "filePath": "target/server.js", "startLine": 9 }],
+      "rationale": "req.query.host reaches exec() inside a template string with no escaping; a payload like `; id` runs arbitrary commands. The negative control (a plain hostname) is handled normally, so the harness discriminates the bug.",
+      "nextChecks": []
+    }
+  ],
+  "summary": { "total": 1 }
+}

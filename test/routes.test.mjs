@@ -1,18 +1,22 @@
-// Contract for framework-aware route extraction (L4). It must turn concrete route
-// declarations — across the common web frameworks and OpenAPI specs — into structured
-// entry points { framework, method, routePath, filePath, line }, so the readers anchor
-// on real handlers instead of a hand-written regex's blind spots. Skips if rg absent.
+// Contract for framework-aware route extraction (L4) and x-ray entry-point detection.
+// extractRoutes/routeFiles turn concrete route declarations — across the common web
+// frameworks and OpenAPI specs — into structured entry points { framework, method,
+// routePath, filePath, line }, so the readers anchor on real handlers instead of a
+// hand-written regex's blind spots. FRAMEWORK_ROUTE_PATTERNS / extractOpenApiOperations
+// back x-ray's own entry-point detection + spec parsing. Tests needing rg skip if absent.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-import { extractRoutes, routeFiles } from "../scripts/lib/routes.mjs";
+import { extractRoutes, routeFiles, extractOpenApiOperations, FRAMEWORK_ROUTE_PATTERNS } from "../scripts/lib/routes.mjs";
 import { ripgrepPath } from "../scripts/lib/ripgrep.mjs";
+import { runXray } from "../scripts/cmd/x-ray.mjs";
 
 const rgOk = (() => { try { return spawnSync(ripgrepPath(), ["--version"], { stdio: "ignore" }).status === 0; } catch { return false; } })();
+const rgPresent = !spawnSync("rg", ["--version"]).error;
 
 function repo(files) {
   const t = mkdtempSync(join(tmpdir(), "kz-routes-"));
@@ -99,4 +103,70 @@ test("extractRoutes: ignores comments / non-routes (no false positives on plain 
   const t = repo({ "calc.js": "function add(a,b){ return a+b; }\nconst x = get(5);\n" });
   const routes = extractRoutes(t);
   assert.equal(routes.length, 0, "plain helper code yields no routes");
+});
+
+test("extracts operations from a JSON OpenAPI spec", () => {
+  const spec = JSON.stringify({
+    openapi: "3.0.0",
+    paths: {
+      "/users": { get: {}, post: {} },
+      "/users/{id}": { get: {}, delete: {} }
+    }
+  });
+  const ops = extractOpenApiOperations(spec);
+  assert.equal(ops.length, 4);
+  assert.deepEqual(ops.find((o) => o.path === "/users/{id}" && o.method === "DELETE"), { method: "DELETE", path: "/users/{id}" });
+});
+
+test("extracts operations from a YAML OpenAPI spec", () => {
+  const yaml = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: x",
+    "paths:",
+    "  /login:",
+    "    post:",
+    "      summary: log in",
+    "  /account/{id}:",
+    "    get:",
+    "      summary: read",
+    "    put:",
+    "      summary: update",
+    "components:",
+    "  schemas: {}"
+  ].join("\n");
+  const ops = extractOpenApiOperations(yaml);
+  assert.deepEqual(ops.sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method)), [
+    { method: "GET", path: "/account/{id}" },
+    { method: "PUT", path: "/account/{id}" },
+    { method: "POST", path: "/login" }
+  ]);
+});
+
+test("non-spec text yields no operations", () => {
+  assert.deepEqual(extractOpenApiOperations("just a readme\nwith paths: in prose"), []);
+  assert.deepEqual(extractOpenApiOperations(JSON.stringify({ name: "pkg", version: "1.0.0" })), []);
+  assert.deepEqual(extractOpenApiOperations(""), []);
+});
+
+test("framework route patterns cover the major web frameworks", () => {
+  const ids = new Set(FRAMEWORK_ROUTE_PATTERNS.map((p) => p.id));
+  for (const id of ["express-route", "flask-django-route", "fastapi-route", "spring-mapping", "go-http-route"]) {
+    assert.ok(ids.has(id), `expected a pattern for ${id}`);
+  }
+});
+
+test("x-ray surfaces framework handlers and OpenAPI endpoints", { skip: rgPresent ? false : "ripgrep not on PATH" }, () => {
+  const t = mkdtempSync(join(tmpdir(), "kz-xray-routes-"));
+  mkdirSync(join(t, "src"), { recursive: true });
+  writeFileSync(join(t, "src", "server.js"),
+    "const app = require('express')();\napp.get('/users/:id', (req, res) => res.json({}));\napp.post('/login', (req, res) => res.sendStatus(200));\n");
+  writeFileSync(join(t, "openapi.json"), JSON.stringify({ openapi: "3.0.0", paths: { "/health": { get: {} }, "/admin/reset": { post: {} } } }));
+
+  const res = runXray(t, {});
+  const kinds = new Set(res.entryPoints.map((e) => e.kind));
+  assert.ok(kinds.has("express-route"), "should detect the Express routes");
+  assert.ok(kinds.has("openapi-route"), "should detect the OpenAPI endpoints");
+  const texts = res.entryPoints.filter((e) => e.kind === "openapi-route").map((e) => e.text);
+  assert.ok(texts.includes("POST /admin/reset"), `OpenAPI endpoints surfaced: ${texts.join(", ")}`);
 });

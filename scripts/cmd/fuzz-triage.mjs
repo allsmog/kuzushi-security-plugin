@@ -38,6 +38,8 @@ export function fuzzTriage(target) {
         language: r.language,
         proofLevel: r.proofLevel,
         logPath: r.logPath,
+        harnessDir: r.harnessDir ?? null,
+        crashArtifact: r.crashArtifact ?? null,
         // Group by the sanitizer's bug class when present (distinct classes ⇒ distinct
         // bugs), else fall back to the log hash.
         crashHash: sanitizer ? `${sanitizer.errorClass}:${sanitizer.frame0?.file ?? ""}:${sanitizer.frame0?.line ?? ""}` : (hashLog(r.logPath) ?? `${r.findingFingerprint}-${r.engine}`),

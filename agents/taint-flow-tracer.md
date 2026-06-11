@@ -77,6 +77,18 @@ anchors and the intervening lines as `steps`.
 **B3 — candidate.** If they only co-occur by CWE with no demonstrable path (no backend, no
 confirmed call chain, not same-file), record `candidate` — don't drop it, don't inflate it.
 
+**Don't drop taint at an async/dispatch boundary.** Same-file linking misses flows that hop a
+callback, promise, event, or queue — a real and common source of *missed* bugs. When the source
+value crosses one of these, follow it: taint propagates through
+- `await`ed calls and `Promise.then(v => …)` / `.catch` chains (the resolved value carries taint);
+- event emitters and listeners (`emit("x", tainted)` → `on("x", h => …)` — link the payload to `h`'s param);
+- queue/stream/channel hand-offs (`channel.send(tainted)` → the receiver; Go `ch <-` / `<-ch`; RxJS pipes);
+- callback parameters and continuation-passing (`fn(tainted, cb)` where `cb(result)` forwards it);
+- closures capturing a tainted variable that fire later.
+Trace the value across the boundary and record the hop as a `step`; an async edge you didn't follow
+is not a flow that's safe — it's a flow you didn't trace. If you can name the producer and consumer
+but can't prove the link statically, record `linked` and note the boundary is async in the rationale.
+
 ## Output
 
 Write `draft.flows.json`:

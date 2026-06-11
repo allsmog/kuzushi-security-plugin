@@ -10,6 +10,10 @@ import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
 import { severityFieldsFor } from "../lib/severity.mjs";
+import { remediationFor } from "../lib/remediation.mjs";
+
+// Statuses that represent live, fixable work — only these carry remediation.
+const ACTIONABLE = new Set(["open", "confirmed", "proven", "needs-evidence", "needs-trace"]);
 
 const VALID_VERDICTS = new Set([
   "exploitable", "likely-library-noise", "reviewed-no-impact",
@@ -72,6 +76,7 @@ export function finalizeSystemsHunt(target, runDir) {
     const cwe = (Array.isArray(c.cwe) ? c.cwe[0] : c.cwe) ?? (Array.isArray(m.cwe) ? m.cwe[0] : "") ?? "";
     const evidence = (c.evidenceAnchors ?? []).map((a) => ({ filePath: a.filePath, startLine: a.startLine }));
     if (!evidence.length && m.filePath) evidence.push({ filePath: m.filePath, startLine: m.line ?? 1 });
+    const status = verdictToStatus(c.verdict);
     return {
       source: "systems-hunt",
       refId: id,
@@ -79,9 +84,12 @@ export function finalizeSystemsHunt(target, runDir) {
       ...severityFieldsFor(c),
       cwe,
       verdict: c.verdict,
-      status: verdictToStatus(c.verdict),
+      status,
       evidence,
       rationale: String(c.rationale ?? ""),
+      // Actionable findings carry a concrete fix: the agent's if given, else the
+      // deterministic CWE floor so "now what?" is always answered.
+      ...(ACTIONABLE.has(status) ? { remediation: String(c.remediation ?? "").trim() || remediationFor(cwe) } : {}),
       nextChecks: Array.isArray(c.nextChecks) ? c.nextChecks : []
     };
   });

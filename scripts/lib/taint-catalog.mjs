@@ -71,7 +71,22 @@ function collectThreatCwes(threatModel) {
   return cwes;
 }
 
-function buildRelevanceCorpus(context, threatModel) {
+// CWEs that /threat-intel surfaced as recent critical/high CVEs for THIS stack (or
+// near-peers). An intel hit is empirical evidence the bug class is live in code
+// like this — a stronger prior than a generic catalog entry, so taint-analysis
+// should rank those CWEs up and hunt them first.
+function collectIntelCwes(threatIntel) {
+  const cwes = new Set();
+  for (const inv of threatIntel?.invariants ?? []) {
+    if (inv?.cwe) cwes.add(normalizeCweId(inv.cwe));
+  }
+  for (const cve of threatIntel?.cves ?? threatIntel?.findings ?? []) {
+    for (const cwe of (Array.isArray(cve?.cwe) ? cve.cwe : [cve?.cwe]).filter(Boolean)) cwes.add(normalizeCweId(cwe));
+  }
+  return cwes;
+}
+
+function buildRelevanceCorpus(context, threatModel, threatIntel) {
   const parts = [
     ...(context?.languages ?? []), ...(context?.frameworks ?? []),
     ...(context?.authPatterns ?? []), ...(context?.sanitizationLibs ?? []),
@@ -80,6 +95,11 @@ function buildRelevanceCorpus(context, threatModel) {
   for (const threat of threatModel?.threats ?? []) {
     parts.push(threat.title ?? "", threat.description ?? "", threat.attackVector ?? "",
       ...(threat.missingMitigations ?? []), ...(threat.preconditions ?? []));
+  }
+  // Fold the CVE-derived invariant statements + their source/sink signals into the
+  // corpus so a catalog entry that matches the live CVE shape gains keyword overlap.
+  for (const inv of threatIntel?.invariants ?? []) {
+    parts.push(inv.statement ?? "", ...(inv.sourceSignals ?? []), ...(inv.sinkSignals ?? []), ...(inv.sanitizerSignals ?? []));
   }
   return parts.join(" ").toLowerCase();
 }
@@ -102,10 +122,11 @@ function cweNumeric(cwe) {
 // Rank the catalog by detected languages, threat-model relatedCwe, DB/web
 // context, and keyword overlap — a direct port of rankCatalogEntries() from
 // cwe-reference.ts. Returns entries sorted by descending score.
-export function rankCatalog({ context, threatModel, languages = [], entries = loadCatalog() } = {}) {
+export function rankCatalog({ context, threatModel, threatIntel, languages = [], entries = loadCatalog() } = {}) {
   const languageSet = new Set([...(context?.languages ?? []), ...languages].map(normalizeLanguageName));
   const threatCwes = collectThreatCwes(threatModel);
-  const corpus = buildRelevanceCorpus(context, threatModel);
+  const intelCwes = collectIntelCwes(threatIntel);
+  const corpus = buildRelevanceCorpus(context, threatModel, threatIntel);
   const hasSqlDb = (context?.ormOrDb ?? []).some((db) => /sql|postgres|mysql|sqlite|oracle/i.test(db));
   const hasWeb = context ? (context.frameworks ?? []).length > 0 || (context.entryPoints ?? []).length > 0 : false;
   const sparsePythonContext = languageSet.has("python") &&
@@ -115,6 +136,8 @@ export function rankCatalog({ context, threatModel, languages = [], entries = lo
     let score = 0;
     const reasons = [];
     if (threatCwes.has(entry.cwe)) { score += 100; reasons.push("threat-model CWE"); }
+    // Live CVE evidence for this stack — hunt these first.
+    if (intelCwes.has(entry.cwe)) { score += 60; reasons.push("threat-intel CVE"); }
     if (entry.languages.some((l) => languageSet.has(normalizeLanguageName(l))) ||
         (languageSet.size > 0 && entry.languages.includes("any"))) {
       score += 25; reasons.push("language match");

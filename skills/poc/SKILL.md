@@ -16,11 +16,18 @@ Build and empirically run proof-of-concepts for the PoC-ready findings.
    you whether the harness will actually run. For **each** candidate, write the **smallest
    harness that triggers the bug** described in its `verification.pocSketch` into the candidate's
    `harnessDir` (write files only there — never edit application code), and record it in the
-   draft.
+   draft. Also wire a **negative control**: emit a `negativeRunCommand` that drives the same
+   harness with the finding's `verification.negativePoc` (the benign, in-spec input). The host
+   runs both — the attack must fire while the control stays clean; a harness that fires on both is
+   scored `non-discriminating` and does **not** advance the finding.
 3. Write the `{ candidates: [...] }` bundle to the prep's `draftPath`, then run the
    `assembleCommand`. The host script (not you) runs each harness in the sandbox, classifies the
-   result, persists `.kuzushi/poc.json` with run logs, and attaches a `poc` block onto each
-   finding.
+   result (differentially when a negative control is present), persists `.kuzushi/poc.json` with
+   run logs, and attaches a `poc` block onto each finding.
+   For a stronger, reproducibility-aware proof (the "3/3" standard — a flaky 1-in-N crash is weak
+   evidence), pass `--reproductions 3` to the assemble step: the host runs the attack N times and
+   only a fully-reproducible, discriminated crash earns the top proof level (5); a flaky one still
+   counts as `exploited` but caps lower and records the rate.
 4. Report the proof verdict + level per finding (and which were `exploited`). If `sandbox` was
    `none`, note the harnesses were written but not executed — the user can run them manually, or
    re-run with Docker available.

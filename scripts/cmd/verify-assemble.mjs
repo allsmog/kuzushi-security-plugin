@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { patchFindings, verifyVerdictToStatus } from "../lib/findings.mjs";
+import { majorityVerifyVerdict } from "../lib/voting.mjs";
 
 const VALID_VERDICTS = new Set(["confirmed-exploitable", "not-exploitable", "inconclusive"]);
 const POC_READY = new Set(["confirmed-exploitable", "inconclusive"]);
@@ -86,6 +87,19 @@ export function assembleVerify(target, runDir) {
   try { draft = JSON.parse(readFileSync(draftPath, "utf8")); } catch { fail("draft.verify.json is not valid JSON"); }
   if (!Array.isArray(draft.candidates)) fail("draft must have a candidates[] array");
 
+  // Majority vote (host-side): when the agent ran N independent verifier passes and
+  // supplied a `votes` array, the HOST decides the final verdict from it — a
+  // conservative majority that needs a strict majority to claim exploitable. The
+  // agent's supporting evidence (pocSketch/anchors/devilsAdvocate) must back the
+  // winning verdict; validation below still enforces that.
+  for (const c of draft.candidates) {
+    if (Array.isArray(c.votes) && c.votes.length >= 2) {
+      const v = majorityVerifyVerdict(c.votes);
+      c.verdict = v.verdict;
+      c._voting = v;
+    }
+  }
+
   validate(draft.candidates);
 
   const verifiedAt = new Date().toISOString();
@@ -102,6 +116,7 @@ export function assembleVerify(target, runDir) {
     evidenceAnchors: Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : [],
     rationale: String(c.rationale ?? ""),
     pocReady: POC_READY.has(c.verdict),
+    voting: c._voting ?? null,
     verifiedAt
   }));
 
@@ -122,6 +137,7 @@ export function assembleVerify(target, runDir) {
       preconditions: c.preconditions,
       pocSketch: c.pocSketch,
       pocReady: c.pocReady,
+      ...(c.voting ? { voting: c.voting } : {}),
       gateReview: {
         verdict: c.gateVerdict,
         negativePoc: c.negativePoc,
