@@ -40,7 +40,7 @@ test("no orphan query files — every .ql/.sc is registered in the manifest", ()
 
 test("the pack spans a broad CWE set (deepened coverage)", () => {
   const cwes = new Set(manifest.rules.map((r) => r.cwe));
-  for (const cwe of ["CWE-22", "CWE-78", "CWE-79", "CWE-89", "CWE-90", "CWE-94", "CWE-502", "CWE-601", "CWE-611", "CWE-918", "CWE-943", "CWE-1336"]) {
+  for (const cwe of ["CWE-22", "CWE-78", "CWE-79", "CWE-89", "CWE-90", "CWE-94", "CWE-190", "CWE-415", "CWE-416", "CWE-502", "CWE-601", "CWE-611", "CWE-918", "CWE-943", "CWE-1336"]) {
     assert.ok(cwes.has(cwe), `expected coverage for ${cwe}`);
   }
 });

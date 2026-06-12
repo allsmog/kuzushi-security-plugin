@@ -164,6 +164,27 @@ export const SANITIZE_ENV = {
   UBSAN_OPTIONS: `halt_on_error=1:abort_on_error=0:print_stacktrace=1:exitcode=${SANITIZE_EXITCODE}`
 };
 
+// CWEs that denote a memory-corruption class bug. Shared so every stage agrees on what
+// "memory-class" means (sanitize-pov-prepare, mem-exploitability, and the proof-lane
+// router below all key off this one set instead of drifting copies).
+export const MEMORY_CWES = new Set(["119", "120", "121", "122", "124", "125", "126", "127", "131", "190", "191", "415", "416", "476", "562", "674", "787", "824"]);
+
+export function isMemoryFinding(f) {
+  if (!f) return false;
+  if (f.source === "systems-hunt" || f.source === "binary-recon") return true;
+  const cwe = String(Array.isArray(f.cwe) ? f.cwe[0] : (f.cwe ?? "")).replace(/^CWE-/i, "").trim();
+  return MEMORY_CWES.has(cwe);
+}
+
+// Default proof DRIVER per finding (Lever 2): a memory-corruption claim is confirmed by
+// RUNNING it under a sanitizer (a clean ASan abort is ground truth), not by re-reading —
+// the eval showed reading misses exactly this class. Everything else defaults to the
+// reading/reasoning verify panel. Returned as a recommendation the verifier acts on, so
+// the routing lives in one place instead of being re-decided per agent.
+export function recommendedProofLane(finding) {
+  return isMemoryFinding(finding) ? "sanitize-pov" : "verify";
+}
+
 // The portable dumb-fuzz driver (used when libFuzzer is unavailable). Same harness API.
 export const FUZZ_DRIVER = join(dirname(fileURLToPath(import.meta.url)), "fuzz-driver.c");
 

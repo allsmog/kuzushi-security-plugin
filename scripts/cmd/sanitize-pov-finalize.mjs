@@ -16,6 +16,30 @@ import { parseSanitizerReport, SANITIZE_ENV } from "../lib/sanitizers.mjs";
 
 function fail(message) { console.error(`sanitize-pov-finalize: ${message}`); process.exit(1); }
 
+// The feedback half of the execution-grounded loop (Lever 2). When execution does NOT
+// confirm a claimed memory bug, the finding shouldn't just silently change status — the
+// next agent pass (a re-verify, a better harness, or a retraction) needs to know WHY and
+// WHAT to do. This turns "ASan ran clean" into an actionable instruction instead of a dead
+// `reviewed` record. `exploited` returns null (no feedback needed — it's proven).
+function executionFeedback(r) {
+  const where = r.findingFingerprint ? `finding ${r.findingFingerprint}` : "the finding";
+  const log = `See the run log: ${r.logPath}.`;
+  switch (r.proofVerdict) {
+    case "exploited":
+      return null;
+    case "not-reproduced":
+      return `Execution did NOT reproduce the claimed memory bug for ${where}: the harness built and ran clean under AddressSanitizer/UBSan with no abort. Either the harness doesn't drive attacker input to the sink (revise it — confirm the input reaches the dangerous line and the size/precondition that triggers the bug is met), or the reading-based claim is a false positive (retract it). Do not re-assert it as proven without an abort. ${log}`;
+    case "harness-failed-build":
+      return `The execution harness for ${where} FAILED TO BUILD — the claim is UNVERIFIED by execution, not refuted. Fix the build (missing deps, toolchain, or sanitizer flags) and retry, or lower confidence until it can be run. ${log}`;
+    case "non-discriminating":
+      return `The harness for ${where} fired on benign input too, so it does not discriminate the bug — it is not proof. Tighten the harness so only the malicious input aborts. ${log}`;
+    case "timeout":
+      return `The execution harness for ${where} timed out before producing a verdict — unverified, not refuted. Reduce the input size or raise the timeout and retry. ${log}`;
+    default:
+      return `Execution of the harness for ${where} errored before a verdict (${r.proofVerdict}) — unverified, not refuted. Inspect and retry. ${log}`;
+  }
+}
+
 const envPrefix = Object.entries(SANITIZE_ENV).map(([k, v]) => `${k}='${v}'`).join(" ");
 
 async function runOne(pov, runDir, backendInfo, trustLocal) {
@@ -111,7 +135,11 @@ export async function finalizeSanitizePov(target, runDir, input = {}) {
       runCommand: r.runCommand,
       logPath: r.logPath,
       provenAt,
-      ...(r.sanitizer ? { sanitizer: { tool: r.sanitizer.tool, errorClass: r.sanitizer.errorClass, cwe: r.sanitizer.cwe, frame0: r.sanitizer.frame0 } } : {})
+      ...(r.sanitizer ? { sanitizer: { tool: r.sanitizer.tool, errorClass: r.sanitizer.errorClass, cwe: r.sanitizer.cwe, frame0: r.sanitizer.frame0 } } : {}),
+      // Closed-loop feedback: an actionable message when execution did NOT prove the
+      // claim, so a downstream pass revises the harness or retracts — instead of the
+      // failed run becoming a silent dead end.
+      ...(executionFeedback(r) ? { executionFeedback: executionFeedback(r) } : {})
     }
   }));
   let findingsDoc = null;

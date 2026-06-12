@@ -86,13 +86,30 @@ the loop: feed verify's "couldn't reach the sink" back into routing, and `/poc`'
 
 *Partial:* `/sweep --partition` adds a deterministic attack-surface overlay (subsystem
 jobs on top of the dir-shards) so hunters diverge across attack paths at discovery time;
-semantic dedup (`enclosingFnKey`) unions the duplicates in the findings index. The
-closed feedback loop (verify→routing, proven→variant) is still open.
+semantic dedup (`enclosingFnKey`) unions the duplicates in the findings index.
+
+*Flow→routing half now closed:* `risk-rank.mjs` reads persisted `taint-analysis`/`deep-hunt`/
+`chain` flow findings and boosts files those flows already reached (`dataflow-reach` signal) —
+a real source→sink path feeds back into which files the deep reader prioritizes next. It is the
+*measured, gated* form (NOT sink-density, which the eval refuted): inert when no flow evidence
+exists, so it can't displace routing on the prepare-only corpus (the live-recall gate proves this),
+and it excludes `deep-scan`'s own findings to avoid self-reinforcement. Diverse-lens *discovery*
+also landed: `deep-scan-prepare` carries a closed lens taxonomy + an optional `lens` focus, and the
+deep-scanner runs one pass per lens with a completeness critic. `proven→variant` is still open.
 
 ### L6 — Class-specialized deep reasoning
 Some classes need methodology, not patterns: deserialization / prototype-pollution
 **gadget chains**, **TOCTOU / races**, integer-overflow → OOB, type confusion. Dedicated
 deep agents per class find instances the generic readers miss.
+
+*Shipped:* the **obligation-discharge** checklist (`sink-obligations.mjs`) now spans all
+classes, not just memory — web/managed files yield injection/authz/logic obligations
+(`command-exec`, `sql-sink`, `deserialization`, `path-fs`, `ssrf`, `template-xss`,
+`object-authz`, …) that land on the exact sink line, and the deep-scanner has a per-class
+discharge procedure for each. The **starter Joern pack** gained memory-class queries —
+`integer-overflow.sc` (CWE-190), `use-after-free.sc` (CWE-416), `double-free.sc` (CWE-415) —
+so the cross-file lifetime/overflow bugs become a CPG query, not guesswork (leads for
+`/verify` + `/sanitize-pov`, not proof). Per-class dedicated *agents* are still the open part.
 
 ## Dynamic proof — fuzzing campaign harness (native targets)
 

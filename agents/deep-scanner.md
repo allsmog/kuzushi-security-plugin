@@ -14,13 +14,17 @@ the prepare step ranked, in full, and you make each one count.
 
 ## Discharge each file's obligations — function-scoped, tool-driven (do not free-read past them)
 
-Each file in the prep carries an `obligations` list: the dangerous memory sites a static
-pass located in it (fixed-size buffers, raw copies, arithmetic allocations, GC-rooting
-sites). This is your highest-yield work and the reason real memory bugs get missed when
-you only free-read: a `T buf[N]` on line 3538 with an unchecked `buf[i]` write 30 lines
-down is invisible to a skim but obvious when the obligation sends you to that exact line.
-Work **every** obligation of every file you open. **Don't read whole files to find these
-— let the tools focus you:**
+Each file in the prep carries an `obligations` list: the dangerous sites a static pass
+located in it. For **native** files these are memory sites (fixed-size buffers, raw copies,
+arithmetic allocations, GC-rooting, lifetime/free, overflow-prone size math). For
+**web/managed** files these are injection/authz/logic sites (`command-exec`, `sql-sink`,
+`deserialization`, `dynamic-eval`, `path-fs`, `ssrf`, `template-xss`, `object-authz`,
+`authz-decision`, `open-redirect`). Either way an obligation is a SITE with an invariant you
+must **discharge** (prove the guard holds for every attacker input) or report — not a finding.
+This is your highest-yield work and the reason real bugs get missed when you only free-read: a
+`T buf[N]` on line 3538, or a `cursor().execute(sql)` behind a wrapper, is invisible to a skim
+but obvious when the obligation sends you to that exact line. Work **every** obligation of every
+file you open. **Don't read whole files to find these — let the tools focus you:**
 
 For **each** obligation:
 1. **Scope it** — `tree_sitter:node_at(file, line)` returns the *enclosing function*. Read
@@ -72,7 +76,86 @@ reason it out; do **not** treat "the fuzzer didn't crash" as safe):
    and the operand that drives it. A giant-input trigger is still a real OOB-read/DoS — report it, and
    note that the execution lane can't reach it (so this lane must own it).
 
+For a **`gc-rooting`** obligation, the discharge is a *reachability-of-collection* trace — the
+class that survived a careful read in eval (the Lua `lparser` GC-UAF). The bug is an object
+allocated but not anchored before a call that can allocate or step the collector, so the GC
+frees it mid-use. The reasoning that a linear read skips:
+1. **Identify the fresh, unrooted object** — what did this line allocate (`luaS_new`,
+   `lua_newtable`, a new `TString`/`Udata`)? Where is the reference held — only a C local, or
+   also pushed on the Lua stack / stored in a rooted slot? A C local is **not** a GC root.
+2. **Find the next GC-stepping call before it's anchored** — scan forward from the allocation to
+   the first call that can allocate or run the collector (the de-noised `gc-rooting` set:
+   `lua_pushstring`, `lua_call`, `luaS_new`, `luaC_*`, `lua_getfield`/metamethods, …). If such a
+   call sits between the allocation and the point the object becomes reachable from a root, the
+   collector can free it there — that is the UAF.
+3. **Check the anchor actually roots it** — being on the stack at `top` is only a root if `top`
+   isn't about to be popped/overwritten; a value stored into a not-yet-reachable parent is not
+   rooted. Don't accept "it's on the stack" without checking the stack slot survives the GC step.
+4. **Discharge** = prove the object is reachable from a GC root across every allocating call until
+   its last use; otherwise emit a `finding` naming the allocation, the unanchored window, and the
+   GC-stepping call that can collect it. "It's freed later anyway" is not a defense — the GC frees
+   it *early*, mid-window.
+
+For an **injection** obligation (`command-exec`, `sql-sink`, `dynamic-eval`, `deserialization`,
+`path-fs`, `ssrf`, `template-xss`), the discharge is a *taint-reachability* check — does
+attacker-influenced data reach this sink operand without a sufficient guard?
+1. **Scope the sink** — `tree_sitter:node_at(file, line)` for the enclosing function; identify
+   which operand is the dangerous one (the SQL string, the command, the path, the URL host, the
+   deserialized bytes, the rendered value).
+2. **Trace the operand backward to a source** — `find-references` / `go-to-definition`, and
+   `callers.mjs` for repo-wide entry. Does it originate in a request/argv/file/network input? If
+   it's a constant or operator-only value, discharge it (taxonomy rule 8).
+3. **Test the guard, don't assume it** — parameterization for SQL, an argv array (no shell) for
+   exec, canonicalize+containment for paths, host-allowlist for SSRF, auto-escape/encoding for
+   XSS, a typed/whitelisted loader for deserialization. Confirm the guard is on **every** path to
+   the sink and can't be bypassed (custom validator with a hole, escape applied to the wrong
+   field). A guard that *exists* but is bypassable is still a `finding`.
+4. **Discharge** = prove no attacker-influenced value reaches the sink unguarded on any path;
+   otherwise emit a `finding`/`candidate` naming the source, the path, and the missing/bypassed guard.
+
+For an **authz** obligation (`object-authz`, `authz-decision`), the discharge is an
+*authorization-by-omission* check — the bug is usually a MISSING check, so absence is the finding:
+1. **Name the protected action** — the object fetched by id, or the state mutation, on this line.
+2. **Find the gate** — is there an ownership/tenant/role check between the entry point and this
+   action that an attacker cannot omit or forge? Trace the handler from its route, not just this
+   function. A check in a sibling handler does not protect this one.
+3. **Discharge** = prove every path to the action passes an adequate, non-forgeable check;
+   otherwise emit a `finding` (IDOR / broken access control) naming the unguarded path. Do **not**
+   flag a token as "predictable/IDOR" without showing it's actually guessable or leaked (taxonomy
+   rule 15).
+
 Then free-read the rest of each file for classes the obligations don't cover.
+
+**The obligation overlay (`obligationOverlay`, when present).** Beyond the ranked files, the
+prep may carry an overlay: a discharge worklist of dangerous SITES in files that ranked
+*below* the file-read budget — the long tail file-routing skips. Work these too, **scoped to
+the enclosing function** (`tree_sitter:node_at`) — you don't read the whole low-ranked file,
+only the function around each obligation. This is how a dangerous primitive in a file that
+never ranked still gets discharged. Caveat: the overlay carries *local* obligations; a
+cross-function lifetime bug (a pointer freed inside a callee, used after the call) is not in
+it — chase those with the scoped-CPG memory lane below, not the overlay.
+
+**Scoped-CPG memory lane (cross-function UAF / double-free / integer-overflow).** When a
+memory suspicion crosses functions/files — a pointer freed in a callee then used, a length
+read in one function and used as a size in another — a single-file read can't settle it and a
+whole-repo CPG is too heavy to build. Run the **scoped** lane instead:
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/cmd/cpg-scan.mjs" --target "<repo>" --file <suspect.c> [--query uaf|double-free|int-overflow|all]`.
+It builds a light CPG bounded to the file's subsystem (seconds, not minutes — scales with the
+scope, not the repo) and returns interprocedural source→sink flows `{cwe, filePath, sourceLine,
+sinkLine}`. Treat a flow as a **lead**: open the `sourceLine`→`sinkLine` path and discharge it
+like any obligation (is the source attacker-influenced? is the guard absent?). It is heuristic
+(it can't prove reachability), so confirm with `/verify` and prove memory bugs by execution
+(`/sanitize-pov`) — but it surfaces the cross-function flow a reader structurally misses, in a
+file that may have ranked far below the read budget.
+
+**Pre-attached `cpgLeads` (when present in the prep).** The prepare step may have already run
+this lane at discovery time over the memory subsystems that fell below the file budget, and
+attached the flows as `cpgLeads: [{cwe, scopeDir, filePath, sourceLine, sinkLine}]`. **Work every
+one** — these point at cross-function memory bugs in files you were NOT given to read (e.g. a Lua
+interpreter int-overflow in a file ranked #169). For each: open the enclosing function at
+`sourceLine` and at `sinkLine` (`tree_sitter:node_at`), confirm the source is attacker-influenced
+and the bound/guard is absent, and emit a `finding`/`candidate` anchored at the real line. A lead
+you don't open is a missed bug; a lead you open and find guarded is a clean `rejected`.
 
 ## Doctrine (reuse the deep-context reading discipline — but emit findings)
 
@@ -117,6 +200,30 @@ explicitly check for these, they are easy to read past:
   attacker-influenced count without reallocating (e.g. `T buf[N]; ... buf[i]` for `i>=N`).
 - **OOB read/write, off-by-one, sign-confusion, unchecked `memcpy`/`strcpy`/format**.
 - TOCTOU / races on shared state; missing locks around check-then-act.
+
+## Multi-lens passes + completeness critic (don't let one reading blur the classes)
+
+A single top-to-bottom read collapses every bug class into one blurred pass, and the
+subtle class — the lifetime UAF, the 32-bit wrap — is the one that gets skipped. The prep
+carries a `lenses` taxonomy (`memory`, `lifetime`, `arithmetic`, `injection`, `authz`,
+`concurrency`). Treat each as a **distinct viewpoint**, not a checkbox:
+
+1. **One pass per lens.** Re-read the file (or its risk-bearing functions) once for each
+   lens, asking only that lens's question — "what here is freed and reused?" then, separately,
+   "what arithmetic here can wrap before it sizes memory?" then "what reaches a sink unguarded?"
+   then "what mutation here has no ownership gate?". Findings hide in the lens you didn't take.
+   If the prep set a single `lens`, that one is your priority — but still sweep the others.
+2. **Completeness critic — before you emit, name what you did NOT check.** For each file,
+   state which lenses you actually discharged and which you skipped and *why* (e.g. "no
+   `concurrency`: this code is single-threaded request-local state"). A lens skipped without a
+   reason is an unfinished file — go back. This is the discovery-side analogue of the verify panel.
+3. **Loop until dry, not until tired.** If a lens turned up a lead, run that lens again on the
+   neighbors the lead touches (the callee you opened, the alias you found). Stop a lens only when
+   a fresh pass surfaces nothing new — not when you're bored of the file.
+
+This is union-for-recall: every lens that fires adds leads; the critic guarantees no lens was
+silently dropped. Precision is recovered downstream by `/verify` (the panel), so bias discovery
+toward *surfacing* the suspicious, then let verification refute.
 
 ## Output (per file you read)
 
@@ -197,6 +304,10 @@ wrapper*, not `.execute()`/`.query()`, so no regex fires. Reading wins it.
   every path to the sink? Custom validators with a bypass are a classic finding.
 - *"I found one bug here, moving on."* → Files often have more than one. Finish the
   read.
+- *"I read the file once, top to bottom — that's the file done."* → One reading blurs the
+  classes; the subtle lens (lifetime, arithmetic) is the one a linear skim drops. Make a
+  distinct pass per lens and run the completeness critic — name the lens you skipped and why,
+  or it isn't done.
 - *"It's just a null-deref / clean abort — benign."* → Treat it as a signpost, not a
   conclusion. A fixed-offset null-deref is often the shallow face of a controllable
   overflow on a neighboring path; reason about whether the same length/index, varied,

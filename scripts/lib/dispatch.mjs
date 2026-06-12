@@ -43,6 +43,16 @@ const KEYWORDS = new Set(["if", "for", "while", "switch", "return", "sizeof", "c
 // command table) that the default source globs skip.
 const TABLE_GLOBS = ["-g", "*.def", "-g", "*.inc", "-g", "*.tbl", "-g", "*.x"];
 
+// Interpreter / language-embedding dispatch-table TYPE declarations. A file that declares
+// one of these binds script-callable names to handler functions defined IN THAT FILE — so
+// it is attacker-reachable surface whenever the embedded interpreter runs untrusted script.
+// These are well-known cross-ecosystem embedding idioms (Lua, CPython, QuickJS, Node N-API),
+// NOT project-specific strings. Detected as a DECLARATION (`Type name[]`) independently of
+// the function-def index, because on a large repo the global def/candidate caps starve a
+// vendored interpreter's table — the exact reason redis `deps/lua/src/lbaselib.c` ranked
+// #606 (the call-graph can't see Lua's C-API dispatch edges either, so reach=0 too).
+const HANDLER_TABLE_DECL = "\\b(luaL_Reg|luaL_reg|PyMethodDef|PyGetSetDef|JSCFunctionListEntry|JSFunctionSpec|napi_property_descriptor)\\b\\s+\\*?\\s*\\w+\\s*\\[";
+
 // --- function-definition index (so we can VALIDATE a handler symbol is a real function
 // and resolve it to the file where it's DEFINED, which is where the bug lives) ----------
 const DEF_RE = [
@@ -130,16 +140,36 @@ export function enumerateDispatch(target, { scopeDir = ".", cap = 400 } = {}) {
   const seen = new Set();
   const push = (e) => { const k = `${e.defFilePath}:${e.handlerSymbol}`; if (!seen.has(k)) { seen.add(k); out.push(e); } };
 
-  // (1) Convention-named handler DEFINITIONS — catches handlers whose dispatch table is
+  // (1) Interpreter dispatch-TABLE declarations (luaL_Reg / PyMethodDef / …). Attributes
+  // the declaring file as handler surface without needing its symbols in the (capped) def
+  // index — robust on large repos where a vendored interpreter's table would otherwise be
+  // starved. A high-recall HINT for routing: it says "this file registers script-callable
+  // handlers", which is exactly the attacker surface a call-graph reach score misses. Run
+  // FIRST (cheap, few matches) so the convention-def cap can never starve it.
+  {
+    const rt = runRg(resolvedTarget, ["--json", "-n", "--max-count", "50", "-e", HANDLER_TABLE_DECL, ...buildGlobs(), ...TABLE_GLOBS, scopeDir === "." ? "." : scopeDir]);
+    if (rt.ok) {
+      for (const h of parseJsonMatches(rt.stdout, 4000)) {
+        if (out.length >= cap) break;
+        const filePath = norm(h.filePath);
+        const typeM = /\b(luaL_Reg|luaL_reg|PyMethodDef|PyGetSetDef|JSCFunctionListEntry|JSFunctionSpec|napi_property_descriptor)\b/.exec(h.text ?? "");
+        push({ kind: "handler-table-decl", name: null, handlerSymbol: `table@${filePath}:${h.line ?? 1}`,
+          filePath, line: h.line ?? 1, defFilePath: filePath, defLine: h.line ?? 1,
+          signal: `${typeM ? typeM[1] : "handler-table"} declaration` });
+      }
+    }
+  }
+
+  // (2) Convention-named handler DEFINITIONS — catches handlers whose dispatch table is
   // generated/absent at source level (Redis commands), straight from where they're defined.
   for (const [name, def] of defs) {
+    if (out.length >= cap) break;
     if (!HANDLER_DEF_NAME.test(name)) continue;
     push({ kind: "convention-def", name: commandNameFromSymbol(name), handlerSymbol: name,
       filePath: def.file, line: def.line, defFilePath: def.file, defLine: def.line, signal: `def ${name}` });
-    if (out.length >= cap) break;
   }
 
-  // (2) In-source dispatch tables / registration calls — catches table-registered handlers
+  // (3) In-source dispatch tables / registration calls — catches table-registered handlers
   // regardless of naming (e.g. a luaL_Reg row { "get", luaB_get }).
   const r = runRg(resolvedTarget, ["--json", "-n", "--max-count", "500", "-e", DISPATCH_RG, ...buildGlobs(), ...TABLE_GLOBS, scopeDir === "." ? "." : scopeDir]);
   if (!r.ok) return out.slice(0, cap);

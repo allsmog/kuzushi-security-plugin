@@ -236,6 +236,26 @@ the Redis XACKDEL case, a routing/cross-file miss at 33%).
   measurement shows it would be a false improvement (the exact failure mode this harness exists to
   catch).
 
+- **What was added instead (the dataflow form, gated).** Rather than content-density, the ranker
+  now carries a `dataflow-reach` signal: a file is boosted only when a *real* source→sink flow
+  (`taint-analysis`/`deep-hunt`/`chain`) already reached it — the closed feedback loop, not a
+  keyword guess. It is **inert on the candidate-recall corpus** (prepare-only, no flow findings
+  present), so by construction it cannot displace routing there; the live-recall gate
+  (`test/bench-live-recall.test.mjs`, site-level floor) confirms no regression. It earns weight
+  only on re-runs/sweeps where a flow producer ran first, and excludes `deep-scan`'s own findings
+  to avoid self-reinforcement. This is the honest middle path: no static signal rescues the
+  no-signal CVE files (still the execution lane's job), but a *confirmed* flow legitimately
+  re-prioritizes the reader — measured not to be a false win.
+
+- **Execution-feedback loop wired (Lever 2).** Memory-class findings now carry
+  `recommendedProofLane: "sanitize-pov"` (shared `scripts/lib/sanitizers.mjs`), so the verifier
+  drives them to a sanitizer abort instead of confirming a UAF by reading. When execution does NOT
+  confirm, `sanitize-pov-finalize` attaches an actionable `poc.executionFeedback` (revise the
+  harness / retract) the next pass consumes — closing the "you claimed X; ASan ran clean" loop.
+  The deterministic wiring + feedback is unit-tested; the **billed blind discovery gate**
+  (`npm run eval:discover:cve`) remains unrun (needs a headless-agent + native-build environment),
+  as before.
+
 - **What that means (the honest structural conclusion).** Blind, laptop-budget *static routing*
   cannot reliably reach a bug site that carries no cheap signal — and a real UAF/overflow often
   doesn't. Reading enough files to cover them anyway is precisely the read-everything **throughput**

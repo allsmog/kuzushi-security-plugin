@@ -60,6 +60,33 @@ function trustBoundaryFiles(store) {
   return set;
 }
 
+// Dataflow-reachability signal (Lever 5 — the MEASURED, gated form; NOT sink-density,
+// which the eval proved a false win). A file that is an endpoint of a real source→sink
+// flow already discovered by a FLOW producer (taint-analysis / deep-hunt / chain) is, by
+// construction, reachable with attacker data — the strongest routing signal there is. This
+// is the closed feedback loop the roadmap's L5 left open: a confirmed/candidate flow feeds
+// back into which files the deep reader prioritizes next.
+//
+// Why it can't be a false win on the corpus: it reads ONLY persisted flow findings. The
+// candidate-recall bench runs prepare-only with no findings.json, so the signal is inert
+// there (0 boost) — it cannot displace correct routing (the live-recall gate proves this).
+// It earns its weight on re-runs / sweeps where a flow producer already ran. We deliberately
+// exclude `deep-scan`'s own findings (that would be self-reinforcing) — only true dataflow
+// paths count.
+const FLOW_SOURCES = new Set(["taint-analysis", "deep-hunt", "chain"]);
+const ACTIONABLE_STATUS = new Set(["open", "confirmed", "proven", "needs-evidence", "needs-trace", "candidate"]);
+function dataflowReachFiles(store) {
+  const set = new Set();
+  const doc = readJsonIfPresent(store.findingsPath);
+  for (const f of doc?.findings ?? []) {
+    if (!FLOW_SOURCES.has(String(f.source ?? ""))) continue;
+    if (f.status && !ACTIONABLE_STATUS.has(String(f.status))) continue;
+    for (const e of f.evidence ?? []) if (e?.filePath) set.add(norm(e.filePath));
+    for (const n of f.evidenceGraph?.nodes ?? []) if (n?.filePath) set.add(norm(n.filePath));
+  }
+  return set;
+}
+
 // file -> total inbound calls to the functions it defines (blast-radius / reachability
 // proxy). SUM, not max: a core file full of heavily-called functions is where bugs
 // reach the most code. This is the dominant ranking signal when a code-graph exists —
@@ -124,6 +151,9 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
   // attacker entry points that call-count reachability scores ~0 (no inbound call edge) —
   // the exact blind spot that buried redis t_stream.c under a vendored RESP parser.
   const dispatch = (() => { try { return dispatchHandlerFiles(target, { scopeDir }); } catch { return new Set(); } })();
+  // Files a real source→sink flow already reached (closed feedback loop). Empty on a
+  // first/prepare-only run, so it never displaces routing where there's no flow evidence.
+  const dataflowReach = dataflowReachFiles(store);
 
   const scored = files.map((file) => {
     const reasons = [];
@@ -144,6 +174,10 @@ export function rankFiles(target, { maxFiles = 25, scopeDir = "." } = {}) {
     // (a vendored RESP reader). Additive — a handler that also has callers still wins.
     if (dispatch.has(file)) { score += 6; reasons.push("dispatch-entry"); }
     if (boundaries.has(file)) { score += 3; reasons.push("trust-boundary"); }
+    // A real source→sink flow already reached this file — earned, strong, additive. Weighted
+    // at +5 (peer of input-processor): a proven-reachable file should outrank a keyword guess
+    // but not blindly beat a fresh attacker-surface entry point.
+    if (dataflowReach.has(file)) { score += 5; reasons.push("dataflow-reach"); }
     if (changed.has(file)) { score += 2; reasons.push("recently-changed"); }
     // Input-processing surface (parser/decoder/deserializer/VM): real weight — these
     // are reached via APIs, not entry-point defs, but are prime memory-bug surfaces.
