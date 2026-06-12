@@ -1,7 +1,11 @@
-// Guards the bundled benchmark corpus: every recorded case must score a clean
-// recall=1, precision=1, zero false proofs. If a future change to the scorer or a
-// case fixture regresses this, CI fails loudly — the corpus is the regression net
-// for the producers, so the net itself must stay sound.
+// Guards the SCORER + the recorded findings snapshot — NOT that the producers fire.
+//
+// Honesty note (Lever 0): the findings.json files this scores are hand-recorded to
+// match expected.json, so the recall=1/precision=1 here is a property of the scorer
+// wiring and the frozen snapshot, not evidence that any producer surfaced the bug. The
+// producer-firing regression net is the LIVE recall test (bench-live-recall.test.mjs),
+// which runs the deterministic prepare phase and asserts the planted site is routed.
+// Keep both: this pins the scorer's contract; that pins the producers' behavior.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

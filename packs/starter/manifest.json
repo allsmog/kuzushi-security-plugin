@@ -185,6 +185,30 @@
       "cwe": "CWE-943",
       "file": "joern/nosql-injection.sc",
       "title": "NoSQL injection from user input (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-integer-overflow",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-190",
+      "file": "joern/integer-overflow.sc",
+      "title": "Integer overflow / untrusted allocation size to OOB (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-use-after-free",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-416",
+      "file": "joern/use-after-free.sc",
+      "title": "Use-after-free: freed pointer reaches a later use (Joern/CPG)"
+    },
+    {
+      "ruleId": "kuzushi/starter/joern-double-free",
+      "engine": "joern",
+      "language": "any",
+      "cwe": "CWE-415",
+      "file": "joern/double-free.sc",
+      "title": "Double-free: freed pointer reaches a second free (Joern/CPG)"
     }
   ]
 }

@@ -55,11 +55,30 @@ function harvest(node, out) {
   }
 }
 
+// FILE-level recall: did a producer surface the vulnerable file at all? A line-less
+// candidate (taint's candidateFiles, deep-scan's ranked file list) counts. This is the
+// historical metric — but it conflates "ranked the file" with "routed to the bug site".
 function anchorsHit(expected, harvested) {
   return expected.filter((e) =>
     harvested.some((h) =>
       h.filePath === norm(e.filePath) &&
       (h.line == null || e.line == null || Math.abs(h.line - e.line) <= LINE_TOLERANCE)
+    )
+  ).length;
+}
+
+// SITE-level recall: did a producer point within ±tolerance of the actual bug LINE?
+// Integrity fix (Lever 0): a line-less harvested anchor must NOT satisfy a line-bearing
+// expectation — otherwise merely listing a file in a ranked set scores a full recall
+// hit and inflates "deep 100%". When the expectation itself carries no line, a file
+// match is the best obtainable signal and still counts.
+function anchorsHitSite(expected, harvested) {
+  return expected.filter((e) =>
+    harvested.some((h) =>
+      h.filePath === norm(e.filePath) &&
+      (e.line == null
+        ? true
+        : (h.line != null && Math.abs(h.line - e.line) <= LINE_TOLERANCE))
     )
   ).length;
 }
@@ -84,10 +103,36 @@ function sweepHarvest(repo, opts) {
   return out;
 }
 
+// A case ships its source as either `repo/` (paths in expected.json are repo-root
+// relative) or `target/` (paths are prefixed `target/...`). Copy so the harvested
+// file paths line up with expected.json in BOTH layouts — the old hardcoded `repo/`
+// crashed (ENOENT) on every target-layout case, so the live bench never ran.
+function materialize(root, name) {
+  const work = mkdtempSync(join(tmpdir(), `kz-bench-${name}-`));
+  if (existsSync(join(root, "repo"))) {
+    cpSync(join(root, "repo"), work, { recursive: true });
+  } else if (existsSync(join(root, "target"))) {
+    cpSync(join(root, "target"), join(work, "target"), { recursive: true });
+  } else {
+    throw new Error(`case ${name} has neither repo/ nor target/`);
+  }
+  return work;
+}
+
+// Two ground-truth schemas ship in this repo: the candidate-recall cases use
+// `{ expected: [{filePath,line,cwe}] }`; the corpus-scorer cases use the richer
+// `{ expectations: [{kind:"vuln"|"safe", …}] }` (bench-ground-truth.v1). Read both —
+// only `vuln` expectations are recall targets (a `safe` decoy must NOT be routed-to).
+// Before this, the target-layout cases reported "Expected 0" and were silently uncounted.
+function loadExpected(root) {
+  const gt = JSON.parse(readFileSync(join(root, "expected.json"), "utf8"));
+  if (Array.isArray(gt.expected)) return gt.expected;
+  return (gt.expectations ?? []).filter((e) => e.kind === "vuln");
+}
+
 function runCase(root, name) {
-  const expected = JSON.parse(readFileSync(join(root, "expected.json"), "utf8")).expected ?? [];
-  const repo = mkdtempSync(join(tmpdir(), `kz-bench-${name}-`));
-  cpSync(join(root, "repo"), repo, { recursive: true });
+  const expected = loadExpected(root);
+  const repo = materialize(root, name);
 
   // Lane 1: single-producer baseline.
   const base = [];
@@ -106,7 +151,12 @@ function runCase(root, name) {
     expected: expected.length,
     baselineRecall: anchorsHit(expected, base) / n,
     patternRecall: anchorsHit(expected, pattern) / n,
-    deepRecall: anchorsHit(expected, deep) / n
+    deepRecall: anchorsHit(expected, deep) / n,
+    // Site-level (line-aware) twins — the honest recall that doesn't reward a bare
+    // file listing. The gap between deepRecall and deepSiteRecall is the inflation.
+    baselineSiteRecall: anchorsHitSite(expected, base) / n,
+    patternSiteRecall: anchorsHitSite(expected, pattern) / n,
+    deepSiteRecall: anchorsHitSite(expected, deep) / n
   };
 }
 
@@ -116,7 +166,7 @@ function discoverCases(dir, requireRepo) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, "expected.json")))
-    .filter((d) => !requireRepo || existsSync(join(dir, d.name, "repo")))
+    .filter((d) => !requireRepo || existsSync(join(dir, d.name, "repo")) || existsSync(join(dir, d.name, "target")))
     .map((d) => d.name)
     .sort();
 }
@@ -127,16 +177,21 @@ function scoreboard(title, results, floorNote) {
   const lines = [`# ${title}`, "",
     "Candidate recall — fraction of known-vulnerable sites a producer's deterministic prepare",
     "phase surfaces (the precursor to end-to-end recall). `deep` adds the whole-file reader",
-    "`/deep-scan`; its lift over `pattern` is the bugs no regex matches.", "",
-    "| Case | Expected | baseline | pattern /sweep | deep /sweep | deep lift |",
-    "|---|---|---|---|---|---|"];
+    "`/deep-scan`; its lift over `pattern` is the bugs no regex matches.",
+    "",
+    "`deep (file)` counts a vulnerable file surfaced at all; `deep (site)` requires the",
+    "candidate to land within ±6 lines of the actual bug line. The gap between them is the",
+    "share of \"recall\" that is only file-ranking, not site-routing — kept visible on purpose.",
+    "",
+    "| Case | Expected | baseline | pattern /sweep | deep (file) | deep (site) | deep lift (file) |",
+    "|---|---|---|---|---|---|---|"];
   for (const r of results) {
-    lines.push(`| ${r.name} | ${r.expected} | ${pct(r.baselineRecall)} | ${pct(r.patternRecall)} | ${pct(r.deepRecall)} | +${pct(r.deepRecall - r.patternRecall)} |`);
+    lines.push(`| ${r.name} | ${r.expected} | ${pct(r.baselineRecall)} | ${pct(r.patternRecall)} | ${pct(r.deepRecall)} | ${pct(r.deepSiteRecall)} | +${pct(r.deepRecall - r.patternRecall)} |`);
   }
-  lines.push(`| **overall** | **${results.reduce((a, r) => a + r.expected, 0)}** | **${pct(sum("baselineRecall"))}** | **${pct(sum("patternRecall"))}** | **${pct(sum("deepRecall"))}** | **+${pct(sum("deepRecall") - sum("patternRecall"))}** |`);
+  lines.push(`| **overall** | **${results.reduce((a, r) => a + r.expected, 0)}** | **${pct(sum("baselineRecall"))}** | **${pct(sum("patternRecall"))}** | **${pct(sum("deepRecall"))}** | **${pct(sum("deepSiteRecall"))}** | **+${pct(sum("deepRecall") - sum("patternRecall"))}** |`);
   if (floorNote) { lines.push("", `_${floorNote}_`); }
   lines.push("");
-  return { text: lines.join("\n"), overallDeep: sum("deepRecall"), overallPattern: sum("patternRecall") };
+  return { text: lines.join("\n"), overallDeep: sum("deepRecall"), overallDeepSite: sum("deepSiteRecall"), overallPattern: sum("patternRecall") };
 }
 
 function main() {
@@ -175,9 +230,9 @@ function main() {
     }
   }
   if (!ok) { console.error(`\nbench FAILED (overall deep recall ${pct(sb.overallDeep)}; floor ${pct(DEEP_FLOOR)})`); process.exit(1); }
-  console.error(`\nbench PASSED — deep recall ${pct(sb.overallDeep)} vs pattern ${pct(sb.overallPattern)} vs baseline.`);
+  console.error(`\nbench PASSED — deep recall ${pct(sb.overallDeep)} (file) / ${pct(sb.overallDeepSite)} (site) vs pattern ${pct(sb.overallPattern)} vs baseline.`);
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) main();
 
-export { harvest, anchorsHit, runCase };
+export { harvest, anchorsHit, anchorsHitSite, runCase, materialize };

@@ -21,31 +21,38 @@ function fail(message) {
   process.exit(1);
 }
 
-function validate(candidates) {
-  for (const c of candidates) {
-    const id = c.deepId ?? c.id ?? "(unknown)";
-    if (!VALID_VERDICTS.has(c.verdict)) {
-      fail(`item ${id}: invalid verdict "${c.verdict}"; must be one of ${[...VALID_VERDICTS].join(", ")}`);
+// Why an item is invalid, or null if it passes. The trust gates are unchanged (verdict
+// whitelist, min-rationale depth, finding requires anchors/cwe/selfCheck) — what changed is
+// the BLAST RADIUS: a bad item is DROPPED, not fatal to the whole draft. A real agent draft
+// is a batch of 19 candidates; one item with a 136-char rationale used to discard the other
+// 18 (including a legit CWE-787 finding). Dropping the offending item keeps the trust
+// boundary intact (an invalid item still never promotes) while not losing the good ones.
+function invalidReason(c) {
+  if (!VALID_VERDICTS.has(c.verdict)) return `invalid verdict "${c.verdict}" (must be ${[...VALID_VERDICTS].join("/")})`;
+  const rationale = String(c.rationale ?? "");
+  if (rationale.length < MIN_RATIONALE_LENGTH) return `rationale ${rationale.length} chars (min ${MIN_RATIONALE_LENGTH})`;
+  if (c.verdict === "finding") {
+    const anchors = Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : [];
+    if (!anchors.length) return `finding requires an evidenceAnchor { filePath, startLine }`;
+    for (const a of anchors) {
+      if (!a.filePath || a.startLine === undefined) return `evidenceAnchor must be { filePath, startLine }`;
     }
-    const rationale = String(c.rationale ?? "");
-    if (rationale.length < MIN_RATIONALE_LENGTH) {
-      fail(`item ${id}: rationale is ${rationale.length} chars (min ${MIN_RATIONALE_LENGTH}). Show the data path / trusted assumption that breaks, not a one-liner.`);
-    }
-    if (c.verdict === "finding") {
-      const anchors = Array.isArray(c.evidenceAnchors) ? c.evidenceAnchors : [];
-      if (!anchors.length) fail(`item ${id}: verdict "finding" requires at least one evidenceAnchor { filePath, startLine }.`);
-      for (const a of anchors) {
-        if (!a.filePath || a.startLine === undefined) fail(`item ${id}: each evidenceAnchor must be { filePath, startLine }.`);
-      }
-      if (!c.cwe) fail(`item ${id}: verdict "finding" requires a cwe (e.g. "CWE-89").`);
-      // Self-falsification gate: a finding must name the guard/invariant that would
-      // make it safe and confirm it's absent — the discipline that kills
-      // plausible-but-wrong hypotheses (the determinism-boundary enforcement of it).
-      if (String(c.selfCheck ?? "").length < 40) {
-        fail(`item ${id}: verdict "finding" requires a selfCheck (≥40 chars): the guard/invariant that would make this safe, confirmed absent or insufficient in the code.`);
-      }
-    }
+    if (!c.cwe) return `finding requires a cwe`;
+    if (String(c.selfCheck ?? "").length < 40) return `finding requires a selfCheck (≥40 chars)`;
   }
+  return null;
+}
+
+// Partition into promotable + dropped (with reasons), so one malformed item can't sink the batch.
+function partition(candidates) {
+  const valid = [];
+  const dropped = [];
+  for (const c of candidates) {
+    const reason = invalidReason(c);
+    if (reason) dropped.push({ id: c.deepId ?? c.id ?? "(unknown)", verdict: c.verdict, reason });
+    else valid.push(c);
+  }
+  return { valid, dropped };
 }
 
 export function finalizeDeepScan(target, runDir) {
@@ -59,13 +66,19 @@ export function finalizeDeepScan(target, runDir) {
   try { draft = JSON.parse(readFileSync(draftPath, "utf8")); } catch { fail("draft.deep-scan.json is not valid JSON"); }
   if (!Array.isArray(draft.candidates)) fail("draft must have a candidates[] array");
 
-  validate(draft.candidates);
+  // Drop malformed items; promote the valid ones. (Structural problems above — no draft, bad
+  // JSON, no candidates array — remain fatal; only PER-ITEM validation is now non-fatal.)
+  const { valid, dropped } = partition(draft.candidates);
+  if (dropped.length) {
+    for (const d of dropped) console.error(`deep-scan-finalize: dropped item ${d.id} (${d.verdict}): ${d.reason}`);
+  }
 
-  const json = `${JSON.stringify(draft, null, 2)}\n`;
+  const persisted = { ...draft, candidates: valid, droppedCandidates: dropped };
+  const json = `${JSON.stringify(persisted, null, 2)}\n`;
   atomicWrite(store.deepScanPath, json);
   atomicWrite(join(resolvedRunDir, "deep-scan.json"), json);
 
-  const newFindings = draft.candidates.map((c, i) => ({
+  const newFindings = valid.map((c, i) => ({
     source: "deep-scan",
     refId: c.deepId ?? `deep-${i + 1}`,
     title: c.title ?? `Deep-read finding ${i + 1}`,
@@ -81,11 +94,12 @@ export function finalizeDeepScan(target, runDir) {
   }));
   const findingsDoc = upsertFindings(resolvedTarget, newFindings);
 
-  const verdictCounts = draft.candidates.reduce((acc, c) => { acc[c.verdict] = (acc[c.verdict] ?? 0) + 1; return acc; }, {});
+  const verdictCounts = valid.reduce((acc, c) => { acc[c.verdict] = (acc[c.verdict] ?? 0) + 1; return acc; }, {});
   const run = openRun(resolvedTarget, "deep-scan-finalize");
   const result = {
     ok: true, status: "completed", target: resolvedTarget,
-    itemCount: draft.candidates.length, verdictCounts,
+    itemCount: draft.candidates.length, promotedCount: valid.length, droppedCount: dropped.length,
+    dropped, verdictCounts,
     deepScanPath: store.deepScanPath, findingsPath: store.findingsPath, findingsSummary: findingsDoc.summary
   };
   run.finalize(result);

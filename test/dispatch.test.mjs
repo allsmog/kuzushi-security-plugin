@@ -67,3 +67,24 @@ test("detectSanitizerBuild prefers the project's OWN sanitizer switch", () => {
   const cm = fixture({ "CMakeLists.txt": "project(x)\n", "x.c": "int main(){}\n" });
   assert.match(detectSanitizerBuild(cm).command, /fsanitize=address/);
 });
+
+test("interpreter dispatch-table declaration (luaL_Reg) routes the file even when its handlers aren't in the def index", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { dispatchHandlerFiles, enumerateDispatch } = await import("../scripts/lib/dispatch.mjs");
+  const t = mkdtempSync(join(tmpdir(), "kz-disp-tbl-"));
+  mkdirSync(join(t, "deps", "lua", "src"), { recursive: true });
+  // A vendored interpreter file that DECLARES a handler table but whose handler bodies are
+  // elsewhere (mimics the large-repo case where the def index is capped before reaching it).
+  writeFileSync(join(t, "deps", "lua", "src", "lbaselib.c"),
+    "static const luaL_Reg base_funcs[] = {\n  {\"assert\", luaB_assert},\n  {\"print\", luaB_print},\n  {NULL, NULL}\n};\n");
+  // A pure data table must NOT be mistaken for a handler table (anti-overfit guard).
+  writeFileSync(join(t, "deps", "lua", "src", "data.c"),
+    "static const char *const names[] = { \"a\", \"b\", \"c\" };\n");
+  const files = dispatchHandlerFiles(t, {});
+  assert.ok(files.has("deps/lua/src/lbaselib.c"), "luaL_Reg declaration routes the file");
+  assert.ok(!files.has("deps/lua/src/data.c"), "a plain string array is not a handler table");
+  const decl = enumerateDispatch(t, {}).find((e) => e.kind === "handler-table-decl");
+  assert.ok(decl && /luaL_Reg/.test(decl.signal), "the table-decl signal names the type");
+});

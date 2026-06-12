@@ -89,3 +89,22 @@ test("end-to-end: compile a stack overflow with ASan, run it, recover the CWE fr
   assert.ok(["stack-buffer-overflow", "dynamic-stack-buffer-overflow", "global-buffer-overflow"].includes(report.errorClass), `got ${report.errorClass}`);
   assert.match(report.cwe, /CWE-(121|787)/);
 });
+
+import { isMemoryFinding as isMem, recommendedProofLane as lane, MEMORY_CWES as MCWE } from "../scripts/lib/sanitizers.mjs";
+
+test("Lever 2: memory-class findings route to the execution lane, others to verify", () => {
+  assert.equal(lane({ cwe: "CWE-416" }), "sanitize-pov", "UAF → execution");
+  assert.equal(lane({ cwe: "CWE-787" }), "sanitize-pov", "OOB write → execution");
+  assert.equal(lane({ source: "systems-hunt", cwe: "CWE-noidea" }), "sanitize-pov", "systems-hunt → execution");
+  assert.equal(lane({ cwe: "CWE-89" }), "verify", "SQLi → reading-based verify");
+  assert.equal(lane({ cwe: "CWE-639" }), "verify", "IDOR → reading-based verify");
+  assert.equal(lane({}), "verify", "no cwe → verify");
+});
+
+test("Lever 2: isMemoryFinding accepts CWE- prefix, array cwe, and bare numbers", () => {
+  assert.ok(isMem({ cwe: "CWE-415" }));
+  assert.ok(isMem({ cwe: ["CWE-190", "CWE-125"] }));
+  assert.ok(isMem({ cwe: "787" }));
+  assert.ok(!isMem({ cwe: "CWE-79" }));
+  assert.ok(MCWE.has("416"));
+});

@@ -23,6 +23,22 @@ errors "run /threat-hunt first", tell the user and stop.
 
 For **every** candidate, before writing a verdict:
 
+**0 — Route by proof lane, and read prior execution feedback (Lever 2).** Each candidate
+carries a `recommendedProofLane`. When it is `"sanitize-pov"` (a memory-corruption class:
+UAF, double-free, overflow, OOB), reading is **not** how this gets confirmed — a clean static
+read misses exactly this class. If the candidate carries **`cpgLeads`** (auto-attached
+interprocedural `{cwe, sourceLine, sinkLine}` flows from the scoped-CPG memory lane), use them:
+they map a cross-function flow the single-file excerpt can't show — open each `sourceLine`→
+`sinkLine` path and check the source is attacker-influenced and the guard absent before you
+decide. The lead is heuristic (not proof), so it informs reachability, not the verdict. Do not write `confirmed-exploitable` from reasoning alone;
+instead say so in `rationale` and route it to execution proof (`/sanitize-pov`), whose
+sanitizer abort is the ground truth. If the finding already carries a `poc.executionFeedback`
+(a prior run that did NOT reproduce, failed to build, or didn't discriminate), **act on it**:
+treat the message as a directive — revise the harness as it instructs, or, if execution ran
+clean and the claim has no other support, **retract** (verdict `not-exploitable`, citing the
+clean run). Never re-assert a memory bug as confirmed after a clean ASan run without a new
+abort. For non-memory lanes (`"verify"`), proceed with the reading-based walk below.
+
 **A — Reconstruct source→sink.** Open the cited files (widen with Grep/Glob). Use the
 `kuzushi-tree-sitter` MCP tools — `tree_sitter:taint_sources` / `taint_sinks` to confirm the
 endpoints, `tree_sitter:callers` / `query` to trace between them. If a prebuilt index exists,
@@ -153,3 +169,7 @@ lens's framing is the exact failure the panel exists to prevent.
   failed; an untested guard ⇒ `inconclusive`, never `not-exploitable`.
 - *"I'm 80% sure, round up to confirmed."* → Record the confidence honestly; what you can't settle
   statically is `inconclusive` with the runtime evidence the PoC must show.
+- *"I read the UAF carefully — confirm it."* → A memory-corruption claim (`recommendedProofLane:
+  "sanitize-pov"`) is confirmed by a sanitizer abort, not a careful read; the eval showed reading
+  misses exactly this class. Route it to execution; if a prior run came back clean, retract rather
+  than re-asserting.

@@ -51,6 +51,9 @@ const ONLY = opt("--case", null);
 const FOCUS_FILES = (opt("--files", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
 const BATCH = Number(opt("--batch", "0"));  // >0: deep-read the routed files in small batches (depth), multi-pass
 const CVE_MODE = args.includes("--cve");
+// --cpgMemory: enable the discovery-time scoped-CPG memory pass (attaches cpgLeads for the
+// sub-budget interpreter/parser subsystems). The routing-independent lane for memory bugs.
+const CPG_MEMORY = args.includes("--cpgMemory");
 
 export const norm = (p) => String(p ?? "").replace(/^\.\//, "");
 
@@ -113,7 +116,7 @@ function oneRun(caseDir, expected) {
 
   // 1. deep-scan prepare (deterministic). --files forces a focused deep read of
   // specific files; otherwise rank the repo. The ranked list is also the routing check.
-  const dprep = prepareDeepScan(work, FOCUS_FILES.length ? { files: FOCUS_FILES } : { maxFiles: MAX_FILES });
+  const dprep = prepareDeepScan(work, FOCUS_FILES.length ? { files: FOCUS_FILES } : { maxFiles: MAX_FILES, cpgMemory: CPG_MEMORY });
   const prepFiles = (JSON.parse(readFileSync(dprep.prepPath, "utf8")).files ?? []).map((f) => norm(f.filePath));
   trace.routed = expected.some((e) => prepFiles.includes(norm(e.filePath)));
 

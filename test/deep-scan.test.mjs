@@ -119,7 +119,7 @@ test("deep-scan prepare: ranks files, reports unreadCount honestly under a budge
   assert.equal(doc.files[0].filePath, "src/payment.js", "highest-risk file read first");
 });
 
-test("deep-scan finalize: promotes a read-derived finding; rejects bad verdict + finding w/o CWE", () => {
+test("deep-scan finalize: promotes a read-derived finding; DROPS (not rejects) bad verdict + finding w/o CWE", () => {
   const t = repo(); emptyFindings(t);
   write(t, "src/api.js", "function run(q){ return db.run('SELECT '+q); }\n");
   const prep = prepareDeepScan(t, { maxFiles: 5 });
@@ -136,18 +136,23 @@ test("deep-scan finalize: promotes a read-derived finding; rejects bad verdict +
   assert.equal(res.status, "completed");
   assert.equal(findings(t).filter((f) => f.source === "deep-scan").length, 1);
 
-  // finding without a CWE is refused.
+  // finding without a CWE is DROPPED (not promoted) — finalize still completes.
   writeDraft(prep.runDir, "draft.deep-scan.json", { candidates: [
     { deepId: "d2", verdict: "finding", rationale: LONG, evidenceAnchors: [{ filePath: "src/api.js", startLine: 1 }] }
   ] });
-  expectReject(() => finalizeDeepScan(t, prep.runDir));
+  const r2 = finalizeDeepScan(t, prep.runDir);
+  assert.equal(r2.status, "completed");
+  assert.equal(r2.droppedCount, 1);
+  assert.ok(!findings(t).some((f) => f.refId === "d2"), "finding without CWE is not promoted");
 
-  // bad verdict is refused.
+  // bad verdict is DROPPED too.
   writeDraft(prep.runDir, "draft.deep-scan.json", { candidates: [{ deepId: "d3", verdict: "nope", rationale: LONG }] });
-  expectReject(() => finalizeDeepScan(t, prep.runDir));
+  const r3 = finalizeDeepScan(t, prep.runDir);
+  assert.equal(r3.droppedCount, 1);
+  assert.ok(!findings(t).some((f) => f.refId === "d3"), "bad-verdict item is not promoted");
 });
 
-test("deep-scan finalize: a finding without selfCheck is rejected (self-falsification gate)", () => {
+test("deep-scan finalize: a finding without selfCheck is DROPPED (self-falsification gate, item-scoped)", () => {
   const t = repo(); emptyFindings(t);
   write(t, "src/api.js", "function run(q){ return db.run('SELECT '+q); }\n");
   const prep = prepareDeepScan(t, { maxFiles: 5 });
@@ -155,7 +160,28 @@ test("deep-scan finalize: a finding without selfCheck is rejected (self-falsific
     { deepId: "x", verdict: "finding", cwe: "CWE-89", rationale: LONG,
       evidenceAnchors: [{ filePath: "src/api.js", startLine: 1 }] }  // no selfCheck
   ] });
-  expectReject(() => finalizeDeepScan(t, prep.runDir));
+  const res = finalizeDeepScan(t, prep.runDir);
+  assert.equal(res.droppedCount, 1);
+  assert.ok(!findings(t).some((f) => f.refId === "x"), "finding without selfCheck is dropped, not promoted");
+});
+
+test("deep-scan finalize: ONE malformed item is dropped, the rest of the batch still promotes (the real-run bug)", () => {
+  const t = repo(); emptyFindings(t);
+  write(t, "src/api.js", "function run(q){ return db.run('SELECT '+q); }\n");
+  const prep = prepareDeepScan(t, { maxFiles: 5 });
+  writeDraft(prep.runDir, "draft.deep-scan.json", { candidates: [
+    { deepId: "good", verdict: "finding", cwe: "CWE-89", title: "real OOB",
+      rationale: `a genuine finding whose rationale clears the depth gate ${LONG}`,
+      selfCheck: "Parameterization would make this safe; confirmed absent on the path from q to the db.run helper.",
+      evidenceAnchors: [{ filePath: "src/api.js", startLine: 1 }] },
+    { deepId: "short", verdict: "rejected", rationale: "too short to clear the 150-char gate" } // invalid sibling
+  ] });
+  const res = finalizeDeepScan(t, prep.runDir);
+  assert.equal(res.status, "completed");
+  assert.equal(res.promotedCount, 1);
+  assert.equal(res.droppedCount, 1);
+  assert.equal(res.dropped[0].id, "short");
+  assert.ok(findings(t).some((f) => f.refId === "good"), "the valid finding survives its malformed sibling");
 });
 
 test("risk-rank: an entry-point-dense file outranks a keyword-only file (reachability over keyword)", () => {
@@ -170,4 +196,28 @@ test("risk-rank: an entry-point-dense file outranks a keyword-only file (reachab
   assert.ok(h && a, "both ranked");
   assert.ok(h.score > a.score, "entry-point-dense file outranks the keyword-only file");
   assert.ok(h.reasons.some((x) => x.startsWith("entry-defs")), "entry-defs is the reason");
+});
+
+test("deep-scan prep carries the lens taxonomy and a focused lens filters obligations (Lever 4)", () => {
+  const t = repo();
+  emptyFindings(t);
+  // A native file with a lifetime (free→use) site and a buffer site.
+  write(t, "src/m.c", [
+    "void f(char *p){",
+    "  char buf[CAP];",
+    "  free(p);",
+    "  use(p);",
+    "}"
+  ].join("\n"));
+  const all = prepareDeepScan(t, { maxFiles: 5 });
+  const ap = JSON.parse(readFileSync(all.prepPath, "utf8"));
+  assert.equal(ap.lens, null, "default pass is all-class (no lens)");
+  assert.ok(ap.lenses.includes("lifetime") && ap.lenses.includes("memory"), "carries the lens taxonomy");
+
+  const focused = prepareDeepScan(t, { maxFiles: 5, lens: "lifetime" });
+  const fp = JSON.parse(readFileSync(focused.prepPath, "utf8"));
+  assert.equal(fp.lens, "lifetime");
+  const kinds = new Set(fp.files.flatMap((f) => (f.obligations || []).map((o) => o.kind)));
+  assert.ok(kinds.has("lifetime-free"), "lifetime lens keeps the free→use site");
+  assert.ok(!kinds.has("fixed-size-buffer"), "lifetime lens drops the non-lifetime buffer site");
 });

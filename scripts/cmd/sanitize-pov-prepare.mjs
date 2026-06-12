@@ -10,16 +10,11 @@ import { resolve, join } from "node:path";
 import { parseFlags, loadInput } from "../lib/argv.mjs";
 import { storeFor, openRun, emitResult, readJsonIfPresent } from "../lib/artifact-store.mjs";
 import { enclosingExcerpt } from "../lib/excerpt.mjs";
-import { detectToolchain, SANITIZE_CFLAGS, SANITIZE_ENV } from "../lib/sanitizers.mjs";
+import { detectToolchain, SANITIZE_CFLAGS, SANITIZE_ENV, isMemoryFinding } from "../lib/sanitizers.mjs";
 import { detectBackend } from "../lib/sandbox.mjs";
 
-// CWEs that denote a memory-corruption class bug (mirrors mem-exploitability-prepare).
-const MEMORY_CWES = new Set(["119", "120", "121", "122", "124", "125", "126", "127", "131", "190", "191", "415", "416", "476", "562", "674", "787", "824"]);
-function isMemoryFinding(f) {
-  if (f.source === "systems-hunt" || f.source === "binary-recon") return true;
-  const cwe = String(Array.isArray(f.cwe) ? f.cwe[0] : (f.cwe ?? "")).replace(/^CWE-/i, "").trim();
-  return MEMORY_CWES.has(cwe);
-}
+// Memory-class detection is shared (scripts/lib/sanitizers.mjs) so sanitize-pov,
+// mem-exploitability, and the verify proof-lane router all key off one set.
 
 const BUILD_FILES = ["Makefile", "makefile", "CMakeLists.txt", "configure", "configure.ac", "Cargo.toml", "meson.build", "BUILD.bazel", "build.zig"];
 function detectBuildSystem(target) {
