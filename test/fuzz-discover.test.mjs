@@ -202,6 +202,8 @@ test("oracle: a SAFE parser ⇒ nothing promoted (no false proof)", async () => 
   }] }));
   const res = await finalizeFuzzDiscover(t, runDir, { trustLocal: true, backend: "local" });
   assert.equal(res.provenCount, 0, "a parser that blocks __proto__ yields no proof");
+  const drops = readFileSync(storeFor(t).droppedCandidatesPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert.ok(drops.some((d) => d.source === "fuzz-discover" && d.status === "not-promoted" && d.proofVerdict === "not-reproduced"), "safe oracle non-promotion is auditable");
 });
 
 test("spine: re-discovering the same crash dedupes to one finding (stable refId)", () => {

@@ -16,6 +16,8 @@ import { rankFiles } from "../lib/risk-rank.mjs";
 import { languageOf } from "../lib/sharding.mjs";
 import { extractObligations } from "../lib/sink-obligations.mjs";
 import { rankObligations } from "../lib/obligation-routing.mjs";
+import { buildObligationLedgerFromDeepScanPrep, writeObligationLedger } from "../lib/obligation-ledger.mjs";
+import { buildObligationSlicesFromDeepScanPrep, writeObligationSlices } from "../lib/obligation-slices.mjs";
 import { buildScopedCpg, runJoernQuery, joernAvailable } from "../lib/scoped-cpg.mjs";
 import { buildCodeGraph } from "./code-graph-build.mjs";
 
@@ -178,7 +180,8 @@ export function prepareDeepScan(target, input = {}) {
   }
 
   const run = openRun(resolvedTarget, "deep-scan");
-  run.writeJson("prep.json", {
+  const obligationSlicesPath = join(store.slicesDir, `${run.runId}-obligation-slices.json`);
+  const prepDoc = {
     runId: run.runId,
     runDir: run.runDir,
     target: resolvedTarget,
@@ -194,8 +197,21 @@ export function prepareDeepScan(target, input = {}) {
     files: ranked,                // [{ filePath, language, score, reasons[], obligations[] }]
     obligationOverlay,            // Phase 1: sub-budget-file obligation worklist, or null
     cpgLeads,                     // discovery-time scoped-CPG memory flows (leads), or null
+    obligationSlicesPath,         // Phase 2: function-scoped excerpts for each obligation/lead
+    obligationSlicesRunPath: join(run.runDir, "obligation-slices.json"),
     input
-  });
+  };
+  run.writeJson("prep.json", prepDoc);
+  const ledgerResult = writeObligationLedger(
+    resolvedTarget,
+    buildObligationLedgerFromDeepScanPrep(prepDoc)
+  );
+  const slicesResult = writeObligationSlices(
+    resolvedTarget,
+    run.runDir,
+    run.runId,
+    buildObligationSlicesFromDeepScanPrep(prepDoc, { maxLines: Number(input.maxSliceLines ?? 80) })
+  );
 
   return {
     ok: true,
@@ -205,6 +221,11 @@ export function prepareDeepScan(target, input = {}) {
     runDir: run.runDir,
     prepPath: join(run.runDir, "prep.json"),
     draftPath: join(run.runDir, "draft.deep-scan.json"),
+    obligationLedgerPath: ledgerResult.ledgerPath,
+    obligationsJsonlPath: ledgerResult.jsonlPath,
+    obligationSlicesPath: slicesResult.globalPath,
+    obligationSlicesRunPath: slicesResult.runPath,
+    obligationSliceCount: slicesResult.sliceCount,
     fileCount: ranked.length,
     unreadCount: unread,
     assembleCommand: `node "${join(import.meta.dirname ?? resolve("."), "deep-scan-finalize.mjs")}" --target "${resolvedTarget}" --run-dir "${run.runDir}"`

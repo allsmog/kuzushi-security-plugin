@@ -18,6 +18,7 @@ bench/cves/*/repo/
 bench/scoreboard.cve.md
 # eval scoreboards are run-specific (model/cost/timestamp); the curated record is eval/README.md
 eval/scoreboard.md
+eval/scoreboard*.json
 eval/scoreboard.cve.md
 
 # Logs

@@ -12,6 +12,7 @@ import { parseFlags } from "../lib/argv.mjs";
 import { storeFor, openRun, atomicWrite, emitResult } from "../lib/artifact-store.mjs";
 import { upsertFindings, verdictToStatus } from "../lib/findings.mjs";
 import { severityFieldsFor } from "../lib/severity.mjs";
+import { appendDroppedCandidates } from "../lib/candidate-ledger.mjs";
 
 const VALID_VERDICTS = new Set(["finding", "candidate", "rejected"]);
 const MIN_RATIONALE_LENGTH = 150;
@@ -71,6 +72,14 @@ export function finalizeDeepScan(target, runDir) {
   const { valid, dropped } = partition(draft.candidates);
   if (dropped.length) {
     for (const d of dropped) console.error(`deep-scan-finalize: dropped item ${d.id} (${d.verdict}): ${d.reason}`);
+    appendDroppedCandidates(resolvedTarget, dropped.map((d) => ({
+      source: "deep-scan",
+      stage: "finalize",
+      id: d.id,
+      status: "dropped",
+      verdict: d.verdict,
+      reason: d.reason
+    })), { runDir: resolvedRunDir });
   }
 
   const persisted = { ...draft, candidates: valid, droppedCandidates: dropped };
@@ -100,7 +109,8 @@ export function finalizeDeepScan(target, runDir) {
     ok: true, status: "completed", target: resolvedTarget,
     itemCount: draft.candidates.length, promotedCount: valid.length, droppedCount: dropped.length,
     dropped, verdictCounts,
-    deepScanPath: store.deepScanPath, findingsPath: store.findingsPath, findingsSummary: findingsDoc.summary
+    deepScanPath: store.deepScanPath, droppedCandidatesPath: store.droppedCandidatesPath,
+    findingsPath: store.findingsPath, findingsSummary: findingsDoc.summary
   };
   run.finalize(result);
   return result;

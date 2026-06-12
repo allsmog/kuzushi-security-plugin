@@ -18,6 +18,7 @@ import { upsertFindings, pocVerdictToStatus } from "../lib/findings.mjs";
 import { runInSandbox, classifyResult, detectBackend } from "../lib/sandbox.mjs";
 import { parseSanitizerReport, SANITIZE_ENV } from "../lib/sanitizers.mjs";
 import { crashKey, appendCrash } from "../lib/crashlog.mjs";
+import { appendDroppedCandidates } from "../lib/candidate-ledger.mjs";
 
 function fail(message) { console.error(`fuzz-discover-finalize: ${message}`); process.exit(1); }
 
@@ -268,6 +269,19 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
 
   let findingsDoc = null;
   if (toPromote.length) findingsDoc = upsertFindings(resolvedTarget, toPromote);
+  const notPromoted = results.filter((r) => r.proofVerdict !== "exploited");
+  if (notPromoted.length) {
+    appendDroppedCandidates(resolvedTarget, notPromoted.map((r, i) => ({
+      source: "fuzz-discover",
+      stage: "finalize",
+      id: r.title ?? `discovery-${i + 1}`,
+      status: "not-promoted",
+      title: r.title,
+      proofVerdict: r.proofVerdict,
+      proofLevel: r.proofLevel,
+      reason: r.gate ?? r.reason ?? r.proofVerdict
+    })), { runDir: resolvedRunDir });
+  }
 
   const doc = { schemaVersion: "fuzz-discover.v1", generatedAt: provenAt, target: resolvedTarget, backend: backendInfo.backend, results };
   atomicWrite(store.fuzzDiscoverPath, `${JSON.stringify(doc, null, 2)}\n`);
@@ -283,6 +297,7 @@ export async function finalizeFuzzDiscover(target, runDir, input = {}) {
     proven: proven.map((r) => ({ title: r.title, cwe: r.sanitizer?.cwe ?? null, errorClass: r.sanitizer?.errorClass ?? null, refId: r.promoted?.refId ?? null })),
     verdicts: results.map((r) => ({ title: r.title, proofVerdict: r.proofVerdict, sanitizer: r.sanitizer?.errorClass ?? null })),
     fuzzDiscoverPath: store.fuzzDiscoverPath,
+    droppedCandidatesPath: store.droppedCandidatesPath,
     findingsSummary: findingsDoc?.summary ?? null
   };
   run.finalize(result);

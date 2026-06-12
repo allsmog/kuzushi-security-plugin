@@ -11,6 +11,7 @@
     "bench:smoke": "node scripts/cmd/bench-smoke.mjs",
     "eval": "node eval/eval.mjs",
     "eval:cve": "node eval/eval.mjs --cve",
+    "eval:gate": "node scripts/cmd/eval-gate.mjs",
     "eval:deep-hunt": "node eval/eval.mjs --mode deep-hunt",
     "eval:deep-hunt:cve": "node eval/eval.mjs --mode deep-hunt --cve",
     "eval:discover": "node eval/eval.mjs --mode discover",

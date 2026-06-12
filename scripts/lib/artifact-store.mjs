@@ -145,6 +145,14 @@ export function storeFor(target) {
     // Whole-file deep reader (/deep-scan): vulnerability hypotheses from reading
     // risk-ranked files in full (not pattern-gated). Promotes into findings index.
     deepScanPath: join(root, "deep-scan.json"),
+    // Discovery obligation ledger: every dangerous site the prepare phase surfaced,
+    // tagged with its terminal routing state so recall gaps are auditable.
+    obligationsJsonlPath: join(root, "obligations.jsonl"),
+    obligationLedgerPath: join(root, "obligation-ledger.json"),
+    slicesDir: join(root, "slices"),
+    // Shared proof-or-drop ledger: malformed, refuted, or non-promoted candidates
+    // from producers/finalizers. Findings are not the whole story; drops are audit data.
+    droppedCandidatesPath: join(root, "dropped-candidates.jsonl"),
     // Interprocedural hypothesis-driven hunt (/deep-hunt): ranks trace anchors
     // (entry points + dangerous sinks), then the deep-hunter walks source→sink
     // across files (callees/callers) over rounds. Promotes into findings with the

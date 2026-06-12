@@ -57,6 +57,21 @@ const CPG_MEMORY = args.includes("--cpgMemory");
 
 export const norm = (p) => String(p ?? "").replace(/^\.\//, "");
 
+export function expectedVulnerabilities(doc) {
+  if (Array.isArray(doc.expected)) return doc.expected;
+  if (Array.isArray(doc.expectations)) {
+    return doc.expectations.filter((e) => e && e.kind !== "safe");
+  }
+  return [];
+}
+
+export function expectedSafeDecoys(doc) {
+  if (Array.isArray(doc.expectations)) {
+    return doc.expectations.filter((e) => e && e.kind === "safe");
+  }
+  return [];
+}
+
 // Read the findings index, tolerating its ABSENCE. A case whose only agent draft is
 // rejected by a finalize (e.g. deep-hunt's ≥2-distinct-files gate) promotes nothing
 // and never creates findings.json — that must score as "no findings", not crash the
@@ -67,6 +82,30 @@ function nodeMatch(expected, filePath, startLine) {
   if (norm(filePath) !== norm(expected.filePath)) return false;
   if (startLine == null || expected.line == null) return true;
   return Math.abs(Number(startLine) - Number(expected.line)) <= LINE_TOL;
+}
+
+export function expectedContextInDeepScanPrep(expected, prep) {
+  const files = new Set((prep.files ?? []).map((f) => norm(f.filePath)));
+  const sites = [];
+  for (const f of prep.files ?? []) {
+    for (const o of f.obligations ?? []) sites.push({ filePath: f.filePath, line: o.line });
+  }
+  for (const o of prep.obligationOverlay?.obligations ?? []) sites.push({ filePath: o.filePath, line: o.line });
+  for (const lead of prep.cpgLeads ?? []) {
+    sites.push({ filePath: lead.filePath, line: lead.sinkLine });
+    if (lead.sourceLine != null) sites.push({ filePath: lead.filePath, line: lead.sourceLine });
+  }
+  return {
+    fileContext: expected.some((e) => files.has(norm(e.filePath))),
+    siteContext: expected.some((e) => sites.some((s) => nodeMatch(e, s.filePath, s.line)))
+  };
+}
+
+export function expectedContextInDeepHuntAnchors(expected, anchors) {
+  return {
+    fileContext: expected.some((e) => anchors.some((a) => norm(a.filePath) === norm(e.filePath))),
+    siteContext: expected.some((e) => anchors.some((a) => nodeMatch(e, a.filePath, a.line)))
+  };
 }
 
 // deep-scan finding: the anchor is evidence[0].
@@ -83,6 +122,21 @@ export function findingHitsExpected(expected, finding) {
   for (const a of finding.evidence ?? []) if (nodeMatch(expected, a.filePath, a.startLine)) return true;
   for (const nd of finding.evidenceGraph?.nodes ?? []) if (nodeMatch(expected, nd.filePath, nd.startLine)) return true;
   return false;
+}
+
+function isProvenFinding(f) {
+  if (["reviewed", "noise", "rejected", "remediated"].includes(String(f.status ?? ""))) return false;
+  return f.status === "proven" || f.poc?.proofVerdict === "exploited";
+}
+
+export function falseProofStats(findings, safeExpectations, hitFn = anchorMatch) {
+  const proven = (findings ?? []).filter(isProvenFinding);
+  const falseProofs = (safeExpectations ?? []).filter((safe) => proven.some((f) => hitFn(safe, f))).length;
+  return {
+    provenTotal: proven.length,
+    falseProofs,
+    falseProofRate: proven.length ? falseProofs / proven.length : 0
+  };
 }
 
 // Finalize CLIs call process.exit(1) on a malformed draft; stub it so a bad agent
@@ -106,7 +160,7 @@ function discover() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function oneRun(caseDir, expected) {
+function oneRun(caseDir, expected, safeExpectations = []) {
   // Blind scratch copy — no expected.json sibling reachable from the repo root.
   const work = mkdtempSync(join(tmpdir(), "kz-eval-"));
   cpSync(join(caseDir, "repo"), work, { recursive: true });
@@ -117,8 +171,12 @@ function oneRun(caseDir, expected) {
   // 1. deep-scan prepare (deterministic). --files forces a focused deep read of
   // specific files; otherwise rank the repo. The ranked list is also the routing check.
   const dprep = prepareDeepScan(work, FOCUS_FILES.length ? { files: FOCUS_FILES } : { maxFiles: MAX_FILES, cpgMemory: CPG_MEMORY });
-  const prepFiles = (JSON.parse(readFileSync(dprep.prepPath, "utf8")).files ?? []).map((f) => norm(f.filePath));
-  trace.routed = expected.some((e) => prepFiles.includes(norm(e.filePath)));
+  const prepDoc = JSON.parse(readFileSync(dprep.prepPath, "utf8"));
+  const ctx = expectedContextInDeepScanPrep(expected, prepDoc);
+  trace.routed = ctx.fileContext;
+  trace.inContext = ctx.fileContext;
+  trace.siteInContext = ctx.siteContext;
+  const prepFiles = (prepDoc.files ?? []).map((f) => norm(f.filePath));
 
   // 2. deep-scanner agent(s). Default = one pass over all routed files. --batch N =
   // read them in small DEPTH batches across multiple agent passes (the proven lever:
@@ -164,8 +222,14 @@ function oneRun(caseDir, expected) {
   }
 
   const confirmedMatched = findings.filter((f) => expected.some((e) => anchorMatch(e, f)) && f.verification?.verdict === "confirmed-exploitable");
+  const provenMatched = findings.filter((f) => expected.some((e) => anchorMatch(e, f)) && f.status === "proven");
+  const fpStats = falseProofStats(findings, safeExpectations, anchorMatch);
   trace.confirmed = confirmedMatched.length > 0;
+  trace.proven = provenMatched.length > 0;
+  trace.provenTotal = fpStats.provenTotal;
+  trace.falseProofs = fpStats.falseProofs;
   trace.extraConfirmed = findings.filter((f) => f.verification?.verdict === "confirmed-exploitable" && !expected.some((e) => anchorMatch(e, f))).length;
+  trace.extraProven = findings.filter((f) => f.status === "proven" && !expected.some((e) => anchorMatch(e, f))).length;
   trace.cost = cost;
   trace.work = work;
   return trace;
@@ -176,7 +240,7 @@ function oneRun(caseDir, expected) {
 // lanes are measured separately and comparably. The extra signal here is `crossFile`:
 // did the matched flow actually span ≥2 files — the thing deep-scan / same-file taint
 // structurally can't produce.
-function oneRunDeepHunt(caseDir, expected) {
+function oneRunDeepHunt(caseDir, expected, safeExpectations = []) {
   const work = mkdtempSync(join(tmpdir(), "kz-eval-dh-"));
   cpSync(join(caseDir, "repo"), work, { recursive: true });
   mkdirSync(join(work, ".kuzushi"), { recursive: true });
@@ -186,7 +250,10 @@ function oneRunDeepHunt(caseDir, expected) {
   // 1. anchor (deterministic). The anchor set is the routing check.
   const hprep = prepareDeepHunt(work, { maxAnchors: MAX_ANCHORS, scopeDir: "." });
   const anchors = JSON.parse(readFileSync(hprep.prepPath, "utf8")).anchors ?? [];
-  trace.routed = expected.some((e) => anchors.some((a) => norm(a.filePath) === norm(e.filePath)));
+  const ctx = expectedContextInDeepHuntAnchors(expected, anchors);
+  trace.routed = ctx.fileContext;
+  trace.inContext = ctx.fileContext;
+  trace.siteInContext = ctx.siteContext;
   trace.anchorCount = anchors.length;
   trace.unanchored = hprep.unanchoredCount ?? 0;
 
@@ -221,8 +288,13 @@ function oneRunDeepHunt(caseDir, expected) {
     if (vr.draftWritten) { safe(() => assembleVerify(work, vprep.runDir)); findings = readFindings(work); }
   }
 
+  const fpStats = falseProofStats(findings, safeExpectations, findingHitsExpected);
   trace.confirmed = findings.some((f) => expected.some((e) => findingHitsExpected(e, f)) && f.verification?.verdict === "confirmed-exploitable");
+  trace.proven = findings.some((f) => expected.some((e) => findingHitsExpected(e, f)) && f.status === "proven");
+  trace.provenTotal = fpStats.provenTotal;
+  trace.falseProofs = fpStats.falseProofs;
   trace.extraConfirmed = findings.filter((f) => f.verification?.verdict === "confirmed-exploitable" && !expected.some((e) => findingHitsExpected(e, f))).length;
+  trace.extraProven = findings.filter((f) => f.status === "proven" && !expected.some((e) => findingHitsExpected(e, f))).length;
   trace.cost = cost;
   trace.work = work;
   return trace;
@@ -233,7 +305,7 @@ function oneRunDeepHunt(caseDir, expected) {
 // score. This is the routing-INDEPENDENT lane, so its headline metric is `proven` (a real
 // sanitizer abort on the vulnerable file), not `found`/`confirmed` by reading. `routed` is
 // kept only as an info signal: did the recon even surface the vulnerable file as a seed.
-async function oneRunDiscover(caseDir, expected) {
+async function oneRunDiscover(caseDir, expected, safeExpectations = []) {
   const work = mkdtempSync(join(tmpdir(), "kz-eval-disc-"));
   cpSync(join(caseDir, "repo"), work, { recursive: true });
   mkdirSync(join(work, ".kuzushi"), { recursive: true });
@@ -246,6 +318,8 @@ async function oneRunDiscover(caseDir, expected) {
   const subs = JSON.parse(readFileSync(prep.prepPath, "utf8")).subsystems ?? [];
   const seedFiles = new Set(subs.flatMap((s) => (s.files ?? []).map(norm)));
   trace.routed = expected.some((e) => seedFiles.has(norm(e.filePath)));
+  trace.inContext = null;
+  trace.siteInContext = null;
   if (prep.status !== "prepared") {
     return { ...trace, cost, found: false, confirmed: false, note: `discover skip: ${prep.status}`, work };
   }
@@ -266,15 +340,92 @@ async function oneRunDiscover(caseDir, expected) {
 
   const proven = readFindings(work).filter((f) => f.source === "fuzz-discover" && f.status === "proven");
   const onExpected = proven.filter((f) => expected.some((e) => anchorMatch(e, f) || findingHitsExpected(e, f)));
+  const fpStats = falseProofStats(proven, safeExpectations, (e, f) => anchorMatch(e, f) || findingHitsExpected(e, f));
   trace.provenCount = proven.length;
   trace.found = onExpected.length > 0;       // for the discover lane, "found" == proven-on-target
   trace.confirmed = onExpected.length > 0;   // proven is strictly stronger than confirmed
+  trace.proven = onExpected.length > 0;
+  trace.provenTotal = fpStats.provenTotal;
+  trace.falseProofs = fpStats.falseProofs;
   trace.extraConfirmed = proven.length - onExpected.length; // proven-but-off-target (FP proxy)
+  trace.extraProven = trace.extraConfirmed;
   trace.cost = cost; trace.work = work;
   return trace;
 }
 
-function pct(n, d) { return d ? `${Math.round((n / d) * 100)}%` : "n/a"; }
+export function pct(n, d) { return d ? `${Math.round((n / d) * 100)}%` : "n/a"; }
+function ratio(n, d) { return d ? `${n}/${d}` : "n/a"; }
+
+export function aggregateEvalRows(rows) {
+  const agg = {
+    routed: 0,
+    found: 0,
+    confirmed: 0,
+    proven: 0,
+    crossFile: 0,
+    total: 0,
+    contextTotal: 0,
+    foundGivenContext: 0,
+    siteContextEligible: 0,
+    siteContextTotal: 0,
+    foundGivenSiteContext: 0,
+    extraConfirmed: 0,
+    extraProven: 0,
+    provenTotal: 0,
+    falseProofs: 0,
+    safeDecoyRuns: 0,
+    cost: 0
+  };
+  for (const row of rows) {
+    for (const r of row.runs ?? []) {
+      agg.total += 1;
+      if (r.routed) agg.routed += 1;
+      if (r.found) agg.found += 1;
+      if (r.confirmed) agg.confirmed += 1;
+      if (r.proven) agg.proven += 1;
+      if (r.crossFile) agg.crossFile += 1;
+      if (r.inContext === true) {
+        agg.contextTotal += 1;
+        if (r.found) agg.foundGivenContext += 1;
+      }
+      if (r.siteInContext !== null && r.siteInContext !== undefined) {
+        agg.siteContextEligible += 1;
+        if (r.siteInContext === true) {
+          agg.siteContextTotal += 1;
+          if (r.found) agg.foundGivenSiteContext += 1;
+        }
+      }
+      agg.extraConfirmed += Number(r.extraConfirmed ?? 0);
+      agg.extraProven += Number(r.extraProven ?? 0);
+      agg.provenTotal += Number(r.provenTotal ?? 0);
+      agg.falseProofs += Number(r.falseProofs ?? 0);
+      if (r.safeDecoyCount) agg.safeDecoyRuns += 1;
+      agg.cost += Number(r.cost ?? 0);
+    }
+  }
+  return {
+    ...agg,
+    routingRecall: agg.total ? agg.routed / agg.total : null,
+    reasoningRecall: agg.contextTotal ? agg.foundGivenContext / agg.contextTotal : null,
+    siteContextRecall: agg.siteContextEligible ? agg.siteContextTotal / agg.siteContextEligible : null,
+    siteReasoningRecall: agg.siteContextTotal ? agg.foundGivenSiteContext / agg.siteContextTotal : null,
+    blindRecall: agg.total ? agg.found / agg.total : null,
+    confirmedOnTarget: agg.total ? agg.confirmed / agg.total : null,
+    provenOnTarget: agg.total ? agg.proven / agg.total : null,
+    extraConfirmedPerCase: agg.total ? agg.extraConfirmed / agg.total : null,
+    extraProvenPerCase: agg.total ? agg.extraProven / agg.total : null,
+    falseProofRate: agg.provenTotal ? agg.falseProofs / agg.provenTotal : 0,
+    costPerTrueFinding: agg.found ? agg.cost / agg.found : null
+  };
+}
+
+function serializableRows(rows) {
+  return rows.map((row) => ({
+    name: row.name,
+    expectedFile: row.expectedFile,
+    runs: row.runs.map(({ work, ...r }) => r)
+  }));
+}
 
 async function main() {
   if (spawnSync("claude", ["--version"], { encoding: "utf8" }).status !== 0) {
@@ -289,17 +440,20 @@ async function main() {
   const rows = [];
   let totalCost = 0;
   for (const c of cases) {
-    const expected = JSON.parse(readFileSync(join(c.dir, "expected.json"), "utf8")).expected ?? [];
+    const groundTruth = JSON.parse(readFileSync(join(c.dir, "expected.json"), "utf8"));
+    const expected = expectedVulnerabilities(groundTruth);
+    const safeExpectations = expectedSafeDecoys(groundTruth);
     const runs = [];
     for (let r = 0; r < REPS; r++) {
       process.stderr.write(`▶ ${c.name} (run ${r + 1}/${REPS}, model=${MODEL}, lane=${MODE})…\n`);
       const runner = MODE === "deep-hunt" ? oneRunDeepHunt : MODE === "discover" ? oneRunDiscover : oneRun;
-      const res = await runner(c.dir, expected);
+      const res = await runner(c.dir, expected, safeExpectations);
+      res.safeDecoyCount = safeExpectations.length;
       totalCost += res.cost || 0;
       runs.push(res);
       process.stderr.write(`  routed=${res.routed} found=${res.found} confirmed=${res.confirmed} cost=$${(res.cost || 0).toFixed(2)}${res.note ? " — " + res.note : ""}\n`);
     }
-    rows.push({ name: c.name, expectedFile: expected[0]?.filePath, runs });
+    rows.push({ name: c.name, expectedFile: expected[0]?.filePath, safeDecoyCount: safeExpectations.length, runs });
   }
 
   // Scoreboard
@@ -326,26 +480,60 @@ async function main() {
     L.push("deep-scan finding landed on it (±6 lines); `confirmed` = the verifier called it exploitable.");
   }
   L.push("");
-  L.push(`| Case | expected file | routed | found | confirmed |${dh ? " cross-file |" : ""} extra-confirmed (FP proxy) |`);
-  L.push(`|---|---|---|---|---|${dh ? "---|" : ""}---|`);
-  const agg = { routed: 0, found: 0, confirmed: 0, crossFile: 0, total: 0 };
+  L.push(`| Case | expected file | routed | in-context | site-context | found | reasoning-hit | site-hit | confirmed | proven | false-proofs |${dh ? " cross-file |" : ""} extra-confirmed | extra-proven |`);
+  L.push(`|---|---|---|---|---|---|---|---|---|---|---|${dh ? "---|" : ""}---|---|`);
   for (const row of rows) {
     const n = row.runs.length;
     const routed = row.runs.filter((r) => r.routed).length;
+    const contextRuns = row.runs.filter((r) => r.inContext === true).length;
+    const hasContextMetric = row.runs.some((r) => r.inContext !== null);
+    const foundGivenContext = row.runs.filter((r) => r.inContext === true && r.found).length;
+    const siteRuns = row.runs.filter((r) => r.siteInContext === true).length;
+    const hasSiteMetric = row.runs.some((r) => r.siteInContext !== null && r.siteInContext !== undefined);
+    const foundGivenSite = row.runs.filter((r) => r.siteInContext === true && r.found).length;
     const found = row.runs.filter((r) => r.found).length;
     const conf = row.runs.filter((r) => r.confirmed).length;
+    const proven = row.runs.filter((r) => r.proven).length;
+    const falseProofs = row.runs.reduce((a, r) => a + Number(r.falseProofs ?? 0), 0);
     const xf = row.runs.filter((r) => r.crossFile).length;
     const fp = (row.runs.reduce((a, r) => a + (r.extraConfirmed || 0), 0) / n).toFixed(1);
-    agg.routed += routed; agg.found += found; agg.confirmed += conf; agg.crossFile += xf; agg.total += n;
-    L.push(`| ${row.name} | \`${row.expectedFile}\` | ${routed}/${n} | ${found}/${n} | ${conf}/${n} |${dh ? ` ${xf}/${n} |` : ""} ${fp} |`);
+    const xproof = (row.runs.reduce((a, r) => a + (r.extraProven || 0), 0) / n).toFixed(1);
+    L.push(`| ${row.name} | \`${row.expectedFile}\` | ${routed}/${n} | ${hasContextMetric ? `${contextRuns}/${n}` : "n/a"} | ${hasSiteMetric ? `${siteRuns}/${n}` : "n/a"} | ${found}/${n} | ${hasContextMetric ? ratio(foundGivenContext, contextRuns) : "n/a"} | ${hasSiteMetric ? ratio(foundGivenSite, siteRuns) : "n/a"} | ${conf}/${n} | ${proven}/${n} | ${falseProofs} |${dh ? ` ${xf}/${n} |` : ""} ${fp} | ${xproof} |`);
   }
-  L.push(`| **overall** | | **${pct(agg.routed, agg.total)}** | **${pct(agg.found, agg.total)}** | **${pct(agg.confirmed, agg.total)}** |${dh ? ` **${pct(agg.crossFile, agg.total)}** |` : ""} |`);
+  const agg = aggregateEvalRows(rows);
+  L.push(`| **overall** | | **${pct(agg.routed, agg.total)}** | **${agg.contextTotal ? pct(agg.contextTotal, agg.total) : "n/a"}** | **${agg.siteContextEligible ? pct(agg.siteContextTotal, agg.siteContextEligible) : "n/a"}** | **${pct(agg.found, agg.total)}** | **${pct(agg.foundGivenContext, agg.contextTotal)}** | **${pct(agg.foundGivenSiteContext, agg.siteContextTotal)}** | **${pct(agg.confirmed, agg.total)}** | **${pct(agg.proven, agg.total)}** | **${agg.falseProofs}** |${dh ? ` **${pct(agg.crossFile, agg.total)}** |` : ""} **${agg.extraConfirmedPerCase == null ? "n/a" : agg.extraConfirmedPerCase.toFixed(2)}** | **${agg.extraProvenPerCase == null ? "n/a" : agg.extraProvenPerCase.toFixed(2)}** |`);
+  L.push("");
+  L.push("## Aggregate metrics");
+  L.push("");
+  L.push(`- Routing recall: **${pct(agg.routed, agg.total)}** (${agg.routed}/${agg.total})`);
+  L.push(`- Reasoning recall given context: **${pct(agg.foundGivenContext, agg.contextTotal)}** (${ratio(agg.foundGivenContext, agg.contextTotal)})`);
+  L.push(`- Site-context recall: **${pct(agg.siteContextTotal, agg.siteContextEligible)}** (${ratio(agg.siteContextTotal, agg.siteContextEligible)})`);
+  L.push(`- Site-context reasoning recall: **${pct(agg.foundGivenSiteContext, agg.siteContextTotal)}** (${ratio(agg.foundGivenSiteContext, agg.siteContextTotal)})`);
+  L.push(`- End-to-end blind recall: **${pct(agg.found, agg.total)}** (${agg.found}/${agg.total})`);
+  L.push(`- Confirmed on target: **${pct(agg.confirmed, agg.total)}** (${agg.confirmed}/${agg.total})`);
+  L.push(`- Proven on target: **${pct(agg.proven, agg.total)}** (${agg.proven}/${agg.total})`);
+  L.push(`- False-proof rate: **${pct(agg.falseProofs, agg.provenTotal)}** (${agg.falseProofs}/${agg.provenTotal})`);
+  L.push(`- Extra-confirmed per case: **${agg.extraConfirmedPerCase == null ? "n/a" : agg.extraConfirmedPerCase.toFixed(2)}**`);
+  L.push(`- Extra-proven per case: **${agg.extraProvenPerCase == null ? "n/a" : agg.extraProvenPerCase.toFixed(2)}**`);
+  L.push(`- Cost per true finding: **${agg.costPerTrueFinding == null ? "n/a" : `$${agg.costPerTrueFinding.toFixed(2)}`}**`);
   L.push("");
   const out = `${L.join("\n")}\n`;
   const base = disc ? "scoreboard.discover" : dh ? "scoreboard.deep-hunt" : "scoreboard";
   writeFileSync(join(HERE, `${base}${CVE_MODE ? ".cve" : ""}.md`), out);
+  writeFileSync(join(HERE, `${base}${CVE_MODE ? ".cve" : ""}.json`), `${JSON.stringify({
+    schemaVersion: "eval-scoreboard.v2",
+    generatedAt: new Date().toISOString(),
+    model: MODEL,
+    mode: MODE,
+    cve: CVE_MODE,
+    reps: REPS,
+    cases: rows.length,
+    timeoutMs: TIMEOUT_MS,
+    aggregate: agg,
+    rows: serializableRows(rows)
+  }, null, 2)}\n`);
   process.stdout.write(out);
-  process.stderr.write(`\nDONE — routed ${pct(agg.routed, agg.total)} · found ${pct(agg.found, agg.total)} · confirmed ${pct(agg.confirmed, agg.total)}${dh ? ` · cross-file ${pct(agg.crossFile, agg.total)}` : ""} · $${totalCost.toFixed(2)}\n`);
+  process.stderr.write(`\nDONE — routed ${pct(agg.routed, agg.total)} · reasoning ${pct(agg.foundGivenContext, agg.contextTotal)} · found ${pct(agg.found, agg.total)} · confirmed ${pct(agg.confirmed, agg.total)} · proven ${pct(agg.proven, agg.total)}${dh ? ` · cross-file ${pct(agg.crossFile, agg.total)}` : ""} · $${totalCost.toFixed(2)}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e); process.exit(1); });

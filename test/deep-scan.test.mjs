@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { storeFor } from "../scripts/lib/artifact-store.mjs";
@@ -119,6 +119,53 @@ test("deep-scan prepare: ranks files, reports unreadCount honestly under a budge
   assert.equal(doc.files[0].filePath, "src/payment.js", "highest-risk file read first");
 });
 
+test("deep-scan prepare writes an auditable obligation ledger artifact", () => {
+  const t = repo();
+  write(t, "src/native.c", [
+    "void f(char *p){",
+    "  char buf[16];",
+    "  free(p);",
+    "}"
+  ].join("\n"));
+  const prep = prepareDeepScan(t, { maxFiles: 5 });
+  const store = storeFor(t);
+  assert.equal(prep.obligationLedgerPath, store.obligationLedgerPath);
+  assert.equal(prep.obligationsJsonlPath, store.obligationsJsonlPath);
+  assert.ok(existsSync(store.obligationLedgerPath), "ledger JSON is persisted under .kuzushi");
+  assert.ok(existsSync(store.obligationsJsonlPath), "ledger JSONL is persisted under .kuzushi");
+
+  const ledger = JSON.parse(readFileSync(store.obligationLedgerPath, "utf8"));
+  assert.equal(ledger.schemaVersion, "obligation-ledger.v1");
+  assert.ok(ledger.summary.routedRecords >= 1, "at least one dangerous site is routed");
+  assert.ok(ledger.records.every((r) => ["routed", "deferred"].includes(r.status)), "records have auditable terminal states");
+  assert.ok(ledger.records.some((r) => r.class === "lifetime-free"), "the free() obligation is recorded");
+});
+
+test("deep-scan prepare writes function-scoped obligation slices", () => {
+  const t = repo();
+  write(t, "src/native.c", [
+    "static int helper(char *p){",
+    "  if (!p) return 0;",
+    "  free(p);",
+    "  return 1;",
+    "}",
+    "void unrelated(void){}"
+  ].join("\n"));
+  const prep = prepareDeepScan(t, { maxFiles: 5, maxSliceLines: 20 });
+  assert.ok(existsSync(prep.obligationSlicesPath), "global slices artifact is persisted");
+  assert.ok(existsSync(prep.obligationSlicesRunPath), "run-local slices artifact is persisted");
+
+  const slices = JSON.parse(readFileSync(prep.obligationSlicesPath, "utf8"));
+  assert.equal(slices.schemaVersion, "obligation-slices.v1");
+  assert.ok(slices.sliceCount >= 1);
+  const lifetime = slices.slices.find((s) => s.class === "lifetime-free");
+  assert.ok(lifetime, "free() gets a function-scoped slice");
+  assert.equal(lifetime.excerpt.filePath, "src/native.c");
+  assert.ok(lifetime.excerpt.lines.some((l) => /static int helper/.test(l.text)), "slice includes the enclosing function header");
+  assert.ok(!lifetime.excerpt.lines.some((l) => /unrelated/.test(l.text)), "slice does not spill into unrelated function");
+});
+
+
 test("deep-scan finalize: promotes a read-derived finding; DROPS (not rejects) bad verdict + finding w/o CWE", () => {
   const t = repo(); emptyFindings(t);
   write(t, "src/api.js", "function run(q){ return db.run('SELECT '+q); }\n");
@@ -150,6 +197,10 @@ test("deep-scan finalize: promotes a read-derived finding; DROPS (not rejects) b
   const r3 = finalizeDeepScan(t, prep.runDir);
   assert.equal(r3.droppedCount, 1);
   assert.ok(!findings(t).some((f) => f.refId === "d3"), "bad-verdict item is not promoted");
+
+  const drops = readFileSync(storeFor(t).droppedCandidatesPath, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
+  assert.ok(drops.some((d) => d.source === "deep-scan" && d.id === "d2" && /requires a cwe/.test(d.reason)), "missing-CWE drop is in the shared ledger");
+  assert.ok(drops.some((d) => d.source === "deep-scan" && d.id === "d3" && /invalid verdict/.test(d.reason)), "bad-verdict drop is in the shared ledger");
 });
 
 test("deep-scan finalize: a finding without selfCheck is DROPPED (self-falsification gate, item-scoped)", () => {

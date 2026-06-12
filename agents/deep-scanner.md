@@ -24,7 +24,10 @@ must **discharge** (prove the guard holds for every attacker input) or report �
 This is your highest-yield work and the reason real bugs get missed when you only free-read: a
 `T buf[N]` on line 3538, or a `cursor().execute(sql)` behind a wrapper, is invisible to a skim
 but obvious when the obligation sends you to that exact line. Work **every** obligation of every
-file you open. **Don't read whole files to find these — let the tools focus you:**
+file you open. The prep also points at `obligationSlicesPath`, a host-generated
+function-scoped excerpt file keyed by obligation id. Use those slices as your first context,
+then fall back to `tree_sitter:node_at` when you need an exact AST span or caller/callee follow-up.
+**Don't read whole files to find these — let the tools focus you:**
 
 For **each** obligation:
 1. **Scope it** — `tree_sitter:node_at(file, line)` returns the *enclosing function*. Read

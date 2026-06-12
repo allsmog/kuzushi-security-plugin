@@ -42,12 +42,43 @@ Per case (averaged over `--reps`):
 
 - **routed** — the deep reader's prep put the vulnerable file in the read set. A
   ranking/coverage check (precondition for finding anything).
+- **in-context** — the vulnerable location was actually handed to the reasoning lane.
+  For static lanes this is the denominator for reasoning recall. For the discover lane
+  this is `n/a`, because execution discovery is intentionally routing-independent.
+- **site-context** — an obligation, long-tail overlay item, CPG lead, or deep-hunt anchor
+  landed on the expected site (±6 lines). This is stricter than file context.
 - **found** — a `deep-scan` finding landed on the expected file (±6 lines). The
-  reasoning-level recall.
+  end-to-end blind recall.
+- **reasoning-hit** — found among the runs where `in-context` is true. This separates
+  "we never looked there" from "we looked there and still missed it."
+- **site-hit** — found among the runs where `site-context` is true.
 - **confirmed** — the verifier called that finding `confirmed-exploitable`. Precision
   signal.
+- **proven** — a target hit reached empirical proof (`status: proven`), currently most
+  important for the execution-discovery lane.
+- **false-proofs** — proven findings that land on a `kind:"safe"` expectation. This is
+  the soundness failure mode and should stay zero.
 - **extra-confirmed** — confirmed findings *not* matching the expected anchor (a
   false-positive proxy; caveat: a single-CVE repo may contain other real bugs).
+- **extra-proven** — proven findings not matching the expected anchor.
+
+Each run also writes a machine-readable scoreboard next to the Markdown one
+(`eval/scoreboard*.json`, `schemaVersion: "eval-scoreboard.v2"`) with aggregate
+`routingRecall`, `reasoningRecall`, `siteContextRecall`, `siteReasoningRecall`,
+`blindRecall`, `confirmedOnTarget`, `provenOnTarget`, `falseProofRate`,
+`extraConfirmedPerCase`, `extraProvenPerCase`, and `costPerTrueFinding`.
+
+After a billed run, use the deterministic gate to enforce release thresholds without
+re-running agents:
+
+```bash
+npm run eval:gate -- --scoreboard eval/scoreboard.cve.json \
+  --min-blind-recall 60% \
+  --min-site-context-recall 40% \
+  --min-proven-on-target 40% \
+  --max-false-proof-rate 0 \
+  --max-extra-confirmed-per-case 1
+```
 
 A **low number is a valid, honest result** — the baseline the capability levers must
 beat. The harness exits non-zero only on its own failure, never on a low score.
