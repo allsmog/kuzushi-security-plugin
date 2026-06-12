@@ -3,8 +3,21 @@
 # kuzushi-security-plugin
 
 [![test](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml/badge.svg)](https://github.com/allsmog/kuzushi-security-plugin/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Node ≥20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)
+![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)
 
-**A local-first vulnerability confirmation and remediation pipeline that lives inside Claude Code.**
+**Security review that proves it or drops it — inside Claude Code.**
+
+Most AI security tools cry wolf. kuzushi makes every finding **earn its place** — it traces the
+source→sink path, reconstructs the exploit, proves it with a sandboxed PoC, and validates the patch
+against that exploit — then **benchmarks its own recall** against planted CVEs so it can tell you
+what it *missed*.
+
+- **🔬 Proof, not hits.** Findings climb a proof ladder — traced → exploit reconstructed → sandboxed PoC → patch validated. Not "the scanner said so."
+- **🚫 It won't fool you.** Scored against planted bugs *and* decoys with a hard zero-false-proof gate; it reports its own misses instead of hiding them.
+- **🔒 Local & network-denied by default.** Runs on the source you already have checked out; every artifact stays under `.kuzushi/`.
+- **🧪 Real techniques, not vibes.** Borrows the AIxCC playbook — obligation discharge, sanitizer execution proof, and scoped-CPG dataflow.
 
 Point it at source you already have checked out and kuzushi turns security review into a
 reproducible evidence pipeline: map the code, threat-model it, hunt source-to-sink paths, verify
