@@ -4,6 +4,31 @@
   "description": "Local-first vulnerability confirmation and remediation pipeline for Claude Code: threat modeling, SAST/taint, PoC/fuzz proof, rule synthesis, SARIF, and PoC+ patch validation.",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "keywords": [
+    "appsec",
+    "ai-security",
+    "claude-code",
+    "claude-code-plugin",
+    "sast",
+    "taint-analysis",
+    "vulnerability-scanner",
+    "security-research",
+    "codeql",
+    "joern",
+    "semgrep",
+    "mcp",
+    "fuzzing",
+    "sarif"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allsmog/kuzushi-security-plugin.git"
+  },
+  "homepage": "https://github.com/allsmog/kuzushi-security-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/allsmog/kuzushi-security-plugin/issues"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "bench": "node bench/run.mjs",
