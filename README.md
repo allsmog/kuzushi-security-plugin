@@ -68,6 +68,37 @@ analysis overlay (it does not auto-build a combined exploit — the chain is a d
 
 ---
 
+## Measured reality (no false wins)
+
+kuzushi's strongest claim is **honesty backed by reproducible measurement**, not a leaderboard
+number. Two instruments keep the project from fooling itself:
+
+- **`npm test`** is the deterministic gate. It includes a *live producer-firing* recall test
+  (`test/bench-live-recall.test.mjs`) that runs the real prepare phase on the bundled corpus and
+  reports recall at both **file** and **site** (±6-line) granularity — so "ranked the file" can
+  never masquerade as "found the bug". (A separate, frozen-snapshot corpus test is honestly
+  labelled as testing the *scorer*, not the producers.)
+- **`npm run eval[:cve]`** is the LLM-in-the-loop eval: the real agents run blind via `claude -p`
+  against fix-derived CVEs. It is **billed and never a CI gate** — a low number is a valid result.
+
+**What the eval actually shows** (Sonnet, the 9-CVE Redis+minimist set): a **blind find-rate of
+~22%**, with routing ~78%. Routing is largely solved; the wall is *reasoning on subtle lifetime /
+integer-overflow bugs* — the agent reads the right file and still mis-judges the bug. The
+**scoped-CPG memory lane** (new) closes the *routing* half of that wall: it reaches a real
+integer-overflow flow (`lbaselib.c`, ranked #606 by file-routing) and hands it to the agent — but
+on the hardest cases the agent can still wrongly accept an insufficient guard, which is why those
+findings are driven to **execution proof** (`/sanitize-pov`: a sanitizer abort is ground truth)
+rather than confirmed by reading.
+
+**Honest bottom line:** kuzushi is strong at *verified, reproducible, low-false-proof* review
+(the defender-value contract) and at *routing-independent* coverage; it is **not** at parity with a
+cloud cluster on blind discovery of subtle memory bugs by reading — and the harness lets us say so
+with a number instead of a vibe. The full plan and its measurement gates live in
+[docs/WORLD-CLASS-DISCOVERY.md](docs/WORLD-CLASS-DISCOVERY.md); the run-by-run log is in
+[eval/README.md](eval/README.md).
+
+---
+
 ## Install
 
 **Via the plugin marketplace (recommended):**
@@ -145,7 +176,8 @@ in each skill's frontmatter — hidden from `/`, still model-invocable.)
 | Command | What it does | Writes |
 |---|---|---|
 | `/sweep` | **Whole-repo orchestrator.** Shards the repo by module (budget-sized) and fans every applicable producer (taint, authz, logic-hunt, crypto, sharp-edges, systems-hunt, iac, supply-chain, threat-hunt, binary-recon) out across **every** shard in parallel, then pipelines each new finding through `/verify`. Records a **coverage map** (which shards were reached + the uncovered set — no silent sub-sampling) and writes findings to the shared lock-guarded index. `--input '{"offline":true}'` skips any network producer (zero-exfil); `'{"deep":true}'` adds the whole-file reader and an interprocedural-DB plan. The local, auditable answer to cloud "scan-everything" tools. | `.kuzushi/sweep.json`, `coverage-map.json`, `findings.json` |
-| `/deep-scan` | **Whole-file deep reader** — the recall lever that beats pattern-gating. Risk-ranks files (entry points, trust boundaries, blast radius, churn, security-relevant paths), then `deep-scan-run.mjs` sends those files through the configured Kuzushi LLM bridge and finalizer. It reads deeply and reasons from first principles, finding the long tail (project-specific wrappers, plain-logic flaws, cross-file flows) that regex-based producers structurally miss. Token-expensive, budget-bounded, honest about the unread remainder. Leads flow to `/verify` (panel). | `.kuzushi/deep-scan.json`, `findings.json` |
+| `/deep-scan` | **Whole-file deep reader** — the recall lever that beats pattern-gating. Risk-ranks files (entry points, trust boundaries, blast radius, churn, security-relevant paths, and a **dataflow-reach** signal: files a real source→sink flow already touched), then sends them through the configured Kuzushi LLM bridge. Each file carries a **discharge checklist of obligations** across all classes (memory: buffers/copies/lifetime/overflow; web/logic: command-exec/sql/deser/path/ssrf/xss/authz) the agent must prove or report, and the agent makes **one pass per lens** (memory/lifetime/arithmetic/injection/authz) with a completeness critic. `--input '{"byObligation":true}'` adds an obligation **overlay** for files below the read budget; `'{"cpgMemory":true}'` runs a **discovery-time scoped-CPG pass** that attaches cross-function memory flows (`cpgLeads`) for low-ranked interpreter/parser subsystems — reaching a memory bug regardless of file rank. Token-expensive, budget-bounded, honest about the unread remainder; a malformed draft item is dropped, not fatal to the batch. Leads flow to `/verify` (panel). | `.kuzushi/deep-scan.json`, `findings.json` |
+| `cpg-scan` *(internal)* | **Scalable scoped-CPG memory lane** (invoked by the deep agents, not a `/` command). Builds a *light* Joern CPG bounded to a suspect file's subsystem (seconds, not the minutes a whole-repo CPG costs — build scales with the scope, not the repo) and runs the interprocedural use-after-free / double-free / integer-overflow queries, returning `{cwe, filePath, sourceLine, sinkLine}` leads. Reaches cross-function memory flows a single-file read structurally misses, in files that ranked far below the read budget. Heuristic leads → `/verify` + `/sanitize-pov`. | (leads to `findings.json`) |
 | `/deep-hunt` | **Interprocedural hypothesis hunt** — the cross-file recall lever. Risk-ranks **trace anchors** (entry points + dangerous sinks), then `deep-hunt-run.mjs` walks source→sink hypotheses through the configured Kuzushi LLM bridge using forward/backward call-graph CLIs: hypothesize → follow the data hop by hop, reading each function → defeat every guard → self-falsify. Promotes only confirmed cross-file flows (≥2 hops, ≥2 files), storing the path as the finding's `evidenceGraph`. Finds the multi-file bugs same-file taint and pattern-gating both miss — **no CPG required**. Token-expensive; run via `/sweep --deep`. Leads flow to `/verify` (panel). | `.kuzushi/deep-hunt.json`, `findings.json` |
 | `/deep-context` | **Deep system-understanding pass** (before threat modeling). The context-analyst agent reads the code line-by-line where it matters and builds a grounded model — modules, entry points, actors, trust boundaries, data stores, and **system invariants** — with file:line evidence and anti-hallucination rules. **Context only** (no vuln-finding/fixes/severity); `/threat-model` consumes it. | `.kuzushi/deep-context.json` |
 | `/threat-model` | Agent builds a **PASTA** threat model in phases (objectives → scope → decomposition → threats) + an ASCII data-flow diagram. | `.kuzushi/threat-model.json`, `threat-model-dfd.txt` |
@@ -170,7 +202,7 @@ in each skill's frontmatter — hidden from `/`, still model-invocable.)
 | `/variant-hunt` | **Variant analysis.** For each confirmed/proven finding (the *seed*), the variant-hunter agent sweeps the repo for other sites with the same bug class — exact-match → generalize one step at a time (ripgrep → Semgrep → CodeQL/Joern) → triage each. Promotes variants into findings with `refId` `variant-of:<seed>` so they trace back to origin. Requires a confirmed finding first. | `.kuzushi/variant-hunt.json`, `findings.json` |
 | `/semgrep-rule` | **Test-driven detection from a confirmed bug.** For each seed finding, the semgrep-rule-author agent writes a positive/negative fixture and a Semgrep rule matching the bug shape under `.kuzushi/rules/`, validates it with `semgrep:scan`, and indexes it. The rules seed `/variant-hunt` and `/sast`. | `.kuzushi/rules/*.yaml`, `semgrep-rules.json` |
 | `/rule-synth` | **Validated CodeQL/Joern rules from a confirmed bug** — the heavy semantic engines `/semgrep-rule` doesn't cover. The rule-synthesist agent writes a query per seed; a **native gate** (compile → fire-on-seed → repo-run → precision-cap) accepts only passing rules into a **digest-attested pack** (`.kuzushi/rules/{codeql,joern}/` + `pack.json`). The codeql/joern MCP servers refuse to run a pack query whose bytes don't match the manifest, so generated queries are validated before they execute. New matches promote as `candidate` leads. Needs a built CodeQL DB / Joern CPG. | `.kuzushi/rules/{codeql,joern}/`, `pack.json`, `rule-synth.json`, `findings.json` |
-| `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
+| `/verify` | **Exploitability verification** of the open findings: reconstruct source→sink, build a concrete trigger, defeat every guard → verdict (`confirmed-exploitable` / `not-exploitable` / `inconclusive`) + confidence + PoC sketch. Routes by **proof lane** — a memory-corruption claim is driven to execution proof (`/sanitize-pov`), not confirmed by reading, and memory candidates are auto-enriched with cross-function `cpgLeads` from the scoped-CPG lane. Read-only; attaches a `verification` block onto each finding and tags the PoC-ready ones. | `.kuzushi/verify.json`, `findings.json` |
 | `/path-solve` | **Concolic-lite path solving** for findings `/verify` left `inconclusive`. The path-solver agent extracts the guard predicate between source and sink (tree-sitter) and solves it into a concrete reaching input — via the optional concolic MCP backend (**Z3** for numeric/string, **CrossHair** for Python) when installed, else by reasoning (LLM). Attaches a `pathSolution` block that feeds `/verify` + `/fuzz`. Heuristic, not a proof. | `.kuzushi/path-solve.json`, `findings.json` |
 | `/poc` | **Empirical proof**: for each verified finding, synthesize a minimal harness and run it in a sandbox (Docker `--network none`, else a gated local run) — a crash/expected exit is the proof. Attaches a `poc` block (`proofLevel`/`proofVerdict`) onto each finding. | `.kuzushi/poc.json`, `findings.json` |
 | `/sanitize-pov` | **Sanitizer-driven proof for memory-class findings** — kuzushi's AIxCC-style "find-by-execution" lever. For each memory-safety finding, the sanitize-pov-author agent writes a minimal harness compiled with **AddressSanitizer/UBSan** and runs it in the offline sandbox (`--network none`); a sanitizer abort is ground-truth proof, naming the exact error class + CWE and promoting the finding to `proven` (clean run → `not-reproduced`, build failure → `harness-failed-build` — never a false proof). Executes code — consented, like `/poc` and `/fuzz`. | `.kuzushi/sanitize-pov.json`, `findings.json` |
@@ -239,9 +271,11 @@ The plugin only spins up what your repo needs, and installs what it can.
   `ci-locked`; CLI absent → it *offers* Joern first, since an install needs approval). The build also
   installs a **curated starter query pack**
   (`packs/starter/` → `.kuzushi/rules/`, digest-attested) so the first interprocedural CodeQL/Joern
-  query runs without on-the-fly agent synthesis. It ships 23 queries spanning a dozen CWE classes (CWE-22/78/79/89/90/94/502/601/611/918/943/1336)
-  — CodeQL standard-library security flows for JavaScript and Python, plus language-agnostic Joern CPG
-  dataflow queries; `/rule-synth` adds repo-specific rules alongside it.
+  query runs without on-the-fly agent synthesis. It ships 26 queries spanning fifteen CWE classes
+  (CWE-22/78/79/89/90/94/190/415/416/502/601/611/918/943/1336) — CodeQL standard-library security
+  flows for JavaScript and Python, plus language-agnostic Joern CPG dataflow queries **including the
+  memory classes** (use-after-free, double-free, integer-overflow → OOB); `/rule-synth` adds
+  repo-specific rules alongside it.
 
 Run `/doctor` any time to see exactly what's available — including the effective
 **tool-boundary policy**.
