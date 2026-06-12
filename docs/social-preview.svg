@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#161b22"/></linearGradient></defs>
+<rect width="1280" height="640" fill="url(#bg)"/>
+<rect x="0" y="0" width="1280" height="6" fill="#3fb950"/>
+<text x="84" y="135" fill="#c9d1d9" font-size="58" font-weight="800">kuzushi</text>
+<text x="86" y="178" fill="#8b949e" font-size="26">AI security review, inside Claude Code</text>
+<text x="84" y="320" fill="#ffffff" font-size="92" font-weight="800">Proves it or drops it.</text>
+<text x="84" y="384" fill="#adbac7" font-size="34">Every bug earns its place — traced, exploited in a sandbox, patch-validated.</text>
+<text x="84" y="430" fill="#adbac7" font-size="34">Then it <tspan fill="#3fb950" font-weight="700">benchmarks its own recall</tspan> and tells you what it missed.</text>
+<g font-size="27" font-weight="600">
+<rect x="84" y="486" width="270" height="52" rx="26" fill="#0d1f3a" stroke="#1f6feb"/><text x="219" y="520" fill="#79c0ff" text-anchor="middle">sandboxed PoC proof</text>
+<rect x="374" y="486" width="320" height="52" rx="26" fill="#0f2417" stroke="#238636"/><text x="534" y="520" fill="#56d364" text-anchor="middle">measures its own recall</text>
+<rect x="714" y="486" width="180" height="52" rx="26" fill="#2a210f" stroke="#9e6a03"/><text x="804" y="520" fill="#e3b341" text-anchor="middle">local-first</text>
+</g>
+<text x="84" y="598" fill="#6e7681" font-size="26" font-family="ui-monospace,Menlo,monospace">github.com/allsmog/kuzushi-security-plugin</text>
+</svg>
