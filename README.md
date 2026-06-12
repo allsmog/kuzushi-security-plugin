@@ -19,6 +19,8 @@ what it *missed*.
 - **🔒 Local & network-denied by default.** Runs on the source you already have checked out; every artifact stays under `.kuzushi/`.
 - **🧪 Real techniques, not vibes.** Borrows the AIxCC playbook — obligation discharge, sanitizer execution proof, and scoped-CPG dataflow.
 
+<p align="center"><img src="docs/demo-bench.svg" alt="kuzushi benchmarks its own recall — npm run bench scoreboard" width="720"></p>
+
 Point it at source you already have checked out and kuzushi turns security review into a
 reproducible evidence pipeline: map the code, threat-model it, hunt source-to-sink paths, verify
 exploitability, build sandboxed proof, synthesize variant rules, and validate patches before they
@@ -107,8 +109,9 @@ rather than confirmed by reading.
 (the defender-value contract) and at *routing-independent* coverage; it is **not** at parity with a
 cloud cluster on blind discovery of subtle memory bugs by reading — and the harness lets us say so
 with a number instead of a vibe. The full plan and its measurement gates live in
-[docs/WORLD-CLASS-DISCOVERY.md](docs/WORLD-CLASS-DISCOVERY.md); the run-by-run log is in
-[eval/README.md](eval/README.md).
+[docs/WORLD-CLASS-DISCOVERY.md](docs/WORLD-CLASS-DISCOVERY.md), the implementation architecture
+is in [docs/DISCOVERY_ARCHITECTURE_SPEC.md](docs/DISCOVERY_ARCHITECTURE_SPEC.md), and the
+run-by-run log is in [eval/README.md](eval/README.md).
 
 ---
 
