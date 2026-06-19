@@ -341,7 +341,7 @@ export function patchFindings(target, patches) {
     for (const patch of patches) {
       const fp = patch.fingerprint;
       const current = fp ? byFp.get(fp) : undefined;
-      if (!current) throw new Error(`patchFindings: unknown fingerprint "${fp}"`);
+      if (!current) { console.error(`patchFindings: unknown fingerprint "${fp}" - skipping (concurrent sweep may have rewritten index)`); continue; }
       byFp.set(fp, normalizeFinding({ ...current, ...patch, fingerprint: fp, updatedAt: now }, now, target));
     }
     const findings = [...byFp.values()].map((f) => normalizeFinding(f, now, target));

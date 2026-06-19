@@ -12,12 +12,15 @@ const ANTHROPIC_ENV = [
   "KUZUSHI_ANTHROPIC_OAUTH_CREDENTIALS",
 ];
 
-export const DEFAULT_CODEX_MODEL = "openai-codex:gpt-5.5";
+// Model is fully env-driven (KUZUSHI_MODEL as provider:model). When unset we
+// fall back to the local CLI's own default model so a fresh checkout works on
+// any box without model-specific configuration.
+export const DEFAULT_CODEX_MODEL = process.env.KUZUSHI_MODEL || "claude-cli:default";
 
 export function codexModelFromEnv(input = {}) {
   const model = String(input.model ?? process.env.KUZUSHI_MODEL ?? DEFAULT_CODEX_MODEL);
-  if (!model.startsWith("openai-codex:")) {
-    throw new Error(`Codex OAuth run requires an openai-codex model, got ${JSON.stringify(model)}`);
+  if (!model.startsWith("openai-codex:") && !model.startsWith("claude-cli:")) {
+    throw new Error(`run requires an openai-codex: or claude-cli: model, got ${JSON.stringify(model)}`);
   }
   return model;
 }
@@ -47,8 +50,18 @@ export function requireCodexOauth() {
 }
 
 export function bridgePathFromEnv() {
-  if (process.env.KUZUSHI_LANGGRAPH_BRIDGE) return process.env.KUZUSHI_LANGGRAPH_BRIDGE;
-  return resolve(homedir(), "vibe-code", "kuzushi", "scripts", "langgraph-bridge.mjs");
+  // Explicit override wins; otherwise probe the common checkout locations so a
+  // fresh clone resolves on any box without hardcoding a single home path.
+  const override = process.env.KUZUSHI_BRIDGE || process.env.KUZUSHI_LANGGRAPH_BRIDGE;
+  if (override) return override;
+  const candidates = [
+    resolve(homedir(), "kuzushi", "scripts", "claude-cli-bridge.mjs"),
+    resolve(homedir(), "vibe-code", "kuzushi", "scripts", "claude-cli-bridge.mjs"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
 }
 
 export function sanitizedBridgeEnv(extra = {}) {
@@ -66,7 +79,7 @@ export function runCodexBridge({
   runtimeOptions = {},
 }) {
   const model = codexModelFromEnv(input);
-  requireCodexOauth();
+  if (model.startsWith("openai-codex:")) requireCodexOauth();
   const bridge = bridgePathFromEnv();
   if (!existsSync(bridge)) throw new Error(`Kuzushi LangGraph bridge not found: ${bridge}`);
 
